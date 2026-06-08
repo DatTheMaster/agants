@@ -1,0 +1,1765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Swarm Wars</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #080808;
+  overflow: hidden;
+  font-family: 'Courier New', monospace;
+  color: #aaa;
+  user-select: none;
+}
+
+#wrap { display: flex; height: 100vh; }
+#stage { flex: 1; display: flex; align-items: center; justify-content: center; background: #090909; position: relative; }
+canvas { display: block; }
+#stage { overflow: hidden; cursor: grab; }
+#stage.dragging { cursor: grabbing; }
+
+/* ── Sidebar ── */
+#panel {
+  width: 250px;
+  background: #0a0a0a;
+  border-left: 1px solid #1a1a1a;
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  overflow: hidden;
+}
+
+/* ── Header ── */
+#header {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid #1a1a1a;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+#header h1 { font-size: 15px; color: #fff; letter-spacing: 2px; flex: 1; }
+#clock { font-size: 11px; color: #444; font-variant-numeric: tabular-nums; }
+
+/* ── Colony cards ── */
+.col-card {
+  padding: 10px 14px;
+  border-bottom: 1px solid #141414;
+}
+.col-card.red { border-left: 2px solid #c33; }
+.col-card.blue { border-left: 2px solid #33c; }
+
+.col-name {
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  margin-bottom: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.col-card.red  .col-name { color: #e55; }
+.col-card.blue .col-name { color: #55e; }
+
+.col-name .pop { font-size: 18px; font-weight: bold; }
+
+/* Food bar */
+.food-track {
+  height: 3px;
+  background: #1a1a1a;
+  border-radius: 2px;
+  margin: 4px 0 8px;
+  overflow: hidden;
+  position: relative;
+}
+.food-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s;
+}
+.col-card.red  .food-fill { background: linear-gradient(90deg, #711, #d44); }
+.col-card.blue .food-fill { background: linear-gradient(90deg, #117, #44d); }
+
+.food-val { font-size: 10px; color: #555; margin-bottom: 6px; display: flex; justify-content: space-between; }
+.income-val { font-size: 10px; font-weight: bold; font-variant-numeric: tabular-nums; }
+.income-val.pos { color: #4a8; }
+.income-val.neg { color: #c44; }
+.income-val.zero { color: #444; }
+
+/* Ant roster */
+.roster {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+  margin-bottom: 6px;
+}
+.roster .r { display: flex; justify-content: space-between; }
+.roster .k { color: #444; }
+.roster .v { font-weight: bold; color: #ccc; font-variant-numeric: tabular-nums; }
+
+/* HP bar for queen */
+.queen-hp {
+  height: 2px;
+  background: #1a1a1a;
+  border-radius: 1px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+.queen-hp-fill {
+  height: 100%;
+  transition: width 0.3s;
+  border-radius: 1px;
+}
+.col-card.red  .queen-hp-fill { background: #c44; }
+.col-card.blue .queen-hp-fill { background: #44c; }
+
+/* Strategy line */
+.strat-line {
+  font-size: 9px;
+  color: #383838;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Stats row */
+.stat-row {
+  display: flex;
+  gap: 10px;
+  font-size: 9px;
+  color: #333;
+  margin-top: 3px;
+}
+
+/* Upgrade tier badge */
+.tier-badge {
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  height: 14px;
+  margin-top: 2px;
+  margin-bottom: 1px;
+}
+.tier-badge.t0 { color: transparent; }
+.tier-badge.t1 { color: #6b9; }
+.tier-badge.t2 { color: #e90; }
+.tier-badge.t3 { color: #f55; }
+
+/* Upgrade shop */
+.upgrades {
+  margin-top: 6px;
+  border-top: 1px solid #1c1c1c;
+  padding-top: 5px;
+}
+.upg-label {
+  font-size: 8px;
+  color: #333;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 3px;
+}
+.upg-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 9px;
+  padding: 2px 0;
+  border-bottom: 1px solid #111;
+}
+.upg-row:last-child { border-bottom: none; }
+.upg-name { color: #555; flex: 1; }
+.upg-cost { color: #444; margin: 0 6px; font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+.upg-status { min-width: 52px; text-align: right; font-size: 8px; font-weight: bold; letter-spacing: 0.5px; }
+.upg-row.owned  .upg-name   { color: #888; }
+.upg-row.owned  .upg-status { color: #4a8; }
+.upg-row.ready  .upg-name   { color: #cc9; }
+.upg-row.ready  .upg-status { color: #cc9; }
+.upg-row.locked .upg-status { color: #2a2a2a; }
+.upg-unit-header {
+  font-size: 8px; color: #2a4a3a; letter-spacing: 1px;
+  text-transform: uppercase; margin: 5px 0 1px; font-weight: bold;
+}
+.upg-unit-header.scout-hdr  { color: #2a3a4a; }
+.upg-unit-header.soldier-hdr { color: #4a2a2a; }
+
+/* ── Events log ── */
+#events-section {
+  flex: 1;
+  overflow: hidden;
+  border-bottom: 1px solid #141414;
+  display: flex;
+  flex-direction: column;
+}
+#events-section h3 {
+  font-size: 9px;
+  color: #2a2a2a;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 8px 14px 4px;
+  border-bottom: 1px solid #111;
+}
+#events-list {
+  flex: 1;
+  overflow-y: hidden;
+  padding: 4px 14px;
+}
+.ev { font-size: 9.5px; padding: 2px 0; border-bottom: 1px solid #111; line-height: 1.5; }
+.ev.red  { color: #744; }
+.ev.blue { color: #447; }
+.ev.sys  { color: #333; }
+
+/* ── Legend ── */
+#legend {
+  padding: 8px 14px;
+  border-bottom: 1px solid #141414;
+}
+#legend h3 { font-size: 9px; color: #2a2a2a; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 5px; }
+.leg { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 9.5px; color: #383838; }
+.leg .dot { width: 7px; height: 7px; border-radius: 1px; flex-shrink: 0; }
+
+/* ── Footer ── */
+#footer {
+  padding: 8px 14px;
+  font-size: 9px;
+  color: #222;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* ── Connection status ── */
+#status {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: #333;
+  background: rgba(0,0,0,0.6);
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+/* ── Placement overlay ── */
+#placement-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 36px;
+  z-index: 8;
+  pointer-events: none;
+}
+#placement-overlay.show { display: flex; }
+#placement-box { text-align: center; }
+#placement-title {
+  font-size: 14px;
+  color: #ccc;
+  text-transform: uppercase;
+  letter-spacing: 5px;
+  margin-bottom: 6px;
+  text-shadow: 0 0 20px rgba(200,200,255,0.3);
+}
+#placement-status {
+  font-size: 10px;
+  color: #555;
+  letter-spacing: 1px;
+  min-height: 16px;
+  line-height: 1.8;
+}
+
+/* ── Win overlay ── */
+#overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.78);
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  z-index: 10;
+}
+#overlay.show { display: flex; }
+#overlay h2 {
+  font-size: 36px;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  text-shadow: 0 0 40px currentColor;
+}
+#overlay .sub {
+  font-size: 12px;
+  color: #555;
+  letter-spacing: 2px;
+  text-align: center;
+  line-height: 1.8;
+}
+#overlay.red  h2 { color: #e44; }
+#overlay.blue h2 { color: #44e; }
+#overlay.draw h2 { color: #888; }
+
+#btn-new-game {
+  margin-top: 10px;
+  padding: 10px 32px;
+  background: transparent;
+  border: 1px solid #333;
+  color: #888;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+#btn-new-game:hover {
+  border-color: #888;
+  color: #eee;
+}
+
+/* ── Gear button ── */
+#btn-config {
+  background: none;
+  border: none;
+  color: #333;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+#btn-config:hover { color: #888; }
+#btn-config.active { color: #5af; }
+
+/* ── Config modal ── */
+#config-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.82);
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+}
+#config-modal.show { display: flex; }
+.cfg-box {
+  background: #0c0c0c;
+  border: 1px solid #222;
+  border-radius: 4px;
+  width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.cfg-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid #1a1a1a;
+}
+.cfg-titlebar h2 { font-size: 12px; letter-spacing: 3px; color: #ccc; font-weight: normal; }
+#btn-cfg-close {
+  background: none; border: none; color: #444; font-size: 16px;
+  cursor: pointer; line-height: 1; padding: 0;
+}
+#btn-cfg-close:hover { color: #aaa; }
+.cfg-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 18px; }
+.cfg-section { display: flex; flex-direction: column; gap: 8px; }
+.cfg-section-title {
+  font-size: 9px; letter-spacing: 2px; color: #444; text-transform: uppercase;
+  border-bottom: 1px solid #161616; padding-bottom: 4px;
+}
+.cfg-row { display: flex; flex-direction: column; gap: 4px; }
+.cfg-row label { font-size: 10px; color: #666; letter-spacing: 1px; }
+.cfg-row input, .cfg-row select {
+  background: #141414;
+  border: 1px solid #222;
+  border-radius: 2px;
+  color: #ccc;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  padding: 6px 8px;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.15s;
+}
+.cfg-row input:focus, .cfg-row select:focus { border-color: #444; }
+.cfg-row input[type="password"] { letter-spacing: 2px; }
+.cfg-row .cfg-hint { font-size: 9px; color: #333; margin-top: 1px; }
+.cfg-footer {
+  padding: 12px 18px;
+  border-top: 1px solid #1a1a1a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.cfg-status { font-size: 10px; display: flex; align-items: center; gap: 6px; }
+.cfg-status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #333; flex-shrink: 0;
+}
+.cfg-status-dot.ok  { background: #4a8; }
+.cfg-status-dot.err { background: #c44; }
+.cfg-status-dot.pending { background: #aa6; }
+.cfg-status-msg { color: #555; }
+.cfg-actions { display: flex; gap: 8px; }
+.btn-cfg {
+  background: transparent;
+  border: 1px solid #222;
+  color: #777;
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 6px 16px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: border-color 0.15s, color 0.15s;
+}
+.btn-cfg:hover { border-color: #555; color: #ccc; }
+.btn-cfg.primary { border-color: #2a4a2a; color: #4a8; }
+.btn-cfg.primary:hover { border-color: #4a8; color: #6bc; }
+.btn-cfg.danger { border-color: #4a1a1a; color: #c44; }
+.btn-cfg.danger:hover { border-color: #c44; }
+.btn-cfg.small { padding: 4px 10px; font-size: 9px; }
+
+/* Provider list */
+#provider-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
+.prov-item {
+  display: flex; align-items: center; gap: 6px;
+  background: #101010; border: 1px solid #1e1e1e; border-radius: 2px;
+  padding: 5px 8px; cursor: pointer;
+}
+.prov-item.selected { border-color: #333; }
+.prov-item-name { font-size: 11px; color: #aaa; flex: 1; }
+.prov-item-url  { font-size: 9px; color: #444; flex: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prov-item-del  { font-size: 12px; color: #333; cursor: pointer; flex-shrink: 0; margin-left: 4px; }
+.prov-item-del:hover { color: #c44; }
+
+/* Brain brain selector */
+.brain-type-row { display: flex; gap: 16px; }
+.brain-radio { font-size: 11px; color: #777; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.brain-radio input { accent-color: #4a8; cursor: pointer; }
+
+/* Model row with fetch button */
+.model-row { display: flex; gap: 6px; align-items: stretch; }
+.model-row input { flex: 1; }
+.model-row .btn-cfg { flex-shrink: 0; padding: 6px 10px; }
+
+/* inline action row under provider form */
+.cfg-inline-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="c"></canvas>
+    <div id="placement-overlay">
+      <div id="placement-box">
+        <div id="placement-title">PLACEMENT PHASE</div>
+        <div id="placement-status">evaluating the battlefield…</div>
+      </div>
+    </div>
+
+    <div id="overlay">
+      <h2 id="overlay-title">—</h2>
+      <div class="sub" id="overlay-sub">—</div>
+      <button id="btn-new-game" onclick="sendReset()">NEW GAME</button>
+    </div>
+
+    <div id="status">connecting…</div>
+  </div>
+
+  <div id="panel">
+    <div id="header">
+      <h1>SWARM WARS</h1>
+      <span id="clock">T+0</span>
+      <button id="btn-config" title="Settings" onclick="openConfig()">⚙</button>
+    </div>
+
+    <!-- Red colony -->
+    <div class="col-card red">
+      <div class="col-name">
+        <span>RED COLONY</span>
+        <span class="pop" id="r-pop">—</span>
+      </div>
+      <div class="food-val"><span>Food: <span id="r-food">—</span></span><span class="income-val zero" id="r-inc">—</span></div>
+      <div class="food-track"><div class="food-fill" id="r-foodbar" style="width:0%"></div></div>
+      <div class="queen-hp"><div class="queen-hp-fill" id="r-queenhp" style="width:100%"></div></div>
+      <div class="roster">
+        <div class="r"><span class="k">Workers</span><span class="v" id="r-w">—</span></div>
+        <div class="r"><span class="k">Soldiers</span><span class="v" id="r-s">—</span></div>
+        <div class="r"><span class="k">Scouts</span><span class="v" id="r-c">—</span></div>
+        <div class="r"><span class="k">Queen HP</span><span class="v" id="r-qhp">—</span></div>
+      </div>
+      <div class="tier-badge t0" id="r-tier"></div>
+      <div class="strat-line" id="r-strat">—</div>
+      <div class="stat-row">
+        <span>fed: <span id="r-fed">0</span></span>
+        <span>lost: <span id="r-lost">0</span></span>
+      </div>
+      <div class="upgrades">
+        <div class="upg-label">Upgrades</div>
+        <div class="upg-unit-header">Worker</div>
+        <div class="upg-row locked" id="r-upg-w0"><span class="upg-name">Foraging I</span><span class="upg-cost">500</span><span class="upg-status">LOCKED</span></div>
+        <div class="upg-row locked" id="r-upg-w1"><span class="upg-name">Foraging II</span><span class="upg-cost">2,200</span><span class="upg-status">·</span></div>
+        <div class="upg-row locked" id="r-upg-w2"><span class="upg-name">Foraging III</span><span class="upg-cost">6,000</span><span class="upg-status">·</span></div>
+        <div class="upg-unit-header scout-hdr">Scout</div>
+        <div class="upg-row locked" id="r-upg-s0"><span class="upg-name">Pathfinding</span><span class="upg-cost">450</span><span class="upg-status">LOCKED</span></div>
+        <div class="upg-row locked" id="r-upg-s1"><span class="upg-name">Swift</span><span class="upg-cost">2,000</span><span class="upg-status">·</span></div>
+        <div class="upg-row locked" id="r-upg-s2"><span class="upg-name">Master Rec.</span><span class="upg-cost">5,500</span><span class="upg-status">·</span></div>
+        <div class="upg-unit-header soldier-hdr">Soldier</div>
+        <div class="upg-row locked" id="r-upg-m0"><span class="upg-name">Combat I</span><span class="upg-cost">600</span><span class="upg-status">LOCKED</span></div>
+        <div class="upg-row locked" id="r-upg-m1"><span class="upg-name">Combat II</span><span class="upg-cost">2,800</span><span class="upg-status">·</span></div>
+        <div class="upg-row locked" id="r-upg-m2"><span class="upg-name">Combat III</span><span class="upg-cost">7,500</span><span class="upg-status">·</span></div>
+      </div>
+    </div>
+
+    <!-- Blue colony -->
+    <div class="col-card blue">
+      <div class="col-name">
+        <span>BLUE COLONY</span>
+        <span class="pop" id="b-pop">—</span>
+      </div>
+      <div class="food-val"><span>Food: <span id="b-food">—</span></span><span class="income-val zero" id="b-inc">—</span></div>
+      <div class="food-track"><div class="food-fill" id="b-foodbar" style="width:0%"></div></div>
+      <div class="queen-hp"><div class="queen-hp-fill" id="b-queenhp" style="width:100%"></div></div>
+      <div class="roster">
+        <div class="r"><span class="k">Workers</span><span class="v" id="b-w">—</span></div>
+        <div class="r"><span class="k">Soldiers</span><span class="v" id="b-s">—</span></div>
+        <div class="r"><span class="k">Scouts</span><span class="v" id="b-c">—</span></div>
+        <div class="r"><span class="k">Queen HP</span><span class="v" id="b-qhp">—</span></div>
+      </div>
+      <div class="tier-badge t0" id="b-tier"></div>
+      <div class="strat-line" id="b-strat">—</div>
+      <div class="stat-row">
+        <span>fed: <span id="b-fed">0</span></span>
+        <span>lost: <span id="b-lost">0</span></span>
+      </div>
+      <div class="upgrades">
+        <div class="upg-label">Upgrades</div>
+        <div class="upg-unit-header">Worker</div>
+        <div class="upg-row locked" id="b-upg-w0"><span class="upg-name">Foraging I</span><span class="upg-cost">500</span><span class="upg-status">LOCKED</span></div>
+        <div class="upg-row locked" id="b-upg-w1"><span class="upg-name">Foraging II</span><span class="upg-cost">2,200</span><span class="upg-status">·</span></div>
+        <div class="upg-row locked" id="b-upg-w2"><span class="upg-name">Foraging III</span><span class="upg-cost">6,000</span><span class="upg-status">·</span></div>
+        <div class="upg-unit-header scout-hdr">Scout</div>
+        <div class="upg-row locked" id="b-upg-s0"><span class="upg-name">Pathfinding</span><span class="upg-cost">450</span><span class="upg-status">LOCKED</span></div>
+        <div class="upg-row locked" id="b-upg-s1"><span class="upg-name">Swift</span><span class="upg-cost">2,000</span><span class="upg-status">·</span></div>
+        <div class="upg-row locked" id="b-upg-s2"><span class="upg-name">Master Rec.</span><span class="upg-cost">5,500</span><span class="upg-status">·</span></div>
+        <div class="upg-unit-header soldier-hdr">Soldier</div>
+        <div class="upg-row locked" id="b-upg-m0"><span class="upg-name">Combat I</span><span class="upg-cost">600</span><span class="upg-status">LOCKED</span></div>
+        <div class="upg-row locked" id="b-upg-m1"><span class="upg-name">Combat II</span><span class="upg-cost">2,800</span><span class="upg-status">·</span></div>
+        <div class="upg-row locked" id="b-upg-m2"><span class="upg-name">Combat III</span><span class="upg-cost">7,500</span><span class="upg-status">·</span></div>
+      </div>
+    </div>
+
+    <!-- Events log -->
+    <div id="events-section">
+      <h3>Event Log</h3>
+      <div id="events-list"></div>
+    </div>
+
+    <!-- Legend -->
+    <div id="legend">
+      <h3>Trails</h3>
+      <div class="leg"><div class="dot" style="background:#0e0"></div>Foraging</div>
+      <div class="leg"><div class="dot" style="background:#e33"></div>Alarm / Combat</div>
+      <div class="leg"><div class="dot" style="background:#dc0"></div>Territory</div>
+      <div class="leg"><div class="dot" style="background:#38f"></div>Scout</div>
+    </div>
+
+    <!-- Footer -->
+    <div id="footer">
+      <span>FPS <span id="fps">—</span></span>
+      <span>Ants <span id="nant">—</span></span>
+      <span>Food <span id="nfood">—</span></span>
+    </div>
+  </div>
+</div>
+
+<!-- Config modal (outside #wrap so it overlays everything) -->
+<div id="config-modal">
+  <div class="cfg-box">
+    <div class="cfg-titlebar">
+      <h2>⚙ CONFIGURATION</h2>
+      <button id="btn-cfg-close" onclick="closeConfig()">✕</button>
+    </div>
+    <div class="cfg-body">
+
+      <!-- ── Section 1: Provider Manager ──────────────────────────────── -->
+      <div class="cfg-section">
+        <div class="cfg-section-title">Providers</div>
+        <div id="provider-list"></div>
+        <div class="cfg-row">
+          <label>NICKNAME</label>
+          <input type="text" id="prov-name" placeholder="e.g. NVIDIA NIM">
+        </div>
+        <div class="cfg-row">
+          <label>BASE URL</label>
+          <input type="text" id="prov-url" placeholder="https://integrate.api.nvidia.com/v1">
+          <span class="cfg-hint">NVIDIA: integrate.api.nvidia.com/v1 · Groq: api.groq.com/openai/v1 · Ollama: localhost:11434/v1</span>
+        </div>
+        <div class="cfg-row">
+          <label>API KEY</label>
+          <input type="password" id="prov-key" placeholder="paste key here" autocomplete="off">
+        </div>
+        <div class="cfg-inline-actions">
+          <button class="btn-cfg small" onclick="testProvider()">Test</button>
+          <button class="btn-cfg small primary" onclick="saveProvider()">Save Provider</button>
+          <span id="prov-status" style="font-size:9px;color:#555;align-self:center;margin-left:4px;"></span>
+        </div>
+      </div>
+
+      <!-- ── Section 2: RED BRAIN ──────────────────────────────────────── -->
+      <div class="cfg-section">
+        <div class="cfg-section-title">🔴 Red Brain</div>
+        <div class="brain-type-row">
+          <label class="brain-radio"><input type="radio" name="red-type" value="bot" onchange="onBrainTypeChange('red')"> Bot (heuristic)</label>
+          <label class="brain-radio"><input type="radio" name="red-type" value="llm" onchange="onBrainTypeChange('red')"> LLM</label>
+        </div>
+        <div id="red-llm-cfg" style="display:none;margin-top:8px;display:none;flex-direction:column;gap:8px;">
+          <div class="cfg-row">
+            <label>PROVIDER</label>
+            <select id="red-provider" onchange="onProviderSelect('red')"></select>
+          </div>
+          <div class="cfg-row">
+            <label>MODEL</label>
+            <div class="model-row">
+              <input type="text" id="red-model" list="red-model-list" placeholder="type or fetch models…">
+              <datalist id="red-model-list"></datalist>
+              <button class="btn-cfg small" onclick="fetchModels('red')">Fetch</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Section 3: BLUE BRAIN ─────────────────────────────────────── -->
+      <div class="cfg-section">
+        <div class="cfg-section-title">🔵 Blue Brain</div>
+        <div class="brain-type-row">
+          <label class="brain-radio"><input type="radio" name="blue-type" value="bot" onchange="onBrainTypeChange('blue')"> Bot (heuristic)</label>
+          <label class="brain-radio"><input type="radio" name="blue-type" value="llm" onchange="onBrainTypeChange('blue')"> LLM</label>
+        </div>
+        <div id="blue-llm-cfg" style="display:none;margin-top:8px;display:none;flex-direction:column;gap:8px;">
+          <div class="cfg-row">
+            <label>PROVIDER</label>
+            <select id="blue-provider" onchange="onProviderSelect('blue')"></select>
+          </div>
+          <div class="cfg-row">
+            <label>MODEL</label>
+            <div class="model-row">
+              <input type="text" id="blue-model" list="blue-model-list" placeholder="type or fetch models…">
+              <datalist id="blue-model-list"></datalist>
+              <button class="btn-cfg small" onclick="fetchModels('blue')">Fetch</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Section 4: Game Settings ──────────────────────────────────── -->
+      <div class="cfg-section">
+        <div class="cfg-section-title">Game Settings</div>
+        <div class="cfg-row">
+          <label>DECISION INTERVAL (ticks)</label>
+          <input type="number" id="cfg-interval" min="10" max="1000" step="10">
+          <span class="cfg-hint">At 10 TPS: 100 ticks = 10s between decisions</span>
+        </div>
+        <div class="cfg-row">
+          <label>TICK RATE (TPS)</label>
+          <input type="number" id="cfg-tps" min="1" max="60">
+          <span class="cfg-hint">Applies immediately — 10 is default, 1 for slow-motion</span>
+        </div>
+      </div>
+
+    </div>
+    <div class="cfg-footer">
+      <div class="cfg-status">
+        <div class="cfg-status-dot" id="cfg-dot"></div>
+        <span class="cfg-status-msg" id="cfg-msg">loading…</span>
+      </div>
+      <div class="cfg-actions">
+        <button class="btn-cfg" onclick="closeConfig()">Cancel</button>
+        <button class="btn-cfg primary" onclick="saveConfig()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════
+// Setup
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const C = document.getElementById("c");
+const X = C.getContext("2d");
+
+let MW, MH, TS, terrain, state;
+let terrainBuf, pheroBuf, pxCtx;
+let fpsCount = 0, fpsTime = 0, fpsVal = 0;
+let startTime = performance.now();
+let gameOver = false;
+let eventHistory = [];
+let ws = null;
+
+// Camera
+let camX = 0, camY = 0, camScale = 1;
+let isDragging = false, dragSX = 0, dragSY = 0, camSX = 0, camSY = 0;
+
+// Interpolation + effects
+let antMap = new Map();         // id → {x,y,px,py,col,type,st,carrying,hp,maxHp,tier,lastAngle}
+let dyingAnts = [];             // [{x,y,col,type,sz,dieStart}]
+let effects = [];               // hit flash rings
+let lastTickMs = performance.now();
+let tickInterval = 200;
+let colTiers = [[0,0,0],[0,0,0]]; // [workerT,scoutT,soldierT] per colony
+
+// Placement phase state
+let placementState   = null;   // {food, timeout, startMs}
+let placementMarkers = {};     // {colony_id: {pos, label, score}}
+
+const TCOL = [
+  [95, 70, 52],    // dirt
+  [72, 118, 44],   // leaves
+  [30, 65, 110],   // water
+  [100, 100, 100], // rock
+  [65, 45, 32],    // nest
+];
+
+const CCOL = [
+  [255, 60, 60],   // red
+  [60, 60, 255],   // blue
+];
+
+const PCOL = [
+  [0,   220, 0  ],  // forage  → green
+  [220, 30,  30 ],  // alarm   → red
+  [215, 185, 0  ],  // territory → gold
+  [30,  130, 255],  // scout   → blue
+];
+
+const FCOL = {
+  seeds:    { r: 210, g: 180, b: 70,  label: "SEEDS" },
+  beetle:   { r: 150, g: 95,  b: 40,  label: "BEETLE" },
+  leaf:     { r: 100, g: 170, b: 40,  label: "LEAF" },
+  honeydew: { r: 120, g: 235, b: 120, label: "HONEYDEW" },
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WebSocket
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { document.getElementById("status").textContent = "live"; };
+  ws.onclose = () => {
+    ws = null;
+    document.getElementById("status").textContent = "reconnecting…";
+    setTimeout(connect, 1000);
+  };
+  ws.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    if      (d.type === "init")             { onInit(d); }
+    else if (d.type === "placement_phase")  { onPlacementPhase(d); }
+    else if (d.type === "placement_update") { onPlacementUpdate(d); }
+    else if (d.type === "game_start")       { onGameStart(d); }
+    else if (d.type === "config")           { handleConfig(d.data); }
+    else if (d.type === "config_saved")     { handleConfigSaved(d.data); }
+    else if (d.type === "placement_ready")  { onPlacementReady(); }
+    else if (d.type === "providers")        { handleProviders(d.data); }
+    else if (d.type === "models")           { handleModels(d); }
+    else { onTick(d); }
+  };
+}
+
+function sendReset() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "reset" }));
+  }
+}
+
+function onPlacementPhase(d) {
+  placementState   = { food: d.food, timeout: d.timeout, startMs: performance.now() };
+  placementMarkers = {};
+  document.getElementById("placement-overlay").className = "show";
+  document.getElementById("placement-status").textContent = "choosing starting positions…";
+}
+
+function onPlacementUpdate(d) {
+  placementMarkers[d.colony] = d;
+  const labels = Object.values(placementMarkers).map(m => `${m.label} → (${m.pos[0]},${m.pos[1]})`);
+  document.getElementById("placement-status").textContent = labels.join("   ·   ");
+  if (Object.keys(placementMarkers).length >= 2) onPlacementReady();
+}
+
+function onPlacementReady() {
+  if (placementState) placementState.allReady = true;
+  document.getElementById("placement-status").textContent =
+    Object.values(placementMarkers).map(m => `${m.label} → (${m.pos[0]},${m.pos[1]})`).join("   ·   ")
+    + "   —   launching…";
+}
+
+function onGameStart(d) {
+  placementState   = null;
+  placementMarkers = {};
+  document.getElementById("placement-overlay").className = "";
+}
+
+function onInit(d) {
+  // Reset all game state (works for first load and for resets)
+  gameOver = false;
+  eventHistory = [];
+  state = null;
+  antMap.clear(); dyingAnts = []; effects = [];
+  startTime = performance.now();
+  document.getElementById("overlay").className = "";
+  document.getElementById("events-list").innerHTML = "";
+  // placement overlay is cleared by onGameStart; don't clear here so markers stay visible
+  // during the 2.5s window between second init and game_start
+
+  MW = d.map.w; MH = d.map.h; TS = d.map.tile;
+  terrain = d.terrain;
+  resizeCanvas();
+
+  terrainBuf = document.createElement("canvas");
+  terrainBuf.width = MW * TS; terrainBuf.height = MH * TS;
+  const tc = terrainBuf.getContext("2d");
+  const worldW = MW * TS;
+  const img = tc.createImageData(worldW, MH * TS);
+  const px = img.data;
+  for (let y = 0; y < MH; y++) {
+    for (let x = 0; x < MW; x++) {
+      const t = terrain[y * MW + x];
+      const c = TCOL[t] || [0, 0, 0];
+      for (let py = 0; py < TS; py++) {
+        for (let ppx = 0; ppx < TS; ppx++) {
+          const i = ((y * TS + py) * worldW + (x * TS + ppx)) * 4;
+          const v = (Math.random() - 0.5) * 12;
+          px[i]   = Math.max(0, Math.min(255, c[0] + v));
+          px[i+1] = Math.max(0, Math.min(255, c[1] + v));
+          px[i+2] = Math.max(0, Math.min(255, c[2] + v));
+          px[i+3] = 255;
+        }
+      }
+    }
+  }
+  tc.putImageData(img, 0, 0);
+
+  pheroBuf = document.createElement("canvas");
+  pheroBuf.width = MW; pheroBuf.height = MH;
+  pxCtx = pheroBuf.getContext("2d");
+
+  requestAnimationFrame(render);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Render
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Tier colors for placement phase and in-game tier indicators
+const TIER_STYLE = {
+  frontline: { r: 255, g: 80,  b: 50,  label: "FRONT" },
+  approach:  { r: 215, g: 175, b: 0,   label: "APPR"  },
+  home:      { r: 90,  g: 195, b: 75,  label: "HOME"  },
+};
+
+function renderPlacement(elapsed) {
+  const now = elapsed;
+  X.drawImage(terrainBuf, 0, 0);
+
+  // Half-map divider line
+  const midX = Math.floor(MW / 2) * TS;
+  X.strokeStyle = "rgba(200,200,200,0.08)";
+  X.lineWidth = 1;
+  X.setLineDash([4, 6]);
+  X.beginPath(); X.moveTo(midX, 0); X.lineTo(midX, MH * TS); X.stroke();
+  X.setLineDash([]);
+
+  // Food nodes by tier
+  for (const f of placementState.food) {
+    const tier = f[4] || "home";
+    const tc   = TIER_STYLE[tier] || TIER_STYLE.home;
+    const fx   = f[0] * TS + TS / 2;
+    const fy   = f[1] * TS + TS / 2;
+    const pulse = 0.6 + 0.4 * Math.sin(now / 420 + f[0] * 0.12 + f[1] * 0.08);
+    const baseR = TS * (tier === "frontline" ? 1.05 : tier === "approach" ? 0.90 : 0.75);
+
+    const grd = X.createRadialGradient(fx, fy, 0, fx, fy, baseR * 2.8);
+    grd.addColorStop(0,   `rgba(${tc.r},${tc.g},${tc.b},${0.38 * pulse})`);
+    grd.addColorStop(0.5, `rgba(${tc.r},${tc.g},${tc.b},${0.09 * pulse})`);
+    grd.addColorStop(1,   `rgba(${tc.r},${tc.g},${tc.b},0)`);
+    X.fillStyle = grd;
+    X.beginPath(); X.arc(fx, fy, baseR * 2.8, 0, Math.PI * 2); X.fill();
+
+    X.fillStyle = `rgb(${tc.r},${tc.g},${tc.b})`;
+    X.beginPath(); X.arc(fx, fy, baseR * 0.38, 0, Math.PI * 2); X.fill();
+
+    X.fillStyle = `rgba(${tc.r},${tc.g},${tc.b},0.6)`;
+    X.font = "bold 7px monospace";
+    X.textAlign = "center";
+    X.fillText(tc.label, fx, fy - baseR * 1.25);
+  }
+
+  // Placement markers (animate in as decisions arrive)
+  const PCOLS = [[220, 60, 60], [60, 60, 220]];
+  for (const [cid, m] of Object.entries(placementMarkers)) {
+    const col  = PCOLS[parseInt(cid)];
+    const px   = m.pos[0] * TS + TS / 2;
+    const py   = m.pos[1] * TS + TS / 2;
+    const beat = 0.7 + 0.3 * Math.sin(now / 380 + parseInt(cid) * 2.1);
+
+    // Outer pulsing ring
+    X.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${0.75 * beat})`;
+    X.lineWidth = 2;
+    X.beginPath(); X.arc(px, py, 14 + 5 * beat, 0, Math.PI * 2); X.stroke();
+
+    // Inner fill
+    X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.2)`;
+    X.beginPath(); X.arc(px, py, 11, 0, Math.PI * 2); X.fill();
+
+    // Diamond queen icon
+    const sz = 6;
+    X.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
+    X.beginPath();
+    X.moveTo(px, py - sz); X.lineTo(px + sz * 0.7, py);
+    X.lineTo(px, py + sz); X.lineTo(px - sz * 0.7, py);
+    X.closePath(); X.fill();
+    X.strokeStyle = "rgba(255,255,255,0.5)";
+    X.lineWidth = 0.7;
+    X.stroke();
+
+    // Label + score
+    X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.9)`;
+    X.font = "bold 9px monospace";
+    X.textAlign = "center";
+    X.fillText(m.label, px, py - 22);
+    X.fillStyle = "rgba(180,180,180,0.5)";
+    X.font = "8px monospace";
+    X.fillText(`score: ${m.score}`, px, py + 26);
+  }
+
+  // Countdown timer — only shown while waiting, hidden once all placed
+  if (placementState.timeout && !placementState.allReady && Object.keys(placementMarkers).length < 2) {
+    const elapsed   = (performance.now() - placementState.startMs) / 1000;
+    const remaining = Math.max(0, Math.ceil(placementState.timeout - elapsed));
+    document.getElementById("placement-status").textContent = `${remaining}s remaining…`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Canvas + Camera
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function resizeCanvas() {
+  const stage = document.getElementById("stage");
+  const dpr = window.devicePixelRatio || 1;
+  const w = stage.clientWidth, h = stage.clientHeight;
+  C.width  = Math.round(w * dpr);
+  C.height = Math.round(h * dpr);
+  C.style.width  = w + "px";
+  C.style.height = h + "px";
+  if (MW) resetCamera();
+}
+
+function resetCamera() {
+  const w = C.clientWidth || C.width / (window.devicePixelRatio || 1);
+  const h = C.clientHeight || C.height / (window.devicePixelRatio || 1);
+  camScale = Math.min(w / (MW * TS), h / (MH * TS));
+  camX = (w - MW * TS * camScale) / 2;
+  camY = (h - MH * TS * camScale) / 2;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Tick handler — ant interpolation bookkeeping
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function onTick(d) {
+  const now = performance.now();
+  if (state) tickInterval = Math.max(50, Math.min(2000, now - lastTickMs));
+  lastTickMs = now;
+
+  for (let ci = 0; ci < d.colonies.length; ci++) {
+    colTiers[ci] = d.colonies[ci][11] || [0, 0, 0];
+  }
+
+  const TYPE_TIER_IDX = [0, 2, 1]; // worker→[0], soldier→[2], scout→[1] in colTiers
+  const nextIds = new Set();
+
+  for (const a of d.ants) {
+    const id = a[0];
+    nextIds.add(id);
+    const prev = antMap.get(id);
+    const px = prev ? prev.x : a[1];
+    const py = prev ? prev.y : a[2];
+
+    if (prev && a[9] < prev.hp) {
+      effects.push({ x: a[1]*TS+TS/2, y: a[2]*TS+TS/2,
+                     r: 255, g: 200, b: 60, radius: TS*2, start: now, dur: 380 });
+    }
+
+    const tier = a[6] === 3 ? 3 : (colTiers[a[5]][TYPE_TIER_IDX[a[6]]] || 0);
+    antMap.set(id, {
+      x: a[1], y: a[2], px, py,
+      col: a[5], type: a[6], st: a[7], carrying: a[8],
+      hp: a[9], maxHp: a[10], tier,
+      lastAngle: prev ? prev.lastAngle : 0,
+    });
+  }
+
+  const TIER_SCALE = [1.0, 1.25, 1.5, 1.8];
+  const BASE_SZ    = [2.8, 3.8, 2.6, 6.0];
+  for (const [id, ant] of antMap) {
+    if (!nextIds.has(id)) {
+      const sz = BASE_SZ[ant.type] * TS / 8 * (TIER_SCALE[ant.tier] || 1);
+      dyingAnts.push({ x: ant.x, y: ant.y, col: CCOL[ant.col], type: ant.type, sz, dieStart: now });
+      antMap.delete(id);
+    }
+  }
+
+  state = d;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Ant shapes  (local space: facing +x, centered 0,0)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function drawWorkerShape(sz) {
+  X.beginPath();
+  X.ellipse(sz*0.08, 0, sz*0.88, sz*0.50, 0, 0, Math.PI*2);
+  X.fill();
+  X.strokeStyle = "rgba(0,0,0,0.3)"; X.lineWidth = 0.5; X.stroke();
+  X.beginPath(); X.arc(sz*0.82, 0, sz*0.32, 0, Math.PI*2); X.fill();
+}
+
+function drawScoutShape(sz) {
+  X.beginPath();
+  X.moveTo(sz*1.3, 0);
+  X.quadraticCurveTo(sz*0.4, -sz*0.42, -sz*0.95, 0);
+  X.quadraticCurveTo(sz*0.4,  sz*0.42, sz*1.3, 0);
+  X.fill();
+  X.strokeStyle = "rgba(255,255,255,0.18)"; X.lineWidth = 0.4; X.stroke();
+}
+
+function drawSoldierShape(sz) {
+  X.beginPath();
+  X.moveTo(sz*1.15, 0);
+  X.lineTo(-sz*0.65, -sz*0.85);
+  X.lineTo(-sz*0.30,  0);
+  X.lineTo(-sz*0.65,  sz*0.85);
+  X.closePath(); X.fill();
+  X.strokeStyle = "rgba(255,255,255,0.22)"; X.lineWidth = 0.5; X.stroke();
+}
+
+function drawQueenShape(sz, r, g, b, now) {
+  const pulse = 0.5 + 0.5 * Math.sin(now / 520);
+  const grd = X.createRadialGradient(0, 0, sz*0.3, 0, 0, sz*2.8);
+  grd.addColorStop(0, `rgba(${r},${g},${b},${0.35*pulse})`);
+  grd.addColorStop(1, `rgba(${r},${g},${b},0)`);
+  X.fillStyle = grd;
+  X.beginPath(); X.arc(0, 0, sz*2.8, 0, Math.PI*2); X.fill();
+  X.fillStyle = `rgb(${r},${g},${b})`;
+  X.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (i/6)*Math.PI*2 - Math.PI/6;
+    i === 0 ? X.moveTo(sz*Math.cos(a), sz*Math.sin(a))
+            : X.lineTo(sz*Math.cos(a), sz*Math.sin(a));
+  }
+  X.closePath(); X.fill();
+  X.strokeStyle = "rgba(255,255,255,0.55)"; X.lineWidth = 0.8; X.stroke();
+}
+
+function drawAnt(wx, wy, ant, angle, now) {
+  const [r, g, b] = CCOL[ant.col];
+  const TIER_SCALE = [1.0, 1.25, 1.5, 1.8];
+  const BASE_SZ    = [2.8, 3.8, 2.6, 6.0];
+  const sz = BASE_SZ[ant.type] * TS / 8 * (TIER_SCALE[ant.tier] || 1);
+
+  if (ant.hp < ant.maxHp && ant.type !== 3) {
+    const pct = ant.hp / ant.maxHp;
+    X.strokeStyle = `rgba(255,${Math.round(pct*180)},0,0.5)`;
+    X.lineWidth = 0.7;
+    X.beginPath(); X.arc(wx, wy, sz+1.8, -Math.PI/2, -Math.PI/2 + Math.PI*2*pct); X.stroke();
+  }
+
+  X.save();
+  X.translate(wx, wy);
+  X.rotate(angle);
+
+  if (ant.tier >= 2) {
+    X.shadowBlur  = sz * (ant.tier === 3 ? 5 + 2*Math.sin(now/400 + wx*0.08) : 3.5);
+    X.shadowColor = `rgba(${r},${g},${b},0.75)`;
+  }
+
+  X.fillStyle = `rgb(${r},${g},${b})`;
+  if      (ant.type === 0) drawWorkerShape(sz);
+  else if (ant.type === 1) drawSoldierShape(sz);
+  else if (ant.type === 2) drawScoutShape(sz);
+  else                      drawQueenShape(sz, r, g, b, now);
+
+  X.shadowBlur = 0;
+
+  if (ant.carrying) {
+    X.fillStyle = "#f0c820";
+    X.shadowBlur = 3.5; X.shadowColor = "rgba(240,200,32,0.9)";
+    X.beginPath(); X.arc(-sz*0.3, -sz*0.9, sz*0.32, 0, Math.PI*2); X.fill();
+    X.shadowBlur = 0;
+  }
+
+  X.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Render
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function render() {
+  requestAnimationFrame(render);
+  if (!terrainBuf) return;
+
+  const now     = performance.now();
+  const elapsed = now - startTime;
+  const dpr     = window.devicePixelRatio || 1;
+
+  fpsCount++;
+  if (now - fpsTime > 1000) { fpsVal = fpsCount; fpsCount = 0; fpsTime = now; }
+
+  // Sync canvas to stage size in case of resize
+  const stage = document.getElementById("stage");
+  const sw = stage.clientWidth, sh = stage.clientHeight;
+  if (C.width !== Math.round(sw*dpr) || C.height !== Math.round(sh*dpr)) {
+    C.width  = Math.round(sw * dpr);
+    C.height = Math.round(sh * dpr);
+    C.style.width  = sw + "px";
+    C.style.height = sh + "px";
+    if (MW) resetCamera();
+  }
+
+  X.setTransform(1, 0, 0, 1, 0, 0);
+  X.fillStyle = "#090909";
+  X.fillRect(0, 0, C.width, C.height);
+
+  X.setTransform(camScale*dpr, 0, 0, camScale*dpr, camX*dpr, camY*dpr);
+
+  if (!state && placementState) { renderPlacement(elapsed); X.setTransform(1,0,0,1,0,0); return; }
+  if (!state) return;
+
+  // ═══ 1. Terrain ═══
+  X.drawImage(terrainBuf, 0, 0);
+
+  // ═══ 2. Pheromone overlay ═══
+  const PWEIGHT = [1.0, 1.0, 0.45, 0.35];
+  const pd = state.phero;
+  const pImg = pxCtx.createImageData(MW, MH);
+  const pp = pImg.data;
+  const keys = ["f", "a", "t", "s"];
+  for (let i = 0; i < MW * MH; i++) {
+    let r = 0, g = 0, b = 0, a = 0;
+    for (let k = 0; k < 4; k++) {
+      const v = pd[keys[k]][i] / 255;
+      if (v > 0.05) { r += PCOL[k][0]*v; g += PCOL[k][1]*v; b += PCOL[k][2]*v; a += v*PWEIGHT[k]; }
+    }
+    if (a > 0.04) {
+      const p = i*4, m = Math.min(1,a);
+      pp[p]   = Math.min(255, r*m);
+      pp[p+1] = Math.min(255, g*m);
+      pp[p+2] = Math.min(255, b*m);
+      pp[p+3] = Math.min(110, Math.pow(Math.min(a,2), 1.6) * 90);
+    }
+  }
+  pxCtx.putImageData(pImg, 0, 0);
+  X.imageSmoothingEnabled = true; X.imageSmoothingQuality = "high";
+  X.drawImage(pheroBuf, 0, 0, MW*TS, MH*TS);
+
+  // ═══ 3. Food sources ═══
+  for (const f of state.food) {
+    const col = FCOL[f[3]] || { r: 200, g: 200, b: 200 };
+    const fx = f[0]*TS+TS/2, fy = f[1]*TS+TS/2;
+    const amt = f[2], tier = f[4] || "home";
+    const pulse = 0.65 + 0.35 * Math.sin(elapsed/380 + f[0]*0.13 + f[1]*0.09);
+    const baseR = TS * 0.85;
+
+    const g1 = X.createRadialGradient(fx, fy, 0, fx, fy, baseR*2.6);
+    g1.addColorStop(0,   `rgba(${col.r},${col.g},${col.b},${0.32*pulse})`);
+    g1.addColorStop(0.45,`rgba(${col.r},${col.g},${col.b},${0.08*pulse})`);
+    g1.addColorStop(1,   `rgba(${col.r},${col.g},${col.b},0)`);
+    X.fillStyle = g1;
+    X.beginPath(); X.arc(fx, fy, baseR*2.6, 0, Math.PI*2); X.fill();
+    X.fillStyle = `rgb(${col.r},${col.g},${col.b})`;
+    X.beginPath(); X.arc(fx, fy, baseR*0.32, 0, Math.PI*2); X.fill();
+
+    const pct = Math.min(1, amt/200);
+    X.strokeStyle = `rgba(${col.r},${col.g},${col.b},0.7)`; X.lineWidth = 1.8;
+    X.beginPath(); X.arc(fx, fy, baseR*0.62, -Math.PI/2, -Math.PI/2+Math.PI*2*pct); X.stroke();
+
+    X.fillStyle = `rgba(${col.r},${col.g},${col.b},0.55)`;
+    X.font = "bold 7px monospace"; X.textAlign = "center";
+    X.fillText(col.label, fx, fy - baseR*1.1);
+
+    if (tier === "frontline") {
+      X.strokeStyle = `rgba(255,80,50,${0.45*pulse})`; X.lineWidth = 1.5;
+      X.beginPath(); X.arc(fx, fy, baseR*1.05, 0, Math.PI*2); X.stroke();
+    } else if (tier === "approach") {
+      X.strokeStyle = `rgba(210,170,0,${0.3*pulse})`; X.lineWidth = 1;
+      X.beginPath(); X.arc(fx, fy, baseR*0.95, 0, Math.PI*2); X.stroke();
+    }
+  }
+
+  // ═══ 3b. Corpses ═══
+  if (state.corpses) {
+    for (const corp of state.corpses) {
+      const cx = corp[0]*TS+TS/2, cy = corp[1]*TS+TS/2;
+      X.globalAlpha = 0.25 + 0.5 * Math.min(1, corp[2]/12);
+      X.fillStyle = "#5a3010";
+      X.beginPath(); X.arc(cx, cy, TS*0.28, 0, Math.PI*2); X.fill();
+      X.globalAlpha = 1;
+    }
+  }
+
+  // ═══ 3c. Guard Posts ═══
+  if (state.structures) {
+    for (const st of state.structures) {
+      const col = CCOL[st[2]];
+      const sx = st[0]*TS+TS/2, sy = st[1]*TS+TS/2;
+      const hpPct = st[3]/st[4], sz2 = TS*0.75;
+      const pulse = 0.7 + 0.3 * Math.sin(elapsed/400 + st[0]*1.7 + st[1]*0.9);
+      X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.65)`;
+      X.fillRect(sx-sz2/2, sy-sz2/2, sz2, sz2);
+      X.strokeStyle = `rgba(255,255,255,${0.5*pulse})`; X.lineWidth = 1.5;
+      X.strokeRect(sx-sz2/2, sy-sz2/2, sz2, sz2);
+      X.fillStyle = "rgba(255,255,255,0.9)";
+      X.font = "bold 6px monospace"; X.textAlign = "center"; X.textBaseline = "middle";
+      X.fillText("G", sx, sy); X.textBaseline = "alphabetic";
+      if (hpPct < 1) {
+        X.fillStyle = "rgba(0,0,0,0.55)"; X.fillRect(sx-sz2/2, sy+sz2/2+2, sz2, 3);
+        X.fillStyle = `rgb(${Math.round(255*(1-hpPct))},${Math.round(200*hpPct)},0)`;
+        X.fillRect(sx-sz2/2, sy+sz2/2+2, sz2*hpPct, 3);
+      }
+    }
+  }
+
+  // ═══ 4. Nests ═══
+  for (const c of state.colonies) {
+    const col = CCOL[c[0]];
+    const nx = c[1]*TS+TS/2, ny = c[2]*TS+TS/2;
+    const alive = c[10];
+    const p = 0.55 + 0.45 * Math.sin(elapsed/600 + c[0]*3);
+    X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},${alive ? 0.15 : 0.05})`;
+    for (let dy=-2; dy<=2; dy++) for (let dx=-2; dx<=2; dx++)
+      if (Math.abs(dx)+Math.abs(dy)<=3) X.fillRect((c[1]+dx)*TS,(c[2]+dy)*TS,TS,TS);
+    if (alive) {
+      const g2 = X.createRadialGradient(nx,ny,0,nx,ny,TS*5);
+      g2.addColorStop(0,   `rgba(${col[0]},${col[1]},${col[2]},${0.25*p})`);
+      g2.addColorStop(0.5, `rgba(${col[0]},${col[1]},${col[2]},${0.06*p})`);
+      g2.addColorStop(1,   `rgba(${col[0]},${col[1]},${col[2]},0)`);
+      X.fillStyle = g2; X.beginPath(); X.arc(nx,ny,TS*5,0,Math.PI*2); X.fill();
+      X.strokeStyle = `rgba(255,255,255,${0.15+0.18*p})`; X.lineWidth = 1.5;
+      X.beginPath(); X.arc(nx,ny,4+2*p,0,Math.PI*2); X.stroke();
+    } else {
+      X.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.3)`; X.lineWidth = 2;
+      X.beginPath(); X.moveTo(nx-6,ny-6); X.lineTo(nx+6,ny+6); X.stroke();
+      X.beginPath(); X.moveTo(nx+6,ny-6); X.lineTo(nx-6,ny+6); X.stroke();
+    }
+    X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},${alive?0.6:0.25})`;
+    X.font = "bold 8px monospace"; X.textAlign = "center";
+    X.fillText(c[0]===0?"RED":"BLUE", nx, ny+TS*3.5);
+  }
+
+  // ═══ 5. Dying ants ═══
+  for (const d of dyingAnts) {
+    const t = Math.min(1, (now - d.dieStart) / 300);
+    const [r, g, b] = d.col;
+    X.save();
+    X.globalAlpha = (1-t) * 0.7;
+    X.translate(d.x*TS+TS/2, d.y*TS+TS/2);
+    X.scale(1-t*0.6, 1-t*0.6);
+    X.fillStyle = `rgb(${r},${g},${b})`;
+    if      (d.type===0) drawWorkerShape(d.sz);
+    else if (d.type===1) drawSoldierShape(d.sz);
+    else if (d.type===2) drawScoutShape(d.sz);
+    else                  drawQueenShape(d.sz,r,g,b,now);
+    X.restore();
+    X.globalAlpha = 1;
+  }
+
+  // ═══ 6. Live ants (interpolated) ═══
+  const alpha = Math.min(1, (now - lastTickMs) / Math.max(tickInterval, 16));
+  for (const [, ant] of antMap) {
+    const ix = ant.px + (ant.x - ant.px) * alpha;
+    const iy = ant.py + (ant.y - ant.py) * alpha;
+    const wx = ix*TS+TS/2, wy = iy*TS+TS/2;
+    const moved = ant.x !== ant.px || ant.y !== ant.py;
+    const angle = moved ? Math.atan2(ant.y-ant.py, ant.x-ant.px) : ant.lastAngle;
+    if (moved) ant.lastAngle = angle;
+    drawAnt(wx, wy, ant, angle, now);
+  }
+
+  // ═══ 7. Hit effects ═══
+  for (const ef of effects) {
+    const t = Math.min(1, (now-ef.start)/ef.dur);
+    X.globalAlpha = (1-t) * 0.75;
+    X.strokeStyle = `rgb(${ef.r},${ef.g},${ef.b})`; X.lineWidth = 1.2*(1-t*0.5);
+    X.beginPath(); X.arc(ef.x, ef.y, ef.radius*t, 0, Math.PI*2); X.stroke();
+    X.globalAlpha = 1;
+  }
+
+  X.setTransform(1, 0, 0, 1, 0, 0);
+  updateSidebar(elapsed);
+
+  dyingAnts = dyingAnts.filter(d => now - d.dieStart < 300);
+  effects    = effects.filter(e => now - e.start < e.dur);
+
+  if (state.winner !== null && state.winner !== undefined && !gameOver) {
+    gameOver = true;
+    showWinner(state.winner, state);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sidebar
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const FOOD_MAX = 1500;
+
+function updateSidebar(now) {
+  // Clock — anchored to real elapsed seconds from server
+  const secs = Math.floor(state.elapsed_s ?? state.tick / 10);
+  const m = Math.floor(secs / 60).toString().padStart(2, "0");
+  const s = (secs % 60).toString().padStart(2, "0");
+  document.getElementById("clock").textContent = `${m}:${s}`;
+
+  const ids = [
+    { prefix: "r", col: state.colonies[0], cls: "red" },
+    { prefix: "b", col: state.colonies[1], cls: "blue" },
+  ];
+
+  for (const { prefix, col } of ids) {
+    const ct = col[4];
+    const total = ct[0] + ct[1] + ct[2] + ct[3];
+    const food  = col[3];
+    const strat = col[5];
+    const foodCollected = col[8] || 0;
+    const antsLost = col[9] || 0;
+    const tiers  = col[11] || [0, 0, 0];   // [worker_tier, scout_tier, soldier_tier]
+    const income = col[12] || 0;
+
+    // Queen info
+    const queen = state.ants.find(a => a[5] === col[0] && a[6] === 3);
+    const qhp    = queen ? queen[9]  : 0;
+    const qmaxhp = queen ? queen[10] : 300;
+
+    document.getElementById(`${prefix}-pop`).textContent = total;
+    document.getElementById(`${prefix}-food`).textContent = food;
+    const incEl = document.getElementById(`${prefix}-inc`);
+    incEl.textContent = income >= 0 ? `+${income}/s` : `${income}/s`;
+    incEl.className = `income-val ${income > 5 ? "pos" : income < -5 ? "neg" : "zero"}`;
+    document.getElementById(`${prefix}-foodbar`).style.width = Math.min(100, food / FOOD_MAX * 100) + "%";
+    document.getElementById(`${prefix}-queenhp`).style.width = (qhp / qmaxhp * 100) + "%";
+    document.getElementById(`${prefix}-w`).textContent = ct[0];
+    document.getElementById(`${prefix}-s`).textContent = ct[1];
+    document.getElementById(`${prefix}-c`).textContent = ct[2];
+    document.getElementById(`${prefix}-qhp`).textContent = queen ? qhp : "DEAD";
+    document.getElementById(`${prefix}-fed`).textContent  = foodCollected;
+    document.getElementById(`${prefix}-lost`).textContent = antsLost;
+    // Tier badge: hide (per-unit upgrade rows carry the detail)
+    const tierEl = document.getElementById(`${prefix}-tier`);
+    tierEl.textContent = "";
+    tierEl.className = "tier-badge t0";
+
+    // Per-unit upgrade rows: worker=w0/w1/w2, scout=s0/s1/s2, soldier=m0/m1/m2
+    const UPG_DEFS = [
+      { suffix: "w", tier: tiers[0], costs: [500, 2200, 6000],
+        names: ["Foraging I","Foraging II","Foraging III"] },
+      { suffix: "s", tier: tiers[1], costs: [450, 2000, 5500],
+        names: ["Pathfinding","Swift","Master Rec."] },
+      { suffix: "m", tier: tiers[2], costs: [600, 2800, 7500],
+        names: ["Combat I","Combat II","Combat III"] },
+    ];
+    for (const { suffix, tier: uTier, costs, names } of UPG_DEFS) {
+      for (let i = 0; i < 3; i++) {
+        const row = document.getElementById(`${prefix}-upg-${suffix}${i}`);
+        const statusEl = row.querySelector(".upg-status");
+        if (i < uTier) {
+          row.className = "upg-row owned";
+          statusEl.textContent = "OWNED";
+        } else if (i === uTier) {
+          const needed = costs[i] - food;
+          if (needed <= 0) {
+            row.className = "upg-row ready";
+            statusEl.textContent = "READY";
+          } else {
+            row.className = "upg-row locked";
+            statusEl.textContent = `−${needed.toLocaleString()}`;
+          }
+        } else {
+          row.className = "upg-row locked";
+          statusEl.textContent = "·";
+        }
+      }
+    }
+
+    if (strat) {
+      const r = strat.roles;
+      document.getElementById(`${prefix}-strat`).textContent =
+        `W:${Math.round(r.worker*100)}% SC:${Math.round(r.scout*100)}% SO:${Math.round(r.soldier*100)}% · ${strat.defense}`;
+    }
+  }
+
+  // Events log — merge both colonies' events, dedupe with history
+  const newEvents = [];
+  for (let i = 0; i < 2; i++) {
+    const col = state.colonies[i];
+    const evs = col[7] || [];
+    for (const ev of evs) {
+      const key = `${state.tick}:${i}:${ev}`;
+      if (!eventHistory.find(e => e.key === key)) {
+        newEvents.push({ key, msg: ev, colony: i, tick: state.tick });
+      }
+    }
+  }
+  if (newEvents.length) {
+    eventHistory = [...newEvents, ...eventHistory].slice(0, 30);
+    renderEvents();
+  }
+
+  // Footer
+  document.getElementById("fps").textContent  = fpsVal;
+  document.getElementById("nant").textContent  = state.ants.length;
+  document.getElementById("nfood").textContent = state.food.length;
+}
+
+function renderEvents() {
+  const el = document.getElementById("events-list");
+  const names = ["red", "blue"];
+  el.innerHTML = eventHistory.slice(0, 14).map(e => {
+    const cls = names[e.colony] || "sys";
+    const t = Math.floor(e.tick / 10);
+    const mm = Math.floor(t/60).toString().padStart(2,"0");
+    const ss = (t%60).toString().padStart(2,"0");
+    return `<div class="ev ${cls}">[${mm}:${ss}] ${e.msg}</div>`;
+  }).join("");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// Win overlay
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function showWinner(winner, s) {
+  const ov    = document.getElementById("overlay");
+  const title = document.getElementById("overlay-title");
+  const sub   = document.getElementById("overlay-sub");
+
+  const secs = Math.floor(s.elapsed_s ?? s.tick / 10);
+  const mm = Math.floor(secs/60).toString().padStart(2,"0");
+  const ss = (secs%60).toString().padStart(2,"0");
+
+  function colStats(c) {
+    const ct = c[4];
+    const pop = ct[0]+ct[1]+ct[2];
+    return `${pop} ants (${ct[0]}W ${ct[1]}S ${ct[2]}sc) · food ${c[3]} · fed ${c[8]} · lost ${c[9]}`;
+  }
+
+  if (winner === "draw") {
+    ov.className = "show draw";
+    title.textContent = "DRAW";
+    sub.innerHTML = `both queens fell at ${mm}:${ss}`;
+  } else {
+    const name = winner === 0 ? "RED" : "BLUE";
+    const loser = winner === 0 ? "BLUE" : "RED";
+    ov.className = `show ${name.toLowerCase()}`;
+    title.textContent = `${name} WINS`;
+    sub.innerHTML =
+      `${mm}:${ss} elapsed<br>` +
+      `${name}  · ${colStats(s.colonies[winner])}<br>` +
+      `${loser} · ${colStats(s.colonies[1-winner])}`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Config panel
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let cfgProviders = [];  // cached from server
+let cfgPendingModels = {};  // request_id → side
+let _reqIdCounter = 0;
+
+function openConfig() {
+  document.getElementById("config-modal").className = "show";
+  document.getElementById("btn-config").className = "active";
+  setCfgStatus("pending", "loading…");
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "get_config" }));
+    ws.send(JSON.stringify({ type: "get_providers" }));
+  } else {
+    setCfgStatus("err", "not connected");
+  }
+}
+
+function closeConfig() {
+  document.getElementById("config-modal").className = "";
+  document.getElementById("btn-config").className = "";
+}
+
+function setCfgStatus(state, msg) {
+  document.getElementById("cfg-dot").className = `cfg-status-dot ${state}`;
+  document.getElementById("cfg-msg").textContent = msg;
+}
+
+// ── Provider management ──────────────────────────────────────────────────────
+
+function renderProviders() {
+  const list = document.getElementById("provider-list");
+  list.innerHTML = "";
+  if (!cfgProviders.length) {
+    list.innerHTML = '<div style="font-size:9px;color:#333;padding:2px 0;">No saved providers — fill form below and Save Provider</div>';
+    return;
+  }
+  cfgProviders.forEach(p => {
+    const row = document.createElement("div");
+    row.className = "prov-item";
+    row.innerHTML = `<span class="prov-item-name">${p.name || p.id}</span>
+      <span class="prov-item-url">${p.base_url || ""}</span>
+      <span class="prov-item-del" title="Delete" onclick="deleteProvider('${p.id}')">✕</span>`;
+    row.onclick = e => { if (!e.target.classList.contains("prov-item-del")) editProvider(p); };
+    list.appendChild(row);
+  });
+}
+
+function editProvider(p) {
+  document.getElementById("prov-name").value = p.name || "";
+  document.getElementById("prov-url").value  = p.base_url || "";
+  document.getElementById("prov-key").value  = p.api_key || "";
+  document.getElementById("prov-status").textContent = "";
+}
+
+function saveProvider() {
+  const name = document.getElementById("prov-name").value.trim();
+  const url  = document.getElementById("prov-url").value.trim();
+  const key  = document.getElementById("prov-key").value.trim();
+  if (!url) { document.getElementById("prov-status").textContent = "base url required"; return; }
+  const id = url;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "save_provider", data: { id, name: name || url, base_url: url, api_key: key } }));
+  document.getElementById("prov-status").textContent = "saved";
+  setTimeout(() => document.getElementById("prov-status").textContent = "", 1500);
+}
+
+function deleteProvider(id) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "delete_provider", id }));
+}
+
+function testProvider() {
+  const url = document.getElementById("prov-url").value.trim();
+  const key = document.getElementById("prov-key").value.trim();
+  if (!url) { document.getElementById("prov-status").textContent = "base url required"; return; }
+  document.getElementById("prov-status").textContent = "testing…";
+  const rid = ++_reqIdCounter;
+  cfgPendingModels[rid] = "__test__";
+  ws.send(JSON.stringify({ type: "get_models", base_url: url, api_key: key, request_id: rid }));
+}
+
+function populateProviderDropdowns() {
+  ["red", "blue"].forEach(side => {
+    const sel = document.getElementById(`${side}-provider`);
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— custom —</option>';
+    cfgProviders.forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.name || p.id;
+      sel.appendChild(opt);
+    });
+    if (cur) sel.value = cur;
+  });
+}
+
+function onProviderSelect(side) {
+  const sel = document.getElementById(`${side}-provider`);
+  const pid = sel.value;
+  const p = cfgProviders.find(x => x.id === pid);
+  if (p) {
+    // API key and URL are stored in provider; brain will use them at save time
+    sel.dataset.baseUrl = p.base_url || "";
+    sel.dataset.apiKey  = p.api_key  || "";
+  }
+}
+
+// ── Brain type toggle ────────────────────────────────────────────────────────
+
+function onBrainTypeChange(side) {
+  const type = document.querySelector(`input[name="${side}-type"]:checked`)?.value;
+  const cfgDiv = document.getElementById(`${side}-llm-cfg`);
+  cfgDiv.style.display = type === "llm" ? "flex" : "none";
+}
+
+// ── Model fetch ──────────────────────────────────────────────────────────────
+
+function fetchModels(side) {
+  const sel = document.getElementById(`${side}-provider`);
+  const pid = sel.value;
+  const p   = cfgProviders.find(x => x.id === pid);
+  const url = p?.base_url || "";
+  const key = p?.api_key  || "";
+  if (!url) { setCfgStatus("err", "select a provider first"); return; }
+  setCfgStatus("pending", `fetching ${side} models…`);
+  const rid = ++_reqIdCounter;
+  cfgPendingModels[rid] = side;
+  ws.send(JSON.stringify({ type: "get_models", base_url: url, api_key: key, request_id: rid }));
+}
+
+function handleModels(data) {
+  const rid  = data.request_id;
+  const side = cfgPendingModels[rid];
+  delete cfgPendingModels[rid];
+  if (!side) return;
+  if (side === "__test__") {
+    const ok = Array.isArray(data.data) && data.data.length > 0;
+    document.getElementById("prov-status").textContent = ok ? `✓ ${data.data.length} models` : "no models returned";
+    return;
+  }
+  const dl = document.getElementById(`${side}-model-list`);
+  dl.innerHTML = "";
+  (data.data || []).forEach(m => {
+    const opt = document.createElement("option");
+    opt.value = m;
+    dl.appendChild(opt);
+  });
+  setCfgStatus("ok", `fetched ${(data.data||[]).length} models`);
+}
+
+// ── Populate / Save ──────────────────────────────────────────────────────────
+
+function populateConfig(data) {
+  document.getElementById("cfg-interval").value = data.LLM_INTERVAL || 100;
+  document.getElementById("cfg-tps").value      = data.TPS          || 10;
+
+  ["red", "blue"].forEach(side => {
+    const brain = data[`${side}_brain`] || { type: "bot" };
+    const radios = document.querySelectorAll(`input[name="${side}-type"]`);
+    radios.forEach(r => { r.checked = r.value === brain.type; });
+    const cfgDiv = document.getElementById(`${side}-llm-cfg`);
+    cfgDiv.style.display = brain.type === "llm" ? "flex" : "none";
+    if (brain.type === "llm") {
+      // Pre-select matching provider if saved
+      const provSel = document.getElementById(`${side}-provider`);
+      const match = cfgProviders.find(p => p.base_url === brain.base_url);
+      provSel.value = match ? match.id : "";
+      document.getElementById(`${side}-model`).value = brain.model || "";
+    }
+  });
+
+  const enabled = data.LLM_ENABLED;
+  setCfgStatus(enabled ? "ok" : "pending",
+               enabled ? "LLM active" : "bot vs bot — select LLM brain to enable");
+}
+
+function saveConfig() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    setCfgStatus("err", "not connected"); return;
+  }
+  setCfgStatus("pending", "saving…");
+
+  function buildBrain(side) {
+    const type = document.querySelector(`input[name="${side}-type"]:checked`)?.value || "bot";
+    if (type !== "llm") return { type: "bot" };
+    const sel = document.getElementById(`${side}-provider`);
+    const pid = sel.value;
+    const p   = cfgProviders.find(x => x.id === pid);
+    return {
+      type:     "llm",
+      api_key:  p?.api_key  || "",
+      base_url: p?.base_url || "",
+      model:    document.getElementById(`${side}-model`).value.trim(),
+    };
+  }
+
+  ws.send(JSON.stringify({
+    type: "set_config",
+    data: {
+      red_brain:    buildBrain("red"),
+      blue_brain:   buildBrain("blue"),
+      LLM_INTERVAL: parseInt(document.getElementById("cfg-interval").value),
+      TPS:          parseInt(document.getElementById("cfg-tps").value),
+    }
+  }));
+}
+
+// ── WS response handlers ─────────────────────────────────────────────────────
+
+function handleProviders(data) {
+  cfgProviders = data || [];
+  renderProviders();
+  populateProviderDropdowns();
+}
+
+function handleConfig(data) {
+  populateConfig(data);
+}
+
+function handleConfigSaved(data) {
+  populateConfig(data);
+  const enabled = data.LLM_ENABLED;
+  setCfgStatus(enabled ? "ok" : "pending",
+               enabled ? "saved — LLM active" : "saved — bot vs bot");
+  setTimeout(() => {
+    if (document.getElementById("config-modal").className === "show") {
+      setCfgStatus(enabled ? "ok" : "pending",
+                   enabled ? "LLM active" : "bot vs bot");
+    }
+  }, 2500);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Go
+// ═══════════════════════════════════════════════════════════════════════════════
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeConfig();
+});
+
+// ─── Zoom (mouse wheel toward cursor) ───────────────────────────────────────
+const _stage = document.getElementById("stage");
+_stage.addEventListener("wheel", e => {
+  e.preventDefault();
+  const f = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+  const rect = C.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  camX = mx - (mx - camX) * f;
+  camY = my - (my - camY) * f;
+  camScale = Math.max(0.08, Math.min(20, camScale * f));
+}, { passive: false });
+
+// ─── Pan (click-drag) ────────────────────────────────────────────────────────
+_stage.addEventListener("mousedown", e => {
+  if (e.button !== 0) return;
+  isDragging = true; dragSX = e.clientX; dragSY = e.clientY;
+  camSX = camX; camSY = camY;
+  _stage.classList.add("dragging");
+});
+window.addEventListener("mousemove", e => {
+  if (!isDragging) return;
+  camX = camSX + (e.clientX - dragSX);
+  camY = camSY + (e.clientY - dragSY);
+});
+window.addEventListener("mouseup", () => {
+  isDragging = false;
+  _stage.classList.remove("dragging");
+});
+
+// ─── Double-click to reset view ──────────────────────────────────────────────
+_stage.addEventListener("dblclick", () => { if (MW) resetCamera(); });
+
+// ─── Window resize ───────────────────────────────────────────────────────────
+window.addEventListener("resize", resizeCanvas);
+
+connect();
+</script>
+</body>
+</html>
