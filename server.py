@@ -542,7 +542,10 @@ def gen_terrain():
 
 class Ant:
     _id = 0
-    def __init__(self, x, y, colony, ant_type):
+    # Lifespan in ticks (None = infinite, for queen)
+    LIFESPAN = {0: 500, 1: 300, 2: 200, 3: None}  # worker, soldier, scout, queen
+
+    def __init__(self, x, y, colony, ant_type, born_tick=0):
         Ant._id += 1
         self.id = Ant._id
         self.x = x
@@ -560,6 +563,10 @@ class Ant:
         self.ty = None
         self.cooldown = 0
         self.recruit_target = None  # (food_x, food_y) set by scout recruitment
+        # Lifespan
+        self.born_tick = born_tick
+        self.lifespan = self.LIFESPAN.get(ant_type)  # None for queen
+        self.age = 0  # incremented each tick
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Colony — with LLM strategy hooks
@@ -632,6 +639,18 @@ class Colony:
 
         # Enemy reference (set by World after both colonies created)
         self.enemy = None
+
+        # ── Spawn queue (explicit, not instant) ──
+        # Each entry: (ant_type, ticks_remaining, food_cost)
+        self.spawn_queue = []
+        self.SPAWN_COST = {A_WORKER: 50, A_SOLDIER: 100, A_SCOUT: 75}
+        self.SPAWN_TIME = {A_WORKER: 5, A_SOLDIER: 8, A_SCOUT: 6}
+        self.MAX_SPAWN_QUEUE = 10
+
+        # ── Emergency commands (one-shot overrides) ──
+        # Set by LLM, executed once, then cleared
+        self.emergency_command = None  # {"type": "RECALL"|"FREEZE"|"FOCUS"|"RETREAT"|"ALL_IN", ...}
+        self.emergency_ticks_left = 0  # how many ticks the emergency lasts
 
     def push_event(self, msg):
         self.events.appendleft(msg)
@@ -1748,10 +1767,20 @@ class World:
                 if best.hp <= 0:
                     self._kill(best)
 
-        # Colony production & upkeep
+        # Colony production, upkeep, spawn queue & lifespan
         for c in self.colonies:
             if not c.alive: continue
 
+            # ── Age-based death (lifespan) ──
+            for ant in list(c.ants):
+                if ant.lifespan is not None:
+                    ant.age += 1
+                    if ant.age >= ant.lifespan:
+                        c.ants_lost += 1
+                        c.push_event(f"aged out: {['worker','soldier','scout'][ant.type]} died at age {ant.age}")
+                        self._kill(ant)
+
+            # ── Upkeep ──
             c.food -= sum(UPKEEP[a.type] for a in c.ants)
 
             # Starvation: lose ONE ant per tick when food deeply negative
@@ -1762,23 +1791,40 @@ class World:
                     c.push_event(f"starved: lost a {['worker','soldier','scout'][victim.type]}")
                     self._kill(victim)
                 else:
-                    # Only queen left — she starves the moment food goes negative
-                    # (a queen cannot forage or recover alone)
                     if c.food < -55:
                         c.push_event("queen starved — colony extinct")
                         c.ants.clear()
                         c.alive = False
 
-            # Production — rate scales with food surplus, capped by spawn_mult (tier 3)
-            c.prod_timer += 1
-            base_interval = max(3, 22 - int(c.food / 50))
-            interval = max(2, int(base_interval * c.spawn_mult))
-            if c.prod_timer >= interval and c.food >= 3:
-                c.prod_timer = 0
-                c.food -= 3
+            # ── Spawn queue processing ──
+            # Tick down all entries in the queue
+            for i in range(len(c.spawn_queue)):
+                entry = c.spawn_queue[i]
+                c.spawn_queue[i] = (entry[0], entry[1] - 1, entry[2])
+            # Spawn any that reached 0
+            ready = [e for e in c.spawn_queue if e[1] <= 0]
+            c.spawn_queue = [e for e in c.spawn_queue if e[1] > 0]
+            for ant_type, _, food_cost in ready:
+                queen = next((a for a in c.ants if a.type == A_QUEEN), None)
+                if queen and c.food >= food_cost:
+                    c.food -= food_cost
+                    new_ant = Ant(queen.x + random.randint(-2, 2),
+                                  queen.y + random.randint(-2, 2), c.id, ant_type,
+                                  born_tick=self.tick)
+                    if ant_type == A_SOLDIER and c.soldier_hp_bonus > 0:
+                        new_ant.hp     += c.soldier_hp_bonus
+                        new_ant.max_hp += c.soldier_hp_bonus
+                    c.ants.append(new_ant)
+                elif queen:
+                    # Refund if can't afford
+                    c.food += food_cost  # undo the reserve
+                    c.push_event(f"spawn failed: not enough food for {['worker','soldier','scout'][ant_type]}")
+
+            # ── Auto-queue production based on role ratios ──
+            # Only queue if queue isn't full and we have a queen
+            if len(c.spawn_queue) < c.MAX_SPAWN_QUEUE:
                 queen = next((a for a in c.ants if a.type == A_QUEEN), None)
                 if queen:
-                    r = random.random()
                     roles = c.strategy["roles"]
                     wshare  = roles.get("worker", 0.55)
                     sshare  = roles.get("scout",  0.25)
@@ -1786,8 +1832,10 @@ class World:
                     worker_cap = c.strategy.get("worker_cap")
                     n_workers = sum(1 for a in c.ants if a.type == A_WORKER)
                     worker_capped = worker_cap is not None and n_workers >= worker_cap
+
+                    # Determine what to queue next
+                    r = random.random()
                     if worker_capped:
-                        # Redistribute worker share to scout/soldier in their relative ratio
                         non_w = sshare + solshare
                         t = A_SCOUT if (r < sshare / max(non_w, 0.01)) else A_SOLDIER
                     elif r < wshare:
@@ -1796,12 +1844,12 @@ class World:
                         t = A_SCOUT
                     else:
                         t = A_SOLDIER
-                    new_ant = Ant(queen.x+random.randint(-2,2),
-                                  queen.y+random.randint(-2,2), c.id, t)
-                    if t == A_SOLDIER and c.soldier_hp_bonus > 0:
-                        new_ant.hp     += c.soldier_hp_bonus
-                        new_ant.max_hp += c.soldier_hp_bonus
-                    c.ants.append(new_ant)
+
+                    cost = c.SPAWN_COST[t]
+                    spawn_time = c.SPAWN_TIME[t]
+                    if c.food >= cost:
+                        c.food -= cost  # reserve food
+                        c.spawn_queue.append((t, spawn_time, cost))
 
             # Upgrade shop — three independent trees (worker / scout / soldier)
             # Bot auto-buy: graduated buffer (T1 = 1.5×, T2 = 1.3×, T3 = 1.2×)
@@ -1860,6 +1908,40 @@ class World:
     def _update_ant(self, ant):
         ant.prev_x, ant.prev_y = ant.x, ant.y
         if ant.cooldown > 0: ant.cooldown -= 1
+
+        # ── Emergency command override ──
+        c = self.colonies[ant.colony]
+        if c.emergency_command and ant.type != A_QUEEN:
+            cmd = c.emergency_command
+            if cmd["type"] == "RECALL":
+                # All non-queen ants move to nest
+                ant.tx, ant.ty = c.nx, c.ny
+                self._wander(ant)
+                return
+            elif cmd["type"] == "FREEZE":
+                # All ants stay put
+                return
+            elif cmd["type"] == "RETREAT":
+                # Combat units flee to nest, workers keep working
+                if ant.type in (A_SOLDIER, A_SCOUT):
+                    ant.tx, ant.ty = c.nx, c.ny
+                    self._wander(ant)
+                    return
+            elif cmd["type"] == "FOCUS" and ant.type == A_SOLDIER:
+                # Soldiers move to target coordinates
+                tx, ty = cmd.get("target", (c.nx, c.ny))
+                ant.tx, ant.ty = tx, ty
+                self._wander(ant)
+                return
+            elif cmd["type"] == "ALL_IN" and ant.type == A_SOLDIER:
+                # Soldiers rush toward enemy
+                if c.enemy:
+                    eq = next((a for a in c.enemy.ants if a.type == A_QUEEN), None)
+                    if eq:
+                        ant.tx, ant.ty = eq.x, eq.y
+                        self._wander(ant)
+                        return
+
         if ant.type == A_WORKER:   self._behavior_worker(ant)
         elif ant.type == A_SOLDIER: self._behavior_soldier(ant)
         elif ant.type == A_SCOUT:   self._behavior_scout(ant)
