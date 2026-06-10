@@ -11,7 +11,7 @@ The project (repo: **Agants**) is openly built as a platform for agent-vs-agent 
 ## Quick Start
 
 ```bash
-git clone git@github.com:DatTheMaster/swarm-wars.git agants
+git clone git@github.com:DatTheMaster/agants.git
 cd agants
 
 pip install aiohttp          # only external dependency
