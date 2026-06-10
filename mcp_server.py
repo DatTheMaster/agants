@@ -20,6 +20,17 @@ from mcp.server.fastmcp import FastMCP
 
 BASE_URL = "http://localhost:8083/api"
 
+# Tokens stored after join_seat — keyed by colony_id.
+# Automatically included in write requests so agents don't need to track them.
+_colony_tokens: dict[int, str] = {}
+
+
+def _auth(colony_id: int) -> dict:
+    """Return Authorization header dict if we have a token for this colony."""
+    token = _colony_tokens.get(colony_id)
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 mcp = FastMCP(
     "Agants",
     instructions=(
@@ -67,17 +78,17 @@ def _get(path: str, params: dict = None) -> dict:
         return {"error": str(e)}
 
 
-def _post(path: str, body: dict = None) -> dict:
+def _post(path: str, body: dict = None, headers: dict = None) -> dict:
     """Synchronous HTTP POST to game server REST API."""
     try:
-        return _result(httpx.post(f"{BASE_URL}{path}", json=body or {}, timeout=5.0))
+        return _result(httpx.post(f"{BASE_URL}{path}", json=body or {}, headers=headers or {}, timeout=5.0))
     except httpx.HTTPError as e:
         return {"error": str(e)}
 
 
-def _delete(path: str) -> dict:
+def _delete(path: str, headers: dict = None) -> dict:
     try:
-        return _result(httpx.delete(f"{BASE_URL}{path}", timeout=5.0))
+        return _result(httpx.delete(f"{BASE_URL}{path}", headers=headers or {}, timeout=5.0))
     except httpx.HTTPError as e:
         return {"error": str(e)}
 
@@ -140,8 +151,16 @@ def join_seat(colony_id: int, agent_name: str) -> dict:
     Once joined, the colony's brain type is switched to "mcp" and the LLM loop stops.
     You must actively call patch_directive / issue_command to control the colony.
     Call release_seat() when done to hand control back.
+
+    Returns a token in the response. The token is stored automatically and sent
+    with subsequent write requests (patch_directive, issue_command, release_seat).
+    You do not need to track or pass the token yourself.
     """
-    return _post(f"/seat/{colony_id}", {"agent_name": agent_name})
+    result = _post(f"/seat/{colony_id}", {"agent_name": agent_name})
+    token = result.get("token")
+    if token:
+        _colony_tokens[colony_id] = token
+    return result
 
 
 @mcp.tool()
@@ -151,7 +170,10 @@ def release_seat(colony_id: int) -> dict:
     Args:
         colony_id: 0 for RED, 1 for BLUE
     """
-    return _delete(f"/seat/{colony_id}")
+    result = _delete(f"/seat/{colony_id}", headers=_auth(colony_id))
+    if result.get("ok"):
+        _colony_tokens.pop(colony_id, None)
+    return result
 
 
 @mcp.tool()
@@ -318,7 +340,7 @@ def patch_directive(colony_id: int, patches: dict) -> dict:
 
     Triggers replace the entire triggers array when provided.
     """
-    return _post(f"/directive/{colony_id}", {"patches": patches})
+    return _post(f"/directive/{colony_id}", {"patches": patches}, headers=_auth(colony_id))
 
 
 @mcp.tool()
@@ -331,7 +353,7 @@ def set_directive(colony_id: int, directive: dict) -> dict:
         colony_id: 0 for RED, 1 for BLUE
         directive: complete directive object (must include all sections)
     """
-    return _post(f"/directive/{colony_id}", {"directive": directive})
+    return _post(f"/directive/{colony_id}", {"directive": directive}, headers=_auth(colony_id))
 
 
 # ─── Direct commands ─────────────────────────────────────────────────────────
@@ -351,7 +373,7 @@ def buy_upgrade(colony_id: int, unit: str) -> dict:
 
     The purchase will execute on the next sim tick if you have enough food.
     """
-    return _post(f"/command/{colony_id}", {"type": "buy_upgrade", "unit": unit})
+    return _post(f"/command/{colony_id}", {"type": "buy_upgrade", "unit": unit}, headers=_auth(colony_id))
 
 
 @mcp.tool()
@@ -388,7 +410,7 @@ def build_structure(colony_id: int, structure_type: str, x: int, y: int) -> dict
     return _post(f"/command/{colony_id}", {
         "type": "build",
         "build": {"type": structure_type, "x": x, "y": y}
-    })
+    }, headers=_auth(colony_id))
 
 
 @mcp.tool()
@@ -409,7 +431,7 @@ def convert_unit(colony_id: int, ant_id: int, to_type: str) -> dict:
     return _post(f"/command/{colony_id}", {
         "type": "convert",
         "convert": {"id": ant_id, "to": to_type}
-    })
+    }, headers=_auth(colony_id))
 
 
 @mcp.tool()
@@ -451,7 +473,7 @@ def command_unit(colony_id: int, ant_id: int, command: str,
     if x is not None: body["x"] = x
     if y is not None: body["y"] = y
     if waypoints is not None: body["waypoints"] = waypoints
-    return _post(f"/command/{colony_id}", body)
+    return _post(f"/command/{colony_id}", body, headers=_auth(colony_id))
 
 
 @mcp.tool()
@@ -474,7 +496,7 @@ def command_units(colony_id: int, commands: list) -> dict:
             {"ant_id": 144, "command": "attack_xy", "x": 75, "y": 50},
         ])
     """
-    return _post(f"/command/{colony_id}", {"type": "unit_command_batch", "commands": commands})
+    return _post(f"/command/{colony_id}", {"type": "unit_command_batch", "commands": commands}, headers=_auth(colony_id))
 
 
 @mcp.tool()
@@ -523,7 +545,7 @@ def command_type(colony_id: int, unit_type: str, command: str,
         cmds.append(entry)
     if not cmds:
         return {"ok": True, "commanded": 0, "note": "no matching ants found"}
-    result = _post(f"/command/{colony_id}", {"type": "unit_command_batch", "commands": cmds})
+    result = _post(f"/command/{colony_id}", {"type": "unit_command_batch", "commands": cmds}, headers=_auth(colony_id))
     result["commanded"] = len(cmds)
     return result
 
@@ -552,7 +574,7 @@ def cancel_spawn(colony_id: int, unit_type: str = "all") -> dict:
     valid = {"worker", "soldier", "scout", "all"}
     if unit_type not in valid:
         return {"error": f"unit_type must be one of: {sorted(valid)}"}
-    return _post(f"/command/{colony_id}", {"type": "cancel_spawn", "unit_type": unit_type})
+    return _post(f"/command/{colony_id}", {"type": "cancel_spawn", "unit_type": unit_type}, headers=_auth(colony_id))
 
 
 @mcp.tool()

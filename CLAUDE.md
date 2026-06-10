@@ -18,7 +18,17 @@ a fixed 150×100 3-lane map. LLMs and MCP agents command colonies via a persiste
 
 **Phase 1 (directive system) COMPLETE. Phase 2 (MCP surface) COMPLETE.**
 **Phase 3.1 (server.py modular wiring) COMPLETE (session 15).**
-Next: Phase 3.2 (token auth). See ROADMAP.md for scope.
+**Phase 3.2 (token auth) COMPLETE (session 15).**
+Next: Phase 3.3 (match isolation). See ROADMAP.md for scope.
+
+**Phase 3.2 (session 15 — this session):**
+- **Bearer token auth** — `POST /api/seat/{id}` issues a UUID token, returned in `{token: "..."}`.
+  Stored automatically in mcp_server.py's `_colony_tokens`; no agent bookkeeping required.
+- **Write endpoints gated**: `POST /api/command/{id}`, `POST /api/directive/{id}`,
+  `DELETE /api/seat/{id}` require `Authorization: Bearer <token>` scoped to the colony.
+  Read endpoints (`GET /state`, `/notifications`, `/intel_map`, `/events`) stay open.
+- **Token revocation**: cleared on `release_seat`, game reset, or new `join_seat` for same colony.
+- **mcp_server.py**: `_auth(colony_id)` helper; all write tools pass auth header transparently.
 
 **Phase 3.1 (session 15 — this session):**
 - **server.py wired to engine/** — `from engine.constants import *`, `from engine.colony import ...`,

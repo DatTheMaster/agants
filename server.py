@@ -1483,6 +1483,8 @@ class Server:
         self._sim_executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="sim"
         )
+        # Auth tokens: token_str → {colony_id, agent}
+        self._tokens: dict = {}
 
     def _make_init_msg(self):
         return json.dumps({
@@ -1512,6 +1514,7 @@ class Server:
             {"calls": 0, "prompt_tok": 0, "completion_tok": 0, "errors": 0},
         ]
         self._pending_strategies.clear()
+        self._tokens.clear()
         # Send new terrain and lobby state — game starts when client sends "start_game"
         await self._broadcast(self._make_init_msg())
         await self._broadcast(json.dumps({"type": "lobby", "seats": {"0": None, "1": None}}))
@@ -1986,6 +1989,23 @@ class Server:
             }]
         }))
 
+    def _require_token(self, req, cid: int):
+        """Validate Bearer token. Returns (True, None) or (False, error_response)."""
+        auth = req.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return False, web.json_response({"error": "missing Authorization: Bearer <token>"}, status=401)
+        token = auth[7:]
+        entry = self._tokens.get(token)
+        if entry is None:
+            return False, web.json_response({"error": "invalid or expired token"}, status=401)
+        if entry["colony_id"] != cid:
+            return False, web.json_response({"error": "token not scoped to this colony"}, status=403)
+        return True, None
+
+    def _revoke_colony_token(self, cid: int):
+        """Remove any token currently held for the given colony."""
+        self._tokens = {t: e for t, e in self._tokens.items() if e["colony_id"] != cid}
+
     async def api_join_seat(self, req):
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
@@ -2000,13 +2020,20 @@ class Server:
         self.world.mcp_seats[cid] = agent
         key = "red_brain" if cid == 0 else "blue_brain"
         _save_config({key: {"type": "mcp", "agent": agent}})
+        self._revoke_colony_token(cid)
+        token = str(uuid.uuid4())
+        self._tokens[token] = {"colony_id": cid, "agent": agent}
         await self._broadcast(json.dumps({"type": "seat_joined", "colony_id": cid, "agent": agent}))
-        return await self._api_cors(web.json_response({"ok": True, "colony_id": cid, "agent": agent}))
+        return await self._api_cors(web.json_response({"ok": True, "colony_id": cid, "agent": agent, "token": token}))
 
     async def api_release_seat(self, req):
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
+        ok, err = self._require_token(req, cid)
+        if not ok:
+            return await self._api_cors(err)
+        self._revoke_colony_token(cid)
         self.world.mcp_seats[cid] = None
         key = "red_brain" if cid == 0 else "blue_brain"
         _save_config({key: {"type": "bot"}})
@@ -2349,6 +2376,9 @@ class Server:
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
+        ok, err = self._require_token(req, cid)
+        if not ok:
+            return await self._api_cors(err)
         if not self.world.colonies:
             return await self._api_cors(web.json_response({"error": "game not started"}))
         try:
@@ -2420,6 +2450,9 @@ class Server:
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
+        ok, err = self._require_token(req, cid)
+        if not ok:
+            return await self._api_cors(err)
         if not self.world.colonies:
             return await self._api_cors(web.json_response({"error": "game not started"}))
         try:
