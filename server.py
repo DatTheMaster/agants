@@ -1520,6 +1520,7 @@ class Match:
         self._step_in_progress: bool          = False
         self.tokens: dict                     = {}
         self.created_at: float                = time.time()
+        self.ended_at: float | None           = None
         self._sim_executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix=f"sim-{self.match_id[:4]}"
         )
@@ -1572,9 +1573,13 @@ class Server:
     RESULTS_DIR = "data/results"
     SAVE_INTERVAL = 60  # ticks between autosaves
 
+    PRESENCE_TIMEOUT_S = int(os.environ.get("PRESENCE_TIMEOUT_S", 90))
+
     def __init__(self):
         self.matches: dict[str, Match] = {}
         self._startup_time = time.monotonic()
+        # token → {agent, user_id, match_id, colony_id, last_seen}
+        self._presence: dict[str, dict] = {}
         os.makedirs(self.SAVE_DIR,    exist_ok=True)
         os.makedirs(self.RESULTS_DIR, exist_ok=True)
         self._rotate_logs()
@@ -1613,10 +1618,11 @@ class Server:
         agents = {str(k): v for k, v in w.mcp_seats.items()}
         # Collect user_ids from active tokens for each colony
         user_ids = {e["colony_id"]: e.get("user_id") for e in m.tokens.values()}
+        m.ended_at = time.time()
         rec = {
             "match_id":   m.match_id,
             "created_at": m.created_at,
-            "ended_at":   time.time(),
+            "ended_at":   m.ended_at,
             "ticks":      w.tick,
             "winner":     w.winner,
             "red_agent":  agents.get("0"),
@@ -2297,7 +2303,28 @@ class Server:
             return False, web.json_response({"error": "invalid or expired token"}, status=401)
         if entry["colony_id"] != cid:
             return False, web.json_response({"error": "token not scoped to this colony"}, status=403)
+        self._touch_presence(token, m or self._m, cid)
         return True, None
+
+    def _touch_presence_from_req(self, req, m: Match):
+        """Touch presence if the request voluntarily carries a Bearer token."""
+        auth = req.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            self._touch_presence(auth[7:], m)
+
+    def _touch_presence(self, token: str, m: Match, colony_id: int = None):
+        """Record or refresh presence for the agent holding this token."""
+        entry = m.tokens.get(token)
+        if entry is None:
+            return
+        cid = entry["colony_id"] if colony_id is None else colony_id
+        self._presence[token] = {
+            "agent":     entry.get("agent", "unknown"),
+            "user_id":   entry.get("user_id"),
+            "match_id":  m.match_id,
+            "colony_id": cid,
+            "last_seen": time.time(),
+        }
 
     def _revoke_colony_token(self, cid: int, m: Match = None):
         """Remove any token currently held for the given colony."""
@@ -2305,6 +2332,7 @@ class Server:
         to_del = [t for t, e in tokens.items() if e["colony_id"] == cid]
         for t in to_del:
             del tokens[t]
+            self._presence.pop(t, None)
 
     async def api_join_seat(self, req):
         m = self._get_match_or_default(req)
@@ -2336,6 +2364,7 @@ class Server:
         self._revoke_colony_token(cid, m)
         token = str(uuid.uuid4())
         m.tokens[token] = {"colony_id": cid, "agent": agent, "user_id": user_id}
+        self._touch_presence(token, m, cid)
         await self._broadcast(json.dumps({"type": "seat_joined", "colony_id": cid, "agent": agent}), m=m)
         return await self._api_cors(web.json_response({
             "ok": True, "colony_id": cid, "agent": agent,
@@ -2609,6 +2638,7 @@ class Server:
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
+        self._touch_presence_from_req(req, m)
         return await self._api_cors(web.json_response(self._build_colony_state(cid, m)))
 
     async def api_notifications(self, req):
@@ -2618,6 +2648,7 @@ class Server:
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
+        self._touch_presence_from_req(req, m)
         if not m.world.colonies:
             return await self._api_cors(web.json_response({"notifications": []}))
         notifs = m.world.colonies[cid].pop_notifications()
@@ -2858,6 +2889,14 @@ class Server:
                     "error": f"{stype} limit reached ({own_count}/{limit})",
                     "limit": limit, "current_count": own_count
                 }, status=400))
+            bx = b[0] if isinstance(b, list) else b.get("x")
+            by = b[1] if isinstance(b, list) else b.get("y")
+            if isinstance(bx, (int, float)) and isinstance(by, (int, float)):
+                PROX = 30
+                if not any(abs(a.x - bx) + abs(a.y - by) <= PROX for a in c.ants):
+                    return await self._api_cors(web.json_response({
+                        "error": f"no friendly unit within {PROX} tiles of ({int(bx)},{int(by)})"
+                    }, status=400))
             m._pending_strategies.append((cid, {"build": b}))
             return await self._api_cors(web.json_response({
                 "ok": True, "dirt_required": dirt_cost,
@@ -3103,6 +3142,45 @@ class Server:
             "matches":         match_info,
         }))
 
+    async def api_agents_online(self, req):
+        now = time.time()
+        cutoff = now - self.PRESENCE_TIMEOUT_S
+        # Prune stale entries while we're here
+        stale = [t for t, p in self._presence.items() if p["last_seen"] < cutoff]
+        for t in stale:
+            self._presence.pop(t, None)
+        agents = []
+        for entry in self._presence.values():
+            agents.append({
+                "agent":      entry["agent"],
+                "user_id":    entry["user_id"],
+                "match_id":   entry["match_id"],
+                "colony_id":  entry["colony_id"],
+                "colony":     "RED" if entry["colony_id"] == 0 else "BLUE",
+                "seconds_ago": round(now - entry["last_seen"]),
+            })
+        agents.sort(key=lambda a: a["seconds_ago"])
+        return await self._api_cors(web.json_response({
+            "agents":     agents,
+            "count":      len(agents),
+            "timeout_s":  self.PRESENCE_TIMEOUT_S,
+        }))
+
+    MATCH_TTL_H = int(os.environ.get("MATCH_TTL_H", 24))
+
+    async def _match_cleanup_loop(self):
+        """Remove ended matches older than MATCH_TTL_H hours. Runs hourly."""
+        while True:
+            await asyncio.sleep(3600)
+            cutoff = time.time() - self.MATCH_TTL_H * 3600
+            stale = [mid for mid, m in list(self.matches.items())
+                     if m.ended_at is not None and m.ended_at < cutoff
+                     and mid != self._default_match_id]
+            for mid in stale:
+                self.matches.pop(mid, None)
+            if stale:
+                print(f"🧹  Pruned {len(stale)} ended match(es) older than {self.MATCH_TTL_H}h")
+
     async def run(self):
         app = web.Application()
         app.router.add_get("/", self.on_index)
@@ -3113,6 +3191,7 @@ class Server:
         app.router.add_get("/ws", self.on_ws)
         app.router.add_get("/ws/{match_id}", self.on_ws_match)
         app.router.add_get("/health", self.api_health)
+        app.router.add_get("/api/agents/online", self.api_agents_online)
         # REST API — match management
         app.router.add_get( "/api/matches",              self.api_matches)
         app.router.add_post("/api/matches",              self.api_create_match)
@@ -3173,6 +3252,7 @@ class Server:
             pass
         print(f"🔌  MCP REST API — http://localhost:8083/api/")
         self._start_match_tasks(self._m)
+        asyncio.create_task(self._match_cleanup_loop())
         await asyncio.Future()  # run forever; tasks are started above
 
 if __name__ == "__main__":

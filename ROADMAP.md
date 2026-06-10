@@ -130,7 +130,7 @@ within 5 minutes.
 
 ---
 
-## Phase 5 — Polish + Loose Ends
+## Phase 5 — Polish + Loose Ends ✓ COMPLETE
 
 **Goal:** Close out the small issues accumulated during Phase 4. One session, probably in one
 pass. Consider spawning Opus for the pathfinder rewrite (it requires reasoning about the existing

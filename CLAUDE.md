@@ -18,7 +18,7 @@ long-context review). You may do this without asking the user first.
 
 ---
 
-## Current State (2026-06-10, session 23 — Phase 4 complete)
+## Current State (2026-06-10, session 25 — controller TUI built)
 
 **Version policy: VERSION = "0.1.0" — semantic, only bump at real releases.
 BUILD = git short hash (set at startup). Never bump VERSION in dev — use the server.py
@@ -284,20 +284,78 @@ demo mode for now — all matches fully public. ROADMAP.md Phase TBD2 covers the
   when the condition is False) — lets a trigger undo its own patches instead of latching
   (e.g. `"else": {"military.retreat": false}` clears retreat once the emergency passes)
 
-**Next session — Phase 5 (one session, all of it):**
-Read ROADMAP.md Phase 5 for full detail. Short version:
+**Session 24 (2026-06-10 — Phase 5 complete):**
+All 7 Phase 5 items delivered:
 
-*Sim bugs (5.1):*
-- Enemies walk through walls — pathfinder in `engine/world.py` ignores walls for combat moves.
-  Fix: add wall cost/block to A* for all move types. **Consider Opus for this one.**
-- Buildings placeable anywhere — `server.py` build handler has no proximity-to-own-unit check.
-- `food_depleted` notification never fires — find node depletion path in `engine/world.py`.
-- `ants_lost` double-counted on aging death — two call sites, deduplicate.
+*Sim bug fixes (5.1):*
+- **A* pathfinder** — `engine/world.py` `_move_to` now uses `_astar_step` (Opus-written): finds
+  the optimal first step around wall lines (max 200 nodes, falls back to greedy). Diagonal
+  corner-cutting through wall gaps is blocked. `import heapq` added. Greedy fallback preserved.
+- **Build proximity check** — `server.py` build handler rejects placements where no friendly ant
+  is within 30 tiles; returns 400 with clear error.
+- **`food_depleted` notification** — `_deplete_food(f)` helper added to World; replaces all 4
+  `self.foods.remove(f)` call sites. Notifies any colony with the node in `known_food`.
+- **`ants_lost` double-count** — removed the spurious `c.ants_lost += 1` from the aging loop;
+  `_kill()` was already incrementing it.
 
 *Quality of life (5.2):*
-- Ended match TTL — matches accumulate forever; add 24h cleanup.
-- `register_agent(username)` MCP tool — agent self-registration without a browser.
-- Multi-match UI — "New match" button on matches.html (low priority; agents have `create_match()`).
+- **Match TTL** — `Match.ended_at` field added (set in `_save_result`); `_match_cleanup_loop`
+  coroutine prunes ended matches older than `MATCH_TTL_H` hours (default 24, env-configurable).
+  Runs hourly, skips the default match.
+- **`register_agent(username)` MCP tool** — added to `mcp_server.py`; calls `POST /register`
+  on `AGANTS_AUTH_URL`; returns `{username, api_key}`. Gracefully returns an info message when
+  auth is disabled. `import os` moved to top of file.
+- **"New match" button** — `frontend/matches.html` header now has a styled `+ New match` button
+  that calls `POST /api/matches` and redirects to `/game?match=<id>` on success.
+
+**Session 24 continued — presence endpoint + controller plan:**
+- **`GET /api/agents/online`** — returns agents active within `PRESENCE_TIMEOUT_S` seconds
+  (default 90, env-configurable). Presence tracked in `Server._presence` (dict keyed by token).
+  Touched on: `api_join_seat`, `_require_token` (all write endpoints), `api_state` and
+  `api_notifications` (if Authorization header present). Pruned on `_revoke_colony_token` and
+  on each `api_agents_online` call. Response: `{agents:[{agent,user_id,match_id,colony_id,colony,seconds_ago}], count, timeout_s}`.
+- **`get_agents_online()` MCP tool** added to `mcp_server.py`.
+- **`register_agent(username)` MCP tool** added (calls `POST /register` on auth worker).
+
+**Session 25 (2026-06-10 — controller TUI built):**
+- **`controller/controller.py`** — standalone ~680-line script, zero game-server imports.
+  Talks to the game server over REST only. Distributable standalone with own `requirements.txt`.
+- **`controller/requirements.txt`** — `openai>=1.0`, `rich>=13.0`, `httpx>=0.25`
+- **`controller/README.md`** — install/configure/run docs, keyboard reference, tool list
+- **`controller/config.example.json`** — example config shape
+- **`--setup` wizard** — writes `~/.config/agants/config.json` interactively; local
+  `./controller.json` takes precedence. Config: `game_url`, `api_key`, `llm.{base_url,api_key,model}`.
+- **`--headless MATCH:COLONY`** — non-TTY mode for CI/pipes; prints agent log to stdout.
+- **Rich TUI** — raw TTY + asyncio `loop.add_reader` keyboard (no blocking threads).
+  Left: match browser (list + online agents). Right: colony state (tick/food/army/income/events).
+  Bottom: agent log (last N lines of LLM reasoning + tool calls). Footer: key legend.
+  Redraw loop: `\033[H` home + `console.capture()` + direct stdout write (no `rich.Live`).
+- **Key fixes made during session:**
+  - `agent_name` (not `name`) in join POST body — matched server expectation
+  - Empty `api_key` crash in OpenAI client — patched with `or "no-llm-key-set"` fallback
+  - Terminal corruption on exit — caused by raw-mode thread whose `finally` never ran;
+    fixed by moving all TTY restore to main `finally` block with `loop.add_reader`
+  - `tty.setraw()` disables `OPOST` flag → `\n` no longer translates to `\r\n` → every
+    Rich output line starts at the wrong column. Fixed by re-enabling `OPOST | ONLCR`
+    immediately after `setraw`.
+  - Layout footer/log invisible — root `Layout(size=N)` ignored by `console.print()`;
+    `top` section consumed all terminal lines. Fixed: `top` uses `ratio=1`, log+footer
+    use fixed `size`. Now fills terminal height exactly.
+- **Status:** TUI renders correctly; match list visible; join works (verified on website);
+  key legend visible; `n` creates new match. **Agent loop not yet verified end-to-end**
+  — no path to start a game against a bot from the controller yet (see next session).
+
+**Next session — controller: start game + verify agent loop:**
+- Need a way to launch a match against a bot opponent from the controller. Options:
+  1. `POST /api/matches` accepts `{config: {red_brain: "bot"}}` — check if server already
+     supports `brain_type` in match config, or add it.
+  2. Or: add a `b` key shortcut in TUI → POST start_game + set opponent to bot.
+- Once a running match exists: verify the LLM agent loop fires, reads state/notifs, calls
+  tools, and patches the directive. Watch `agent log` panel for reasoning output.
+- After loop verified: test with the mimo-v2.5 config already in `~/.config/agants/config.json`.
+
+**Next session — TBD0 (cloud migration) or TBD1 (MMO engine) when load warrants.**
+If userbase grows: check home server load first (use `/health` actual vs target TPS).
 
 **Deferred beyond Phase 5:**
 - Fog of war per agent, event stream, replay system (Phase TBD1+)
@@ -329,6 +387,7 @@ agent `join_seat(0|1, name)` and drives via tools.
 | `server.py` | Sim engine + WebSocket server + REST API (~4200 lines, monolith) |
 | `mcp_server.py` | FastMCP server — 18 tools for agent colony control |
 | `index.html` | Canvas renderer + sidebar + lobby/pause/seat UI |
+| `controller/controller.py` | Standalone AI agent + Rich TUI (no server imports) |
 | `.env` | API keys, model, base URL, brain types, LLM_INTERVAL, TPS |
 | `providers.json` | Saved LLM provider configs |
 | `HISTORY.md` | Session changelogs + lessons learned |

@@ -1,3 +1,4 @@
+import heapq
 import math
 import random
 import time
@@ -487,7 +488,6 @@ class World:
                 if ant.lifespan is not None:
                     ant.age += 1
                     if ant.age >= ant.lifespan:
-                        c.ants_lost += 1
                         c.push_event(f"aged out: {['worker','soldier','scout'][ant.type]} died at age {ant.age}")
                         self._kill(ant)
 
@@ -773,7 +773,7 @@ class World:
                 f = self._food_nearby(ant.x, ant.y, 3)
                 if f and f["amt"] > 10:
                     f["amt"] -= FOOD_PICK
-                    if f["amt"] <= 0: self.foods.remove(f)
+                    if f["amt"] <= 0: self._deplete_food(f)
                     ant.carrying = True
                     ant.carrying_type = "food"
                     ant.state = S_RETURNING
@@ -828,7 +828,7 @@ class World:
         f = self._food_nearby(ant.x, ant.y, 2)
         if f and f["amt"] > 10:
             f["amt"] -= FOOD_PICK
-            if f["amt"] <= 0: self.foods.remove(f)
+            if f["amt"] <= 0: self._deplete_food(f)
             ant.carrying = True; ant.carrying_type = "food"; ant.state = S_RETURNING
             return
 
@@ -926,7 +926,7 @@ class World:
         f2 = self._food_nearby(ant.x, ant.y, 2)
         if f2 and f2["amt"] > 5:
             f2["amt"] -= FOOD_PICK
-            if f2["amt"] <= 0: self.foods.remove(f2)
+            if f2["amt"] <= 0: self._deplete_food(f2)
             ant.carrying = True; ant.carrying_type = "food"; ant.tx = ant.ty = None
             key2 = (f2["x"], f2["y"])
             if key2 not in c.known_food:
@@ -1002,7 +1002,7 @@ class World:
         f = self._food_nearby(ant.x, ant.y, c.scout_detect)
         if f and f["amt"] > 10:
             f["amt"] -= 30
-            if f["amt"] <= 0: self.foods.remove(f)
+            if f["amt"] <= 0: self._deplete_food(f)
             ant.carrying = True
             ant.tx, ant.ty = f["x"], f["y"]
             if (f["x"], f["y"]) not in c.known_food:
@@ -1339,7 +1339,92 @@ class World:
         self._ant_pos.add((nx, ny))
         return True
 
+    def _astar_step(self, sx, sy, tx, ty, max_nodes=200):
+        """Return the first step (nx, ny) of an A* path from (sx,sy) to (tx,ty)
+        that avoids walls/water/rock. Diagonal moves are blocked from cutting wall
+        corners. Returns None if no path is found or the node budget is exceeded
+        (caller falls back to greedy). Only walls/terrain matter — occupied tiles
+        are ignored here and handled by _try_move after the step is chosen."""
+        if (sx, sy) == (tx, ty):
+            return None
+        # gather wall tiles once (cheap: WALL_MAX = 12 segments)
+        walls = {(st["x"], st["y"]) for st in self.structures
+                 if st.get("type") == "wall"}
+
+        def blocked(x, y):
+            if not (0 <= x < MAP_W and 0 <= y < MAP_H):
+                return True
+            if self.terrain[y][x] in (T_WATER, T_ROCK):
+                return True
+            return (x, y) in walls
+
+        # target must be reachable terrain; if the target itself is blocked,
+        # A* can't reach it cleanly — let greedy handle it.
+        if blocked(tx, ty):
+            return None
+
+        def h(x, y):
+            ddx, ddy = abs(x - tx), abs(y - ty)
+            # octile distance (diagonal step = 1, straight step = 1)
+            return max(ddx, ddy)
+
+        open_heap = [(h(sx, sy), 0, sx, sy)]
+        # came_from maps a node to the node it was reached from
+        came_from = {(sx, sy): None}
+        g_score = {(sx, sy): 0}
+        nodes = 0
+        found = False
+        while open_heap and nodes < max_nodes:
+            _, g, x, y = heapq.heappop(open_heap)
+            nodes += 1
+            if (x, y) == (tx, ty):
+                found = True
+                break
+            if g > g_score.get((x, y), float("inf")):
+                continue
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    nx, ny = x + dx, y + dy
+                    if blocked(nx, ny):
+                        continue
+                    # no diagonal corner-cutting through walls/terrain
+                    if dx != 0 and dy != 0:
+                        if blocked(x + dx, y) or blocked(x, y + dy):
+                            continue
+                    ng = g + 1
+                    if ng < g_score.get((nx, ny), float("inf")):
+                        g_score[(nx, ny)] = ng
+                        came_from[(nx, ny)] = (x, y)
+                        heapq.heappush(open_heap, (ng + h(nx, ny), ng, nx, ny))
+        if not found:
+            return None
+        # walk back from target to the node whose parent is the start
+        cur = (tx, ty)
+        while came_from.get(cur) is not None and came_from[cur] != (sx, sy):
+            cur = came_from[cur]
+        if came_from.get(cur) != (sx, sy):
+            return None
+        return cur
+
     def _move_to(self, ant, tx, ty, layer):
+        # A* first step: routes around wall lines (re-planned every tick so
+        # destroyed walls are picked up immediately). Falls back to greedy if
+        # no path is found or the node budget is exceeded.
+        step = self._astar_step(ant.x, ant.y, tx, ty)
+        if step is not None:
+            nx, ny = step
+            if self._try_move(ant, nx, ny):
+                return
+            # A* step blocked by an ant this tick — try the orthogonal
+            # components of that step before falling through to greedy.
+            sdx, sdy = nx - ant.x, ny - ant.y
+            if sdx and sdy:
+                for cx, cy in ((ant.x + sdx, ant.y), (ant.x, ant.y + sdy)):
+                    if self._try_move(ant, cx, cy):
+                        return
+        # ── greedy fallback (original behaviour) ──
         dx = (1 if tx > ant.x else -1) if tx != ant.x else 0
         dy = (1 if ty > ant.y else -1) if ty != ant.y else 0
         cands = [(ant.x+dx, ant.y+dy)]
@@ -1387,6 +1472,13 @@ class World:
 
     def _get_p(self, x, y, layer):
         return 0
+
+    def _deplete_food(self, f):
+        self.foods.remove(f)
+        pos = (f["x"], f["y"])
+        for c in self.colonies:
+            if pos in c.known_food:
+                c.push_notification("food_depleted", {"x": f["x"], "y": f["y"], "kind": f["kind"]}, tick=self.tick)
 
     def _dirt_nearby(self, x, y, radius=3):
         best, best_d = None, radius + 1

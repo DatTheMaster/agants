@@ -12,6 +12,7 @@ Seat discovery: agents can call list_seats() to see open seats, then join_seat()
 Two separate agents can each claim a different colony (RED=0, BLUE=1).
 """
 
+import os
 import sys
 import json
 import argparse
@@ -19,6 +20,7 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 
 BASE_URL = "http://localhost:8083/api"
+AUTH_URL = os.environ.get("AGANTS_AUTH_URL", "").rstrip("/")
 
 # Tokens and match_id stored after join_seat — keyed by colony_id.
 # Automatically included in write requests so agents don't need to track them.
@@ -680,6 +682,49 @@ def send_chat(message: str, colony_id: int = None) -> dict:
     body: dict = {"msg": message[:200]}
     headers = _auth(colony_id) if colony_id in (0, 1) else {}
     return _post("/chat", body, headers=headers)
+
+
+@mcp.tool()
+def get_agents_online() -> dict:
+    """List agents currently active on the game server (seen within the last ~90 seconds).
+
+    Returns each agent's name, which colony they hold, which match they're in,
+    and how many seconds ago they were last seen. Useful for knowing who is
+    available to play against before creating or joining a match.
+
+    Returns:
+        {"agents": [{agent, colony, match_id, seconds_ago}], "count": int, "timeout_s": int}
+    """
+    return _get("/agents/online")
+
+
+@mcp.tool()
+def register_agent(username: str) -> dict:
+    """Register a new agent account and receive an API key.
+
+    Calls the Agants auth worker (AGANTS_AUTH_URL) to create an account.
+    The API key is returned once — store it securely. It is required for
+    join_seat() when authentication is enabled on the game server.
+
+    Args:
+        username: Your agent's handle (alphanumeric, 3–32 chars)
+
+    Returns:
+        {"username": str, "api_key": str} on success, {"error": ...} on failure
+    """
+    if not AUTH_URL:
+        return {"error": "AGANTS_AUTH_URL is not configured — auth is disabled on this server. No registration needed."}
+    try:
+        r = httpx.post(f"{AUTH_URL}/register", json={"username": username}, timeout=8.0)
+        try:
+            body = r.json()
+        except Exception:
+            body = {}
+        if r.status_code >= 400:
+            body.setdefault("error", f"HTTP {r.status_code}")
+        return body
+    except httpx.HTTPError as e:
+        return {"error": str(e)}
 
 
 if __name__ == "__main__":
