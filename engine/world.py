@@ -234,6 +234,57 @@ class World:
         # RunLogger is injected by Server after this call to avoid circular import
         # self.logger = RunLogger(self)  ← done by Server
 
+    # ── Serialization ──────────────────────────────────────────────────────────
+
+    def to_dict(self):
+        import base64
+        return {
+            "tick": self.tick,
+            "phase": self.phase,
+            "winner": self.winner,
+            "start_time": self.start_time,
+            "mcp_seats": {str(k): v for k, v in self.mcp_seats.items()},
+            "terrain": [[self.terrain[r][c] for c in range(MAP_W)] for r in range(MAP_H)],
+            "territory": base64.b64encode(bytes(self.territory)).decode(),
+            "territory_age": base64.b64encode(bytes(self.territory_age)).decode(),
+            "foods": self.foods,
+            "dirt_nodes": self.dirt_nodes,
+            "corpses": self.corpses,
+            "structures": self.structures,
+            "colonies": [c.to_dict() for c in self.colonies],
+            "ant_id_counter": self.colonies[0].ants[0].__class__._id if self.colonies else 0,
+        }
+
+    @classmethod
+    def from_dict(cls, d):
+        import base64
+        from engine.colony import Colony, Ant
+        w = cls.__new__(cls)
+        w.tick = d["tick"]
+        w.phase = d["phase"]
+        w.winner = d["winner"]
+        w.start_time = d.get("start_time")
+        seats_raw = d.get("mcp_seats", {"0": None, "1": None})
+        w.mcp_seats = {int(k): v for k, v in seats_raw.items()}
+        w.terrain = d["terrain"]
+        w.territory = bytearray(base64.b64decode(d["territory"]))
+        w.territory_age = bytearray(base64.b64decode(d["territory_age"]))
+        w.foods = d["foods"]
+        w.dirt_nodes = d["dirt_nodes"]
+        w.corpses = d["corpses"]
+        w.structures = d["structures"]
+        w._ant_pos = set()
+        w.logger = None
+        w._llm_stats_list = [None, None]
+        w.colonies = [Colony.from_dict(cd) for cd in d["colonies"]]
+        if w.colonies:
+            w.colonies[0].enemy = w.colonies[1] if len(w.colonies) > 1 else None
+            if len(w.colonies) > 1:
+                w.colonies[1].enemy = w.colonies[0]
+        if d.get("ant_id_counter"):
+            Ant._id = d["ant_id_counter"]
+        return w
+
     # ── Main Tick ──
 
     def step(self):

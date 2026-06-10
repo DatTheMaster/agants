@@ -63,6 +63,40 @@ class Ant:
         self.birth_config    = {}
         self.unit_override   = None
 
+    def to_dict(self):
+        return {
+            "id": self.id, "x": self.x, "y": self.y,
+            "prev_x": self.prev_x, "prev_y": self.prev_y,
+            "colony": self.colony, "type": self.type, "state": self.state,
+            "carrying": self.carrying, "carrying_type": self.carrying_type,
+            "hp": self.hp, "max_hp": self.max_hp,
+            "cooldown": self.cooldown, "tx": self.tx, "ty": self.ty,
+            "recruit_target": self.recruit_target,
+            "born_tick": self.born_tick, "age": self.age,
+            "behavior_config": self.behavior_config,
+            "birth_config": self.birth_config,
+            "unit_override": self.unit_override,
+        }
+
+    @classmethod
+    def from_dict(cls, d):
+        a = cls.__new__(cls)
+        a.id           = d["id"]
+        a.x            = d["x"];  a.y      = d["y"]
+        a.prev_x       = d["prev_x"]; a.prev_y = d["prev_y"]
+        a.colony       = d["colony"]; a.type   = d["type"]
+        a.state        = d["state"]
+        a.carrying     = d["carrying"]; a.carrying_type = d["carrying_type"]
+        a.hp           = d["hp"];  a.max_hp = d["max_hp"]
+        a.cooldown     = d["cooldown"]; a.tx = d["tx"]; a.ty = d["ty"]
+        a.recruit_target  = d["recruit_target"]
+        a.born_tick    = d["born_tick"]; a.age = d["age"]
+        a.lifespan     = cls.LIFESPAN.get(a.type)
+        a.behavior_config = d.get("behavior_config", {})
+        a.birth_config    = d.get("birth_config", {})
+        a.unit_override   = d.get("unit_override")
+        return a
+
     def resolved_config(self, colony_directive):
         """Merge: individual override > birth_config > directive.unit_types[type] > hardcoded defaults."""
         type_name = ["worker", "soldier", "scout", "queen"][self.type]
@@ -365,6 +399,112 @@ class Colony:
 
         self.emergency_command = None
         self.emergency_ticks_left = 0
+
+    # ── Serialization ──────────────────────────────────────────────────────────
+
+    def to_dict(self):
+        import base64
+        return {
+            "id": self.id, "nx": self.nx, "ny": self.ny,
+            "food": self.food, "dirt": self.dirt, "alive": self.alive,
+            "food_collected": self.food_collected, "ants_lost": self.ants_lost,
+            "prod_timer": self.prod_timer,
+            "directive": self.directive,
+            "build_queue": self.build_queue,
+            "structure_queue": self.structure_queue,
+            "convert_queue": self.convert_queue,
+            "known_food": self.known_food,
+            "known_dirt": self.known_dirt,
+            "food_intel": self.food_intel,
+            "seen_structs": self.seen_structs,
+            "enemy_sightings": self.enemy_sightings,
+            "enemy_scouted_tick": self.enemy_scouted_tick,
+            "enemy_scouted_counts": self.enemy_scouted_counts,
+            "fog_explored": base64.b64encode(bytes(self.fog_explored)).decode(),
+            "trigger_cooldowns": {str(k): v for k, v in self.trigger_cooldowns.items()},
+            "enemy_queen_hp_last_seen": self.enemy_queen_hp_last_seen,
+            "income_per_s": self.income_per_s, "income_smooth": self.income_smooth,
+            "peak_pop": self.peak_pop, "peak_pop_tick": self.peak_pop_tick,
+            "worker_tier": self.worker_tier, "scout_tier": self.scout_tier,
+            "soldier_tier": self.soldier_tier,
+            "worker_upgrade_pending": self.worker_upgrade_pending,
+            "scout_upgrade_pending": self.scout_upgrade_pending,
+            "soldier_upgrade_pending": self.soldier_upgrade_pending,
+            "carry_bonus": self.carry_bonus, "worker_fast": self.worker_fast,
+            "scout_detect": self.scout_detect, "scout_recruit": self.scout_recruit,
+            "scout_fast": self.scout_fast, "spawn_mult": self.spawn_mult,
+            "dmg_bonus": self.dmg_bonus, "soldier_hp_bonus": self.soldier_hp_bonus,
+            "soldier_fast_cd": self.soldier_fast_cd, "soldier_splash": self.soldier_splash,
+            "spawn_queue": self.spawn_queue,
+            "emergency_command": self.emergency_command,
+            "emergency_ticks_left": self.emergency_ticks_left,
+            "ants": [a.to_dict() for a in self.ants],
+        }
+
+    @classmethod
+    def from_dict(cls, d):
+        import base64
+        c = cls.__new__(cls)
+        c.id = d["id"]; c.nx = d["nx"]; c.ny = d["ny"]
+        c.food = d["food"]; c.dirt = d["dirt"]; c.alive = d["alive"]
+        c.food_collected = d["food_collected"]; c.ants_lost = d["ants_lost"]
+        c.prod_timer = d.get("prod_timer", 0)
+        c.directive = d["directive"]
+        c.build_queue = d.get("build_queue", [])
+        c.structure_queue = d.get("structure_queue", [])
+        c.convert_queue = d.get("convert_queue", [])
+        c.known_food = d.get("known_food", [])
+        c.known_dirt = d.get("known_dirt", [])
+        c.food_intel = d.get("food_intel", {})
+        c.seen_structs = d.get("seen_structs", {})
+        c.enemy_sightings = d.get("enemy_sightings", [])
+        c.enemy_scouted_tick = d.get("enemy_scouted_tick", -9999)
+        c.enemy_scouted_counts = d.get("enemy_scouted_counts", [0, 0, 0, 0])
+        c.fog_explored = bytearray(base64.b64decode(d["fog_explored"]))
+        c.fog_visible = set()
+        c.trigger_cooldowns = {k: v for k, v in d.get("trigger_cooldowns", {}).items()}
+        c.alert_states = {}
+        c.enemy_queen_hp_last_seen = d.get("enemy_queen_hp_last_seen")
+        c.income_per_s = d.get("income_per_s", 0.0)
+        c.income_smooth = d.get("income_smooth", 0.0)
+        c.income_history = deque(maxlen=5)
+        c.income_neg_warned = False
+        c.peak_pop = d.get("peak_pop", 0); c.peak_pop_tick = d.get("peak_pop_tick", 0)
+        c.worker_tier  = d.get("worker_tier", 0)
+        c.scout_tier   = d.get("scout_tier", 0)
+        c.soldier_tier = d.get("soldier_tier", 0)
+        c.worker_upgrade_pending  = d.get("worker_upgrade_pending", False)
+        c.scout_upgrade_pending   = d.get("scout_upgrade_pending", False)
+        c.soldier_upgrade_pending = d.get("soldier_upgrade_pending", False)
+        c.carry_bonus     = d.get("carry_bonus", 0)
+        c.worker_fast     = d.get("worker_fast", False)
+        c.scout_detect    = d.get("scout_detect", 5)
+        c.scout_recruit   = d.get("scout_recruit", 8)
+        c.scout_fast      = d.get("scout_fast", False)
+        c.spawn_mult      = d.get("spawn_mult", 1.0)
+        c.dmg_bonus       = d.get("dmg_bonus", 0)
+        c.soldier_hp_bonus = d.get("soldier_hp_bonus", 0)
+        c.soldier_fast_cd  = d.get("soldier_fast_cd", SOLDIER_CD)
+        c.soldier_splash   = d.get("soldier_splash", False)
+        c.spawn_queue = d.get("spawn_queue", [])
+        c.SPAWN_COST = {A_WORKER: 25, A_SOLDIER: 50, A_SCOUT: 35}
+        c.SPAWN_TIME = {A_WORKER: 20, A_SOLDIER: 35, A_SCOUT: 25}
+        c.MAX_SPAWN_QUEUE = 10
+        c.emergency_command = d.get("emergency_command")
+        c.emergency_ticks_left = d.get("emergency_ticks_left", 0)
+        c.events = deque(maxlen=MAX_EVENTS)
+        c.notifications = deque(maxlen=50)
+        c.trigger_log = deque(maxlen=30)
+        c.log_queue = []
+        c.food_prev = c.food
+        c.food_earned_tick = 0.0
+        c.dirt_earned_tick = 0.0
+        c.dirt_per_s = 0.0
+        c.queen_dmg_dealt_tick = 0.0
+        c.queen_dps_actual = 0.0
+        c.enemy = None
+        c.ants = [Ant.from_dict(a) for a in d.get("ants", [])]
+        return c
 
     def push_event(self, msg):
         self.events.appendleft(msg)

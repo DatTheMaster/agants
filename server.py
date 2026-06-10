@@ -1501,16 +1501,125 @@ class Match:
             max_workers=1, thread_name_prefix=f"sim-{self.match_id[:4]}"
         )
 
+    # ── Serialization ──────────────────────────────────────────────────────────
+
+    def to_dict(self):
+        return {
+            "match_id":   self.match_id,
+            "tps":        self.tps,
+            "created_at": self.created_at,
+            "tokens":     self.tokens,
+            "world":      self.world.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, d):
+        m = cls.__new__(cls)
+        m.match_id   = d["match_id"]
+        m.tps        = d.get("tps", TPS)
+        m.created_at = d.get("created_at", time.time())
+        m.tokens     = d.get("tokens", {})
+        m.world      = World.from_dict(d["world"])
+        m.clients    = set()
+        m.llm_memories      = [{}, {}]
+        m.llm_strategy_logs = [[], []]
+        m.llm_stats = [
+            {"calls": 0, "prompt_tok": 0, "completion_tok": 0, "errors": 0},
+            {"calls": 0, "prompt_tok": 0, "completion_tok": 0, "errors": 0},
+        ]
+        m._placement_food     = []
+        m._placement_updates  = []
+        m._placement_start_t  = None
+        m._pending_strategies = deque()
+        m._step_in_progress   = False
+        m._sim_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix=f"sim-{m.match_id[:4]}"
+        )
+        return m
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Server
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class Server:
+    SAVE_DIR    = "data/matches"
+    RESULTS_DIR = "data/results"
+    SAVE_INTERVAL = 60  # ticks between autosaves
+
     def __init__(self):
         self.matches: dict[str, Match] = {}
-        m = self._new_match()
-        self._default_match_id: str = m.match_id
+        os.makedirs(self.SAVE_DIR,    exist_ok=True)
+        os.makedirs(self.RESULTS_DIR, exist_ok=True)
+        saved = self._load_saved_matches()
+        if saved:
+            m = saved[0]
+            self.matches[m.match_id] = m
+            self._default_match_id = m.match_id
+            print(f"♻️   Restored match {m.match_id} at tick {m.world.tick} (phase={m.world.phase})")
+        else:
+            m = self._new_match()
+            self._default_match_id = m.match_id
+
+    # ── Persistence ────────────────────────────────────────────────────────────
+
+    def _save_match(self, m: Match):
+        path = os.path.join(self.SAVE_DIR, f"{m.match_id}.json")
+        tmp  = path + ".tmp"
+        try:
+            with open(tmp, "w") as f:
+                json.dump(m.to_dict(), f)
+            os.replace(tmp, path)
+        except Exception as e:
+            print(f"⚠️  save_match {m.match_id}: {e}")
+
+    def _delete_save(self, m: Match):
+        path = os.path.join(self.SAVE_DIR, f"{m.match_id}.json")
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+
+    def _save_result(self, m: Match):
+        """Write a compact completed-match record for future match history."""
+        w = m.world
+        agents = {str(k): v for k, v in w.mcp_seats.items()}
+        rec = {
+            "match_id":   m.match_id,
+            "created_at": m.created_at,
+            "ended_at":   time.time(),
+            "ticks":      w.tick,
+            "winner":     w.winner,
+            "red_agent":  agents.get("0"),
+            "blue_agent": agents.get("1"),
+            "food_collected": [c.food_collected for c in w.colonies],
+            "ants_lost":      [c.ants_lost      for c in w.colonies],
+        }
+        path = os.path.join(self.RESULTS_DIR, f"{m.match_id}.json")
+        try:
+            with open(path, "w") as f:
+                json.dump(rec, f)
+        except Exception as e:
+            print(f"⚠️  save_result {m.match_id}: {e}")
+
+    def _load_saved_matches(self) -> list:
+        """Load in-progress matches from disk. Returns list of Match objects."""
+        loaded = []
+        for fname in os.listdir(self.SAVE_DIR):
+            if not fname.endswith(".json"):
+                continue
+            path = os.path.join(self.SAVE_DIR, fname)
+            try:
+                with open(path) as f:
+                    d = json.load(f)
+                m = Match.from_dict(d)
+                # Only restore non-finished matches still in a playable phase
+                if m.world.phase in ("running", "paused", "lobby"):
+                    loaded.append(m)
+            except Exception as e:
+                print(f"⚠️  load_match {fname}: {e}")
+        loaded.sort(key=lambda m: m.created_at, reverse=True)
+        return loaded
 
     # ── Match management ───────────────────────────────────────────────────────
 
@@ -1703,9 +1812,16 @@ class Server:
             m._step_in_progress = True
             await loop.run_in_executor(m._sim_executor, m.world.step)
             m._step_in_progress = False
+            tick = m.world.tick
             if m.world.phase == "running":
                 state = m.world.serialize_tick()
                 await self._broadcast(json.dumps(state), m=m)
+            # Autosave every SAVE_INTERVAL ticks; save+record on game over
+            if m.world.winner is not None and tick > 0:
+                self._save_result(m)
+                self._delete_save(m)
+            elif tick > 0 and tick % self.SAVE_INTERVAL == 0:
+                asyncio.get_event_loop().run_in_executor(None, self._save_match, m)
             await asyncio.sleep(max(0, 1.0/m.tps - (time.monotonic()-t0)))
 
     async def llm_loop_for(self, m: Match, colony_id: int):
@@ -2878,6 +2994,13 @@ class Server:
         app.router.add_get("/api/matches/{match_id}/events/{colony_id}",            self.api_events)
         # CORS preflight
         app.router.add_route("OPTIONS", "/api/{path_info:.*}", self.api_options)
+        async def _on_shutdown(_app):
+            for m in list(self.matches.values()):
+                if m.world.phase in ("running", "paused") and m.world.winner is None:
+                    self._save_match(m)
+                    print(f"💾  Saved match {m.match_id} at tick {m.world.tick}")
+
+        app.on_shutdown.append(_on_shutdown)
         runner = web.AppRunner(app)
         await runner.setup()
         await web.TCPSite(runner, "0.0.0.0", 8083).start()
