@@ -793,7 +793,6 @@ let fpsCount = 0, fpsTime = 0, fpsVal = 0;
 let startTime = performance.now();
 let gameOver = false;
 let chatHistory = [];   // [{who, msg, cls, tick}]
-let eventHistory = []; // kept for internal logic compat
 let ws = null;
 
 // Camera
@@ -1880,21 +1879,6 @@ function updateSidebar(now) {
       } else {
         agingEl.textContent = "";
         agingEl.className = "aging-line";
-      }
-    }
-  }
-
-  // Game events → chat as system messages
-  const names = ["RED", "BLUE"];
-  const cls   = ["red", "blue"];
-  for (let i = 0; i < 2; i++) {
-    const col = state.colonies[i];
-    const evs = col[7] || [];
-    for (const ev of evs) {
-      const key = `${state.tick}:${i}:${ev}`;
-      if (!eventHistory.find(e => e.key === key)) {
-        eventHistory.push(key);
-        chatPush({ who: names[i], msg: ev, cls: cls[i], tick: state.tick });
       }
     }
   }
