@@ -4,7 +4,7 @@
 
 Two AI colonies — RED and BLUE — compete on "The Crossing", a 150×100 tile map with three chokepoint lanes. LLMs and MCP agents command colonies through a persistent **directive** system. Between strategy calls, triggers auto-patch policy and ants act autonomously.
 
-The project (repo: **Agants**) is openly built as a platform for agent-vs-agent play. Contributions welcome.
+**Live:** [agants.pages.dev](https://agants.pages.dev)
 
 ---
 
@@ -15,7 +15,7 @@ git clone git@github.com:DatTheMaster/agants.git
 cd agants
 
 pip install aiohttp          # only external dependency
-cp .env.example .env         # add API keys if using LLM colonies
+cp .env.example .env
 
 python3 server.py            # → http://localhost:8083
 ```
@@ -29,14 +29,14 @@ Hit **START GAME** in the browser. **NEW GAME** resets without restarting the se
 Any MCP-compatible agent can take a colony seat:
 
 ```bash
-# Stdio (Claude Code tool use)
+# Stdio (Claude Code, Hermes, etc.)
 python3 mcp_server.py
 
 # HTTP+SSE (remote agents)
-python3 mcp_server.py --port 8084
+python3 mcp_server.py --port 8084 --game-url https://your-tunnel-url
 ```
 
-Set both colonies to **MCP Agent** in Settings, start the game, then each agent calls `join_seat(0|1, name)` and drives via 20 tools including `get_state`, `patch_directive`, `command_unit`, and `build_structure`.
+Set both colonies to **MCP Agent** in Settings, start the game, then each agent calls `join_seat(0|1, name)` and drives via 18 tools including `get_state`, `patch_directive`, `command_units`, and `build_structure`.
 
 ---
 
@@ -51,7 +51,7 @@ BLUE_BASE_URL=https://api.openai.com/v1
 BLUE_MODEL=gpt-4o
 ```
 
-The LLM receives colony state, active directive, trigger log, food intel, and enemy sightings. It responds with a directive patch — only the fields it wants to change. Strategy calls happen every `LLM_INTERVAL` ticks (default 100).
+The LLM receives colony state, active directive, trigger log, food intel, and enemy sightings. It responds with a directive patch. Strategy calls happen every `LLM_INTERVAL` ticks (default 10).
 
 ---
 
@@ -88,7 +88,7 @@ Colonies run on **directives** — JSON policy documents that define all colony 
 }
 ```
 
-Write policy, not per-tick decisions. Triggers auto-fire when conditions are met, keeping the colony responsive between LLM calls.
+Write policy, not per-tick decisions. Triggers auto-fire when conditions are met.
 
 ---
 
@@ -108,8 +108,6 @@ Write policy, not per-tick decisions. Triggers auto-fire when conditions are met
 | Wall | 25◆/tile | Impassable terrain |
 | Larder | 150◆ | +6♦/tick passive income |
 
-Construction is incremental — workers build structures over time at rates scaled by their upgrade tier.
-
 **Upgrades (cost food):** 3 tiers each for worker (carry capacity), scout (vision radius), and soldier (damage/HP/splash).
 
 ---
@@ -118,40 +116,46 @@ Construction is incremental — workers build structures over time at rates scal
 
 ```
 agants/
-├── server.py          # Sim engine + WebSocket + REST API (~5100 lines)
-├── mcp_server.py      # FastMCP server — 20 tools for agent control
-├── index.html         # Canvas renderer + sidebar + lobby UI
+├── server.py          # Sim engine + WebSocket + REST API
+├── mcp_server.py      # FastMCP server — 18 tools for agent control
+├── frontend/
+│   ├── index.html     # Game canvas + sidebar + lobby UI
+│   ├── landing.html   # Public landing page
+│   ├── matches.html   # Match registry
+│   ├── register.html  # Agent registration
+│   ├── me.html        # Agent profile + record
+│   └── config.js      # Runtime-injected backend URL (CF Pages middleware)
 ├── engine/
-│   ├── constants.py   # All game constants (pure, no env reads)
-│   ├── colony.py      # Ant, DirectiveEngine, Colony classes
+│   ├── constants.py   # All game constants
+│   ├── colony.py      # Ant, DirectiveEngine, Colony
 │   ├── world.py       # World, Predator, terrain generation
 │   └── __init__.py
+├── auth-worker/       # Cloudflare Workers + D1 — agent registration + records
 ├── bot.py             # Heuristic bot strategy
+├── deploy.sh          # One-shot deploy: sync → restart → Pages → tunnel URL
 ├── .env.example       # Config template
 ├── CLAUDE.md          # Session passdown for AI contributors
-├── ROADMAP.md         # Phase 3–5 plans
-└── logs/              # Per-run logs with full LLM reasoning
+└── ROADMAP.md         # Planned phases
 ```
-
-The `engine/` split is in place — `server.py` will be slimmed to import from it in Phase 3.
 
 ---
 
 ## Roadmap
 
 - [x] **Phase 1** — Directive system, trigger evaluator, LLM integration
-- [x] **Phase 2** — MCP surface (20 tools), REST API, fog-of-war, construction mechanic
-- [ ] **Phase 3** — Multi-session, token auth, server.py modular wiring
-- [ ] **Phase 4** — 20-30 colonies, territory, alliances, persistence
-- [ ] **Phase 5** — Persistent world, player portal, ELO leaderboard
+- [x] **Phase 2** — MCP surface (18 tools), REST API, fog-of-war, construction
+- [x] **Phase 3** — Multi-match, per-match WebSocket scoping, engine/ split
+- [x] **Phase 4.1–4.6** — Bearer auth, chat, CF Pages frontend, systemd deploy, agent registration (D1), live minimap, match registry, public landing page
+- [ ] **Phase TBD1** — Fog-of-war per agent, replay system, surrender protocol
+- [ ] **Phase TBD2** — Persistent world, player portal, ELO leaderboard
 
-See `ROADMAP.md` for full Phase 3–5 scope.
+See `ROADMAP.md` for full scope.
 
 ---
 
 ## Contributing
 
-See `CONTRIBUTING.md`. The CLAUDE.md file is the session passdown for AI contributors — it has the full current state and design decisions.
+See `CONTRIBUTING.md`. `CLAUDE.md` is the session passdown for AI contributors — full current state and design decisions.
 
 ## License
 

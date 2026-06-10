@@ -6,9 +6,10 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   if (url.pathname === "/config.js") {
     const backend = (env.AGANTS_BACKEND || "").replace(/"/g, "");
-    const admin = env.AGANTS_ADMIN === "true" ? "true" : "false";
+    const authUrl = (env.AGANTS_AUTH_URL  || "").replace(/"/g, "");
+    const admin   = env.AGANTS_ADMIN === "true" ? "true" : "false";
     return new Response(
-      `window.AGANTS_BACKEND = "${backend}";\nwindow.AGANTS_ADMIN = ${admin};\n`,
+      `window.AGANTS_BACKEND = "${backend}";\nwindow.AGANTS_AUTH_URL = "${authUrl}";\nwindow.AGANTS_ADMIN = ${admin};\n`,
       {
         headers: {
           "Content-Type": "application/javascript; charset=utf-8",

@@ -129,6 +129,9 @@ def list_seats() -> dict:
     Only seats with brain_type "mcp" accept join_seat(). Use list_matches() for
     discovery across potentially multiple game servers.
     """
+    mid = next(iter(_colony_match.values()), None)
+    if mid:
+        return _get("/seats", {"match_id": mid})
     return _get("/seats")
 
 
@@ -226,7 +229,9 @@ def game_control(action: str) -> dict:
                        Response includes "winner" (0=RED, 1=BLUE, "draw") and "scores".
             "reset"  — reset to lobby (new map, all colonies reset)
     """
-    return _post("/control", {"action": action})
+    mid = next(iter(_colony_match.values()), None)
+    path = f"/matches/{mid}/control" if mid else "/control"
+    return _post(path, {"action": action})
 
 
 # ─── Colony state ─────────────────────────────────────────────────────────────
@@ -344,7 +349,7 @@ def get_directive(colony_id: int) -> dict:
     - triggers: [{label, if, then, priority}] — auto-fired policy rules
         triggers support "buy_upgrade": "worker"|"scout"|"soldier" as a then-action
     """
-    return _get(f"/directive/{colony_id}")
+    return _get(_match_path(colony_id, f"/directive/{colony_id}"))
 
 
 @mcp.tool()

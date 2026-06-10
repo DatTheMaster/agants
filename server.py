@@ -31,7 +31,7 @@ DESIGN:
     If both queens die same tick → draw.
 """
 
-import asyncio, concurrent.futures, json, math, os, random, re, time, uuid
+import asyncio, concurrent.futures, json, math, os, random, re, resource, time, uuid
 from collections import deque
 from datetime import datetime
 import aiohttp
@@ -62,9 +62,15 @@ _load_dotenv()
 # Constants
 # ═══════════════════════════════════════════════════════════════════════════════
 
-VERSION = "2.12"
+VERSION = "0.1.0"   # semantic; bump only at real releases
+try:
+    import subprocess as _sp
+    BUILD = _sp.check_output(["git", "rev-parse", "--short", "HEAD"],
+                              stderr=_sp.DEVNULL, text=True).strip()
+except Exception:
+    BUILD = "dev"
 
-# Version changelog (bump VERSION every session that changes gameplay or prompts)
+# Internal dev changelog (date-stamped, not tied to VERSION)
 # 1.0 — initial engine: pheromones, food, combat, upgrades, WebSocket renderer
 # 1.1 — directive system, DirectiveEngine, trigger evaluator, LLM prompt v1
 # 1.2 — no-upkeep economy, corpse food, unit conversion, guard post bot, fog-of-war fixes,
@@ -164,12 +170,26 @@ VERSION = "2.12"
 #           sampling=True → edge-triggered (only on False→True transition, no spam);
 #           sampling=False → level-triggered (fires every 30 ticks while condition holds);
 #           namespace is identical to triggers (all trigger variables available in alert conditions)
+# 2.13 — Phase 4.4: GET /health (uptime/version/matches/clients/memory/actual TPS);
+#         structured startup log (TPS, brain types, tunnel URL if present);
+#         log rotation: logs/ capped at LOG_MAX_MB (default 50 MB), oldest run_*.log deleted;
+#         _tick_times deque on Match for actual-vs-target TPS measurement
 # 2.12 — Default TPS 10→1, LLM_INTERVAL 100→15, default brain type bot→mcp
 #         TPS=1 makes live matches watchable and gives agents time for real decision cycles;
 #         LLM_INTERVAL=15 keeps bot/LLM updates on a 15-second cadence at 1 TPS;
 #         default brain type is now "mcp" so both seats advertise as agent-ready out of the box;
 #         empty mcp seat already falls back to update_bot_strategy() — the intelligent planning
 #         bot fills in automatically when only one agent is connected (no dumb dummy opponent)
+# 2.14 — Bug-fix sweep (6 issues):
+#         mcp_server.py: get_directive / list_seats / game_control now target the JOINED match
+#           (were hitting the default match unconditionally via legacy unscoped endpoints);
+#         income_per_s now includes larder income (already accumulated into food_earned_tick)
+#           and a new baseline of +1 food/tick;
+#         minimum income: every living colony gains +1 food/tick during the running phase
+#           (engine/world.py step()) so a 0-worker, 0-larder colony can never permanently stall;
+#         DirectiveEngine triggers support an optional "else" block — applied (same patch
+#           mechanism as "then") when the condition is False, so a trigger can undo its own
+#           patches (e.g. clear military.retreat) instead of latching forever
 
 # ── Brain config ────────────────────────────────────────────────────────────────
 # Each colony is independently "bot" (heuristic) or "llm" (OpenAI-compatible API).
@@ -193,6 +213,9 @@ def _save_providers(providers):
 PROVIDERS = _load_providers()
 
 LLM_INTERVAL = int(os.environ.get("LLM_INTERVAL", "15"))
+LOG_MAX_MB        = int(os.environ.get("LOG_MAX_MB", "50"))
+AGANTS_AUTH_URL    = os.environ.get("AGANTS_AUTH_URL", "")      # e.g. https://agants-auth.workers.dev
+AGANTS_AUTH_SECRET = os.environ.get("AGANTS_AUTH_SECRET", "")  # shared secret for /validate + /match
 
 def _default_llm_brain():
     return {"type": "llm",
@@ -1304,7 +1327,7 @@ class RunLogger:
         n_appr  = sum(1 for f in w.foods if f.get("tier") == "approach")
         n_home  = sum(1 for f in w.foods if f.get("tier") == "home")
         with open(self.path, "w") as f:
-            f.write(f"=== SWARM WARS v{VERSION}  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+            f.write(f"=== AGANTS v{VERSION} ({BUILD})  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
             f.write(f"map={MAP_W}x{MAP_H} | food={n_food} ({n_front}F/{n_appr}A/{n_home}H) | "
                     f"food_max={FOOD_MAX} | regrow={FOOD_REGROW}/tick | pick={FOOD_PICK}\n")
             f.write(f"no-upkeep | corpse=[W12,Sol25,Sc17]♦ | "
@@ -1334,7 +1357,7 @@ class RunLogger:
 
         # Update per-second income and peak population
         for i, c in enumerate(w.colonies):
-            c.income_per_s = c.food_earned_tick  # deliveries in this 10-tick window
+            c.income_per_s = c.food_earned_tick  # food earned this 10-tick window (deliveries + larders + baseline)
             c.food_earned_tick = 0.0
             c.dirt_per_s = c.dirt_earned_tick
             c.dirt_earned_tick = 0.0
@@ -1500,6 +1523,7 @@ class Match:
         self._sim_executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix=f"sim-{self.match_id[:4]}"
         )
+        self._tick_times: deque = deque(maxlen=20)  # monotonic timestamps of recent steps
 
     # ── Serialization ──────────────────────────────────────────────────────────
 
@@ -1535,6 +1559,7 @@ class Match:
         m._sim_executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix=f"sim-{m.match_id[:4]}"
         )
+        m._tick_times = deque(maxlen=20)
         return m
 
 
@@ -1549,8 +1574,10 @@ class Server:
 
     def __init__(self):
         self.matches: dict[str, Match] = {}
+        self._startup_time = time.monotonic()
         os.makedirs(self.SAVE_DIR,    exist_ok=True)
         os.makedirs(self.RESULTS_DIR, exist_ok=True)
+        self._rotate_logs()
         saved = self._load_saved_matches()
         if saved:
             m = saved[0]
@@ -1584,6 +1611,8 @@ class Server:
         """Write a compact completed-match record for future match history."""
         w = m.world
         agents = {str(k): v for k, v in w.mcp_seats.items()}
+        # Collect user_ids from active tokens for each colony
+        user_ids = {e["colony_id"]: e.get("user_id") for e in m.tokens.values()}
         rec = {
             "match_id":   m.match_id,
             "created_at": m.created_at,
@@ -1601,6 +1630,13 @@ class Server:
                 json.dump(rec, f)
         except Exception as e:
             print(f"⚠️  save_result {m.match_id}: {e}")
+        # Determine winner user_id
+        winner_uid = None
+        if w.winner == 0:
+            winner_uid = user_ids.get(0)
+        elif w.winner == 1:
+            winner_uid = user_ids.get(1)
+        self._post_match_result(rec, user_ids.get(0), user_ids.get(1), winner_uid)
 
     def _load_saved_matches(self) -> list:
         """Load in-progress matches from disk. Returns list of Match objects."""
@@ -1812,6 +1848,7 @@ class Server:
             m._step_in_progress = True
             await loop.run_in_executor(m._sim_executor, m.world.step)
             m._step_in_progress = False
+            m._tick_times.append(time.monotonic())
             tick = m.world.tick
             if m.world.phase == "running":
                 state = m.world.serialize_tick()
@@ -2046,7 +2083,17 @@ class Server:
             print(f"    ❌ debrief error after {elapsed:.2f}s: {e}\n")
 
     async def on_index(self, req):
+        return web.FileResponse("./frontend/landing.html")
+
+    async def on_game(self, req):
         return web.FileResponse("./frontend/index.html")
+
+    async def on_static_html(self, req):
+        name = req.match_info["page"]
+        allowed = {"register.html", "me.html", "matches.html"}
+        if name not in allowed:
+            return web.Response(status=404)
+        return web.FileResponse(f"./frontend/{name}")
 
     async def on_config_js(self, req):
         return web.FileResponse("./frontend/config.js")
@@ -2233,6 +2280,7 @@ class Server:
                 "tick":     m.world.tick,
                 "map":      "The Crossing (150×100)",
                 "seats":    seats,
+                "winner":   m.world.winner,
                 "created_at": m.created_at,
             })
         return await self._api_cors(web.json_response({"matches": result}))
@@ -2270,6 +2318,16 @@ class Server:
         except Exception:
             body = {}
         agent = body.get("agent_name", f"MCP-{cid}")
+        # Auth: if AGANTS_AUTH_URL is set, api_key is required
+        user_id = None
+        if AGANTS_AUTH_URL:
+            api_key = body.get("api_key", "")
+            user = await self._validate_api_key(api_key)
+            if not user:
+                return await self._api_cors(web.json_response(
+                    {"error": "invalid or missing api_key — register at /register"}, status=401))
+            user_id = user["id"]
+            agent   = user.get("username", agent)  # prefer registered name
         if m.world.mcp_seats.get(cid) is not None:
             return await self._api_cors(web.json_response({"error": "seat occupied", "agent": m.world.mcp_seats[cid]}, status=409))
         m.world.mcp_seats[cid] = agent
@@ -2277,7 +2335,7 @@ class Server:
         _save_config({key: {"type": "mcp", "agent": agent}})
         self._revoke_colony_token(cid, m)
         token = str(uuid.uuid4())
-        m.tokens[token] = {"colony_id": cid, "agent": agent}
+        m.tokens[token] = {"colony_id": cid, "agent": agent, "user_id": user_id}
         await self._broadcast(json.dumps({"type": "seat_joined", "colony_id": cid, "agent": agent}), m=m)
         return await self._api_cors(web.json_response({
             "ok": True, "colony_id": cid, "agent": agent,
@@ -2956,12 +3014,105 @@ class Server:
             "created_at": m.created_at,
         }))
 
+    async def _validate_api_key(self, key: str) -> "dict | None":
+        """Call auth worker /validate. Returns {id, username} or None on failure."""
+        if not AGANTS_AUTH_URL or not key:
+            return None
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.post(
+                    f"{AGANTS_AUTH_URL.rstrip('/')}/validate",
+                    json={"api_key": key},
+                    headers={"X-Internal-Secret": AGANTS_AUTH_SECRET},
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+        except Exception as e:
+            print(f"⚠️  auth validate error: {e}")
+        return None
+
+    def _post_match_result(self, rec: dict, red_uid, blue_uid, winner_uid):
+        """Fire-and-forget: POST completed match to auth worker."""
+        if not AGANTS_AUTH_URL:
+            return
+        async def _send():
+            try:
+                async with aiohttp.ClientSession() as s:
+                    await s.post(
+                        f"{AGANTS_AUTH_URL.rstrip('/')}/match",
+                        json={
+                            "match_id":       rec["match_id"],
+                            "red_user_id":    red_uid,
+                            "blue_user_id":   blue_uid,
+                            "winner_user_id": winner_uid,
+                            "ticks":          rec["ticks"],
+                            "ended_at":       int(rec["ended_at"]),
+                            "result_path":    f"data/results/{rec['match_id']}.json",
+                        },
+                        headers={"X-Internal-Secret": AGANTS_AUTH_SECRET},
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    )
+            except Exception as e:
+                print(f"⚠️  auth match post error: {e}")
+        asyncio.create_task(_send())
+
+    def _rotate_logs(self):
+        """Delete oldest run_*.log files until logs/ is under LOG_MAX_MB."""
+        log_dir = "logs"
+        try:
+            entries = [e for e in os.scandir(log_dir)
+                       if e.name.startswith("run_") and e.name.endswith(".log")]
+        except FileNotFoundError:
+            return
+        entries.sort(key=lambda e: e.stat().st_mtime)
+        total = sum(e.stat().st_size for e in entries)
+        limit = LOG_MAX_MB * 1024 * 1024
+        while total > limit and len(entries) > 1:
+            victim = entries.pop(0)
+            total -= victim.stat().st_size
+            os.remove(victim.path)
+            print(f"🗑️  Rotated log {victim.name}")
+
+    async def api_health(self, req):
+        uptime = time.monotonic() - self._startup_time
+        clients = sum(len(m.clients) for m in self.matches.values())
+        mem_mb  = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024  # KB→MB on Linux
+        match_info = []
+        for m in self.matches.values():
+            tt = m._tick_times
+            if len(tt) >= 2:
+                actual_tps = round((len(tt) - 1) / (tt[-1] - tt[0]), 2)
+            else:
+                actual_tps = None
+            match_info.append({
+                "match_id":   m.match_id,
+                "phase":      m.world.phase,
+                "tick":       m.world.tick,
+                "tps_target": m.tps,
+                "tps_actual": actual_tps,
+            })
+        return await self._api_cors(web.json_response({
+            "status":          "ok",
+            "version":         VERSION,
+            "build":           BUILD,
+            "uptime_s":        round(uptime, 1),
+            "active_matches":  len(self.matches),
+            "connected_clients": clients,
+            "memory_mb":       round(mem_mb, 1),
+            "matches":         match_info,
+        }))
+
     async def run(self):
         app = web.Application()
         app.router.add_get("/", self.on_index)
+        app.router.add_get("/game", self.on_game)
+        app.router.add_get("/game/", self.on_game)
+        app.router.add_get("/{page:(register|me|matches)\\.html}", self.on_static_html)
         app.router.add_get("/config.js", self.on_config_js)
         app.router.add_get("/ws", self.on_ws)
         app.router.add_get("/ws/{match_id}", self.on_ws_match)
+        app.router.add_get("/health", self.api_health)
         # REST API — match management
         app.router.add_get( "/api/matches",              self.api_matches)
         app.router.add_post("/api/matches",              self.api_create_match)
@@ -3004,8 +3155,23 @@ class Server:
         runner = web.AppRunner(app)
         await runner.setup()
         await web.TCPSite(runner, "0.0.0.0", 8083).start()
-        print("🐜  Agants — http://localhost:8083")
-        print("🔌  MCP REST API — http://localhost:8083/api/")
+        red_type  = _brain_for(0)["type"]
+        blue_type = _brain_for(1)["type"]
+        print(f"🐜  Agants v{VERSION} ({BUILD}) — http://localhost:8083")
+        print(f"   TPS={TPS} | LLM_INTERVAL={LLM_INTERVAL} | RED={red_type} | BLUE={blue_type}")
+        print(f"   logs/ cap={LOG_MAX_MB} MB | health → http://localhost:8083/health")
+        tunnel_log = os.path.join(os.path.dirname(__file__), "logs", "cloudflared.log")
+        try:
+            import subprocess
+            tunnel_url = subprocess.check_output(
+                ["grep", "-o", "https://[^ ]*trycloudflare.com", tunnel_log],
+                stderr=subprocess.DEVNULL, text=True
+            ).strip().splitlines()
+            if tunnel_url:
+                print(f"   tunnel → {tunnel_url[-1]}")
+        except Exception:
+            pass
+        print(f"🔌  MCP REST API — http://localhost:8083/api/")
         self._start_match_tasks(self._m)
         await asyncio.Future()  # run forever; tasks are started above
 

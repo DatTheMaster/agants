@@ -2,7 +2,7 @@
 # Print the current public tunnel URL (trycloudflare.com).
 # Run this after the cloudflared-agants service starts to get the backend URL
 # for updating Cloudflare Pages AGANTS_BACKEND or local config.js.
-LOGFILE="$HOME/projects/swarm-wars/logs/cloudflared.log"
+LOGFILE="$HOME/projects/agants/logs/cloudflared.log"
 if [[ ! -f "$LOGFILE" ]]; then
   echo "No cloudflared log found at $LOGFILE" >&2
   exit 1

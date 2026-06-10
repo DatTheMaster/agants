@@ -4,12 +4,12 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/projects/swarm-wars
+WorkingDirectory=%h/projects/agants
 ExecStart=/usr/bin/python3 server.py
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:%h/projects/swarm-wars/logs/server.log
-StandardError=append:%h/projects/swarm-wars/logs/server.log
+StandardOutput=append:%h/projects/agants/logs/server.log
+StandardError=append:%h/projects/agants/logs/server.log
 
 [Install]
 WantedBy=default.target

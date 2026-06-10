@@ -295,6 +295,13 @@ class World:
 
         self.tick += 1
 
+        # Minimum income: every living colony gets +1 food/tick during running phase.
+        # Prevents permanent stalls (0 workers + no larders would otherwise be 0 income).
+        for c in self.colonies:
+            if c.alive:
+                c.food += 1
+                c.food_earned_tick += 1
+
         # Rebuild occupancy set for soft collision avoidance
         self._ant_pos = {(a.x, a.y) for c in self.colonies for a in c.ants}
 

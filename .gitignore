@@ -19,6 +19,8 @@ data/
 
 # Agent workspaces
 .hermes/
+HERMES_TESTS/
+TEMP/
 
 # Build artifacts
 dist/

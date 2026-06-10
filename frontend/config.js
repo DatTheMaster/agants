@@ -6,6 +6,10 @@
 // Set to your cloudflared tunnel URL when deploying frontend separately on Pages.
 window.AGANTS_BACKEND = window.AGANTS_BACKEND || "";
 
+// Auth worker URL.  Empty string = auth disabled (open access, no accounts required).
+// Set to your agants-auth CF Worker URL when deploying with accounts.
+window.AGANTS_AUTH_URL = window.AGANTS_AUTH_URL || "";
+
 // Admin mode — shows the ⚙ Settings panel (for local dev / private installs only).
 // Auto-true on localhost; false everywhere else unless explicitly overridden.
 window.AGANTS_ADMIN = window.AGANTS_ADMIN !== undefined

@@ -13,7 +13,7 @@ set -e
 REMOTE_HOST="192.168.1.100"
 REMOTE_PORT="2222"
 REMOTE_USER="deshiel"
-REMOTE_DIR="~/projects/swarm-wars"
+REMOTE_DIR="~/projects/agants"
 SSH_KEY="$HOME/.ssh/id_ed25519_desktop"
 SSH="ssh -p $REMOTE_PORT -i $SSH_KEY $REMOTE_USER@$REMOTE_HOST"
 RSYNC_SSH="ssh -p $REMOTE_PORT -i $SSH_KEY"
@@ -25,7 +25,7 @@ CF_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 MODE="${1:-}"
 
 _get_tunnel_url() {
-  $SSH "bash ~/projects/swarm-wars/tunnel-url.sh 2>/dev/null"
+  $SSH "bash ~/projects/agants/tunnel-url.sh 2>/dev/null"
 }
 
 _sync() {
@@ -61,30 +61,28 @@ if [[ "$MODE" == "--pages" ]]; then
     exit 1
   fi
   echo "    Tunnel URL: $TUNNEL_URL"
-  echo "==> Updating AGANTS_BACKEND on Cloudflare Pages …"
-  RESULT=$(curl -s -X PATCH \
-    "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/pages/projects/${CF_PAGES_PROJECT}" \
-    -H "Authorization: Bearer ${CF_TOKEN}" \
-    -H "Content-Type: application/json" \
-    --data '{
-      "deployment_configs": {
-        "production": {
-          "env_vars": {
-            "AGANTS_BACKEND": {"value": "'"$TUNNEL_URL"'"},
-            "AGANTS_ADMIN": {"value": "false"}
-          }
-        }
-      }
-    }')
-  if echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('success') else 1)" 2>/dev/null; then
-    echo "    Env var updated."
-  else
-    echo "    WARNING: env var update may have failed. Response: $RESULT"
-  fi
+  # CF Pages Functions read env vars from Worker bindings baked in at deploy time,
+  # not from dashboard env vars at runtime. Inject via wrangler.toml [vars] before
+  # deploying, then restore the placeholder afterwards.
+  FRONTEND_DIR="$(cd "$(dirname "$0")/frontend" && pwd)"
+  WRANGLER_TOML="$FRONTEND_DIR/wrangler.toml"
+  WRANGLER_BACKUP=$(cat "$WRANGLER_TOML")
+  cat > "$WRANGLER_TOML" << TOML
+name = "agants"
+pages_build_output_dir = "."
+compatibility_date = "2024-09-23"
+
+[vars]
+AGANTS_BACKEND = "${TUNNEL_URL}"
+AGANTS_AUTH_URL = ""
+AGANTS_ADMIN = "false"
+TOML
   echo "==> Deploying frontend/  to Cloudflare Pages …"
-  cd "$(dirname "$0")/frontend"
-  CLOUDFLARE_API_TOKEN="$CF_TOKEN" npx wrangler pages deploy . \
+  cd "$FRONTEND_DIR"
+  CLOUDFLARE_API_TOKEN="$CF_TOKEN" CLOUDFLARE_ACCOUNT_ID="$CF_ACCOUNT" npx wrangler pages deploy . \
     --project-name "$CF_PAGES_PROJECT" --branch main --commit-dirty=true
+  # Restore placeholder wrangler.toml (URL must not be committed)
+  echo "$WRANGLER_BACKUP" > "$WRANGLER_TOML"
   echo "==> Pages deploy complete. Site: https://${CF_PAGES_PROJECT}.pages.dev"
   exit 0
 fi
@@ -107,11 +105,11 @@ if [[ "$MODE" == "--install" ]]; then
   echo "==> First-time install …"
   $SSH bash << 'REMOTE'
     set -e
-    [ -f ~/projects/swarm-wars/.env ] || cp ~/projects/swarm-wars/.env.example ~/projects/swarm-wars/.env
+    [ -f ~/projects/agants/.env ] || cp ~/projects/agants/.env.example ~/projects/agants/.env
     loginctl enable-linger "$USER" 2>/dev/null || true
     mkdir -p ~/.config/systemd/user
-    cp ~/projects/swarm-wars/deploy/agants.service ~/.config/systemd/user/agants.service
-    cp ~/projects/swarm-wars/deploy/cloudflared-agants.service ~/.config/systemd/user/cloudflared-agants.service
+    cp ~/projects/agants/deploy/agants.service ~/.config/systemd/user/agants.service
+    cp ~/projects/agants/deploy/cloudflared-agants.service ~/.config/systemd/user/cloudflared-agants.service
     systemctl --user daemon-reload
     systemctl --user enable agants.service cloudflared-agants.service
     echo "Services enabled. Run: systemctl --user start agants cloudflared-agants"

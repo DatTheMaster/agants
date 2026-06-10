@@ -5,7 +5,7 @@ Contributions are welcome. This is a small project with a fast-moving codebase â
 ## Setup
 
 ```bash
-git clone git@github.com:DatTheMaster/swarm-wars.git agants
+git clone git@github.com:DatTheMaster/agants.git
 cd agants
 pip install aiohttp
 cp .env.example .env

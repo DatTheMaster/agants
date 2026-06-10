@@ -6,13 +6,13 @@ Wants=agants.service
 [Service]
 Type=simple
 # Quick Tunnel — no domain or CF dashboard config required.
-# Generates a public *.trycloudflare.com URL on each start; URL is written
-# to ~/projects/swarm-wars/logs/tunnel-url.txt by the companion oneshot unit.
+# Generates a public *.trycloudflare.com URL on each start; written to
+# ~/projects/agants/logs/cloudflared.log.
 # When a custom domain is available, replace with:
 #   ExecStart=%h/.local/bin/cloudflared tunnel run --token ${AGANTS_TUNNEL_TOKEN}
 # and configure a public hostname in the Cloudflare Zero Trust dashboard.
 ExecStart=%h/.local/bin/cloudflared tunnel --url http://localhost:8083 \
-  --logfile %h/projects/swarm-wars/logs/cloudflared.log
+  --logfile %h/projects/agants/logs/cloudflared.log
 Restart=on-failure
 RestartSec=10
 

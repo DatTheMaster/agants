@@ -532,7 +532,7 @@ canvas { display: block; }
     </div>
 
     <div id="lobby-overlay">
-      <h2>SWARM WARS</h2>
+      <h2>AGANTS</h2>
       <div style="color:#888;font-size:13px">Configure brain types in Settings, then start the game.</div>
       <button class="lobby-start" onclick="sendCtrl('start')">▶ START GAME</button>
       <div id="lobby-seats" style="font-size:11px;color:#556;margin-top:4px"></div>
@@ -547,7 +547,7 @@ canvas { display: block; }
 
   <div id="panel">
     <div id="header">
-      <h1>SWARM WARS</h1>
+      <h1><a href="/" style="color:inherit;text-decoration:none;">AGANTS</a></h1>
       <span id="clock">T+0</span>
       <div id="game-controls">
         <button class="ctrl-btn start" id="btn-start" onclick="sendCtrl('start')" title="Start game">▶ START</button>
@@ -644,6 +644,9 @@ canvas { display: block; }
       <div id="chat-input-row">
         <input id="chat-input" type="text" maxlength="200" placeholder="spectator message…" autocomplete="off">
         <button id="chat-send" onclick="chatSend()">Send</button>
+      </div>
+      <div id="chat-auth-prompt" style="display:none;font-size:11px;color:#444;padding:4px 0;">
+        <a id="chat-register-link" href="/register.html" style="color:#566;text-decoration:underline;">Register</a> to chat
       </div>
     </div>
 
@@ -855,7 +858,9 @@ function _wsUrl(path) {
 }
 
 function connect() {
-  ws = new WebSocket(_wsUrl("/ws"));
+  const matchId = new URLSearchParams(location.search).get("match");
+  const wsPath = matchId ? `/ws/${encodeURIComponent(matchId)}` : "/ws";
+  ws = new WebSocket(_wsUrl(wsPath));
   ws.onopen = () => { document.getElementById("status").textContent = "live"; };
   ws.onclose = () => {
     ws = null;
@@ -1927,9 +1932,38 @@ function chatSend() {
   input.value = "";
 }
 
+// Chat auth gating — called once on load; hides/shows input vs register prompt
+function initChatAuth() {
+  const authUrl = window.AGANTS_AUTH_URL || "";
+  if (!authUrl) return;  // auth disabled — input always visible
+  const inputRow  = document.getElementById("chat-input-row");
+  const authPrompt = document.getElementById("chat-auth-prompt");
+  const regLink   = document.getElementById("chat-register-link");
+  if (regLink) regLink.href = authUrl.replace(/\/$/, "") + "/register" + "?return=" + encodeURIComponent(location.href);
+  const key = localStorage.getItem("agants_api_key");
+  if (key) {
+    // Verify the stored key is still valid
+    fetch(authUrl.replace(/\/$/, "") + "/me?key=" + encodeURIComponent(key))
+      .then(r => r.ok ? r.json() : null)
+      .then(user => {
+        if (user) {
+          window._agants_user = user;
+        } else {
+          localStorage.removeItem("agants_api_key");
+          if (inputRow)  inputRow.style.display  = "none";
+          if (authPrompt) authPrompt.style.display = "";
+        }
+      }).catch(() => {});
+  } else {
+    if (inputRow)  inputRow.style.display  = "none";
+    if (authPrompt) authPrompt.style.display = "";
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const inp = document.getElementById("chat-input");
   if (inp) inp.addEventListener("keydown", e => { if (e.key === "Enter") chatSend(); });
+  initChatAuth();
 
   // Show settings gear only for admin/local installs
   if (window.AGANTS_ADMIN) {

@@ -12,14 +12,70 @@ a fixed 150×100 3-lane map. LLMs and MCP agents command colonies via a persiste
 - **DEVELOPMENT.md** — architecture and contributor guide
 - **server.py header** — terse version changelog
 
+**Model dispatch:** Claude Sonnet is the default. Spawn Fable or Opus via the Agent tool
+when the task is complex enough to justify it (multi-file architecture, deep reasoning,
+long-context review). You may do this without asking the user first.
+
 ---
 
-## Current State (2026-06-10, session 19 — Phase 4.2)
+## Current State (2026-06-10, session 22 — Phase 4.6 complete)
+
+**Version policy: VERSION = "0.1.0" — semantic, only bump at real releases.
+BUILD = git short hash (set at startup). Never bump VERSION in dev — use the server.py
+dev changelog and date-stamp entries instead. Vault note: [[projects/Agants]].**
 
 **Phase 1 (directive system) COMPLETE. Phase 2 (MCP surface) COMPLETE. Phase 3 COMPLETE.**
-**Phase 4.1 (frontend structure + UI polish) COMPLETE (session 18).**
-**Phase 4.2 (game server deployed to home server + Cloudflare Pages) COMPLETE (session 19).**
-Next: Phase 4.3 (persistence) or Phase 4.4 (health endpoint). See ROADMAP.md for scope.
+**Phase 4.1–4.6 all COMPLETE (sessions 20–22). Server routing + CF Pages deployment
+pipeline working. Frontend live at `agants.pages.dev`. Next: buy domain → stable URL;
+activate auth worker when users arrive.**
+
+**Phase 4.6 frontend (session 21 — this session):**
+- **`frontend/landing.html`** — public landing page: hero ("TWO COLONIES. ONE MAP. NO HUMANS.")
+  with ant-trail ambient animation on the map's 3 lanes; live stats from `/api/matches` +
+  `/health` (graceful "—" when unreachable); **live minimap canvas** that connects to `/ws`
+  and renders territory/food/structures/ants at 4px/tile (overlay "AWAITING AGENTS" in lobby);
+  MCP config snippet + CTA buttons. Design system: IBM Plex Mono, warm near-black, hairline
+  borders, corner-bracketed panels, colony red/blue + amber accents, grid + grain backdrop.
+- **`frontend/register.html`** redesigned ("credential issuance") — same endpoints/behavior;
+  added Enter-to-submit and a decrypt-style key reveal animation. **Fixed latent bug**: result
+  pane used `style.display=""` against a CSS `display:none` rule, so the key was never shown.
+- **`frontend/me.html`** redesigned ("service record") — scoreboard W/L/D with win-rate bar,
+  key show/hide toggle, record-visibility toggle. Same endpoints. Same display-"" bug fixed.
+- **`frontend/matches.html`** — match registry: status dot (running=pulsing/lobby=amber/
+  ended=hollow), RED vs BLUE seat names + brain tags, phase, tick, outcome; rows link to
+  `/game?match={id}`; refreshes every 5 s (paused when tab hidden); active-first sort.
+- **server.py (2 small fixes)**: `/api/matches` now includes `winner` per match;
+  `/health` response wrapped in `_api_cors` (Pages frontend couldn't read it cross-origin).
+- All pages: nav links assume `/` = landing and `/game` = canvas (routing not yet done);
+  every page loads `/config.js` and prefixes fetches with `AGANTS_BACKEND`.
+- Verified via Playwright screenshots against a live bot match (minimap rendered real
+  territory/ants at tick ~100; all auth states stubbed and checked).
+
+**Phase 4.5 (session 20 — this session):**
+- **`auth-worker/`** — new CF Workers + D1 project: `wrangler.toml`, `schema.sql`,
+  `src/index.js`. Routes: `POST /register`, `GET /me`, `POST /validate` (internal),
+  `POST /hide-record`, `POST /match` (internal). `/validate` + `/match` gated by
+  `X-Internal-Secret` header (shared with game server via `AGANTS_AUTH_SECRET` env var).
+- **`server.py`** — `AGANTS_AUTH_URL` + `AGANTS_AUTH_SECRET` env vars. `_validate_api_key()`
+  async helper (calls `/validate`). `api_join_seat` rejects with 401 if auth is enabled and
+  `api_key` is invalid; stores `user_id` in token entry; uses registered username.
+  `_save_result` calls `_post_match_result()` (fire-and-forget) with colony user IDs.
+- **`frontend/register.html`** — registration form; key shown once, stored in `localStorage`.
+- **`frontend/me.html`** — profile page: W/L/D record, API key reveal/copy, hide-record toggle.
+- **`frontend/index.html`** — `initChatAuth()`: when auth enabled + no stored key, hides
+  chat input and shows "Register to chat" link. Verifies stored key against `/me` on load.
+- **`frontend/config.js` + `_middleware.js`** — `AGANTS_AUTH_URL` injected from CF Pages env.
+- **Auth is fully optional** — if `AGANTS_AUTH_URL` is unset, everything works open-access.
+
+**Phase 4.4 (session 20 — this session):**
+- **`GET /health`** — returns `{status, version, uptime_s, active_matches, connected_clients,
+  memory_mb, matches[{match_id, phase, tick, tps_target, tps_actual}]}`. Open endpoint (no auth).
+- **`Match._tick_times`** — `deque(maxlen=20)` of monotonic timestamps appended after each
+  `world.step()`. `tps_actual = (n-1) / (last - first)` when ≥2 samples; `null` in lobby.
+- **Structured startup log** — prints `Agants vX.YZ | TPS=N | LLM_INTERVAL=N | RED=X | BLUE=Y`
+  and `tunnel → <url>` if `logs/cloudflared.log` contains a trycloudflare URL.
+- **Log rotation** — `Server._rotate_logs()` called at startup; deletes oldest `run_*.log` files
+  until `logs/` total is under `LOG_MAX_MB` (default 50, configurable via env var).
 
 **Phase 4.2 (session 19 — this session):**
 - **`agants.service`** — systemd user unit for `python3 server.py` on remote WSL machine
@@ -173,6 +229,37 @@ demo mode for now — all matches fully public. ROADMAP.md Phase TBD2 covers the
 - **reserve_food default 150→50, worker 35-tile distance preference** (v2.11)
 - **`state` field in REST units, filter_state fixed** (v2.11)
 
+**Session 22 — rename sweep + deployment + routing:**
+- **Project rename complete** — all "swarm-wars" refs gone from service files, hermes config,
+  scripts, docs; HERMES_TESTS/ and TEMP/ added to `.gitignore`.
+- **CF Pages deployment fixed** — `wrangler.toml [vars]` injected with tunnel URL before
+  `wrangler pages deploy`, restored to placeholder after. Required because CF Pages Functions
+  read env vars baked in at deploy time, not from dashboard at runtime.
+  `deploy.sh --pages` handles this end-to-end.
+- **`frontend/_redirects`** — `/game` → `/game/` (302) → `index.html` (200); `/` → `landing.html`
+  (302) last; specific rules must precede `/` or it acts as a catch-all.
+- **Match-watch routing** — `index.html` reads `?match=` URL param and opens `/ws/{match_id}`
+  instead of the default `/ws`; clicking a match row on `matches.html` lands the right game.
+- **Landing page** — stats filter to `winner == null` only (ended matches excluded); Watch
+  nav link removed (matches page is the preferred entry); "Open full view →" → "View matches →".
+- **Auth worker** — email field dropped; registration is username-only. Worker code is complete
+  but NOT deployed (`AGANTS_AUTH_URL` empty; game runs open-access). See memory file for
+  activation steps.
+- **`deploy.sh`** — fixed CF API PATCH `"type": "plain_text"` requirement; fixed wrangler
+  restore path (absolute `FRONTEND_DIR` computed before `cd`).
+- **`server.py`** — `/game/` route added; `v2.14` changelog entry.
+- **README.md** rewritten for public-facing state (phases 1–4 complete, 18 MCP tools, deploy story).
+
+**Bug-fix sweep (v2.14 — session 22):**
+- mcp_server.py `get_directive` / `list_seats` / `game_control` now target the joined
+  match (were hitting the default match via legacy unscoped endpoints)
+- `income_per_s` includes larder income + a new +1/tick baseline (via `food_earned_tick`)
+- Minimum income: every living colony gains +1 food/tick during running phase
+  (engine/world.py `step()`) — a 0-worker, 0-larder colony can never permanently stall
+- Triggers support an optional `"else"` block (same patch mechanism as `"then"`, applied
+  when the condition is False) — lets a trigger undo its own patches instead of latching
+  (e.g. `"else": {"military.retreat": false}` clears retreat once the emergency passes)
+
 **Known remaining issues (Phase 2 polish):**
 - Enemies walk through walls (pathfinder ignores walls for combat moves)
 - Buildings placeable anywhere (no proximity-to-own-unit check)
@@ -185,12 +272,19 @@ demo mode for now — all matches fully public. ROADMAP.md Phase TBD2 covers the
 - Replay system, surrender/negotiate protocol (Phase TBD1+)
 - Resource trading, large map, MMO colonies (Phase TBD1/TBD2)
 
+**Near-term deferred (no userbase yet):**
+- Domain purchase → CF Zero Trust public hostname → stable tunnel URL (replaces trycloudflare)
+- Auth worker activation (D1 create, `wrangler deploy`) → see memory file for exact steps
+- `register_agent(username)` MCP tool for agent-native self-registration
+- Multi-match UI (create match button; currently agents only via `create_match()` MCP tool)
+- Ended match cleanup (matches accumulate; no expiry yet)
+
 ---
 
 ## Run
 
 ```bash
-cd ~/projects/swarm-wars
+cd ~/projects/agants
 python3 server.py        # http://localhost:8083 — "NEW GAME" button resets
 
 # MCP agent control:

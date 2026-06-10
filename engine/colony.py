@@ -262,25 +262,28 @@ class DirectiveEngine:
                     continue
             try:
                 expr = condition.replace(" AND ", " and ").replace(" OR ", " or ")
-                if eval(expr, {"__builtins__": {}}, ns):  # noqa: S307 — restricted namespace
-                    then = trigger.get("then", {})
-                    if then:
-                        buy_upg = then.get("buy_upgrade")
-                        patch_keys = {k: v for k, v in then.items() if k != "buy_upgrade"}
-                        if patch_keys:
-                            DirectiveEngine.patch(colony, patch_keys)
-                        if buy_upg and buy_upg in ("worker", "scout", "soldier"):
-                            setattr(colony, f"{buy_upg}_upgrade_pending", True)
-                        if cooldown > 0:
-                            colony.trigger_cooldowns[label] = world.tick
-                        recent = [e for e in colony.trigger_log
-                                  if e["label"] == label and world.tick - e["tick"] < 5]
-                        if not recent:
-                            colony.trigger_log.append({
-                                "tick":    world.tick,
-                                "label":   label,
-                                "patches": then,
-                            })
+                fired = bool(eval(expr, {"__builtins__": {}}, ns))  # noqa: S307 — restricted namespace
+                # Pick the active block: `then` when condition holds, else the
+                # optional `else` block (lets a trigger undo its own patches when
+                # the condition no longer holds — e.g. clear military.retreat).
+                block = trigger.get("then", {}) if fired else trigger.get("else", {})
+                if block and (fired or "else" in trigger):
+                    buy_upg = block.get("buy_upgrade")
+                    patch_keys = {k: v for k, v in block.items() if k != "buy_upgrade"}
+                    if patch_keys:
+                        DirectiveEngine.patch(colony, patch_keys)
+                    if buy_upg and buy_upg in ("worker", "scout", "soldier"):
+                        setattr(colony, f"{buy_upg}_upgrade_pending", True)
+                    if cooldown > 0:
+                        colony.trigger_cooldowns[label] = world.tick
+                    recent = [e for e in colony.trigger_log
+                              if e["label"] == label and world.tick - e["tick"] < 5]
+                    if not recent:
+                        colony.trigger_log.append({
+                            "tick":    world.tick,
+                            "label":   label,
+                            "patches": block,
+                        })
             except Exception:
                 pass
 

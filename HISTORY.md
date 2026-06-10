@@ -3,6 +3,50 @@
 Per-session changelog and agent lessons, moved out of CLAUDE.md to keep it lean.
 Newest sessions first where possible. See server.py header changelog for the terse version.
 
+**Session 22 changes (2026-06-10 — rename sweep + CF Pages deployment + routing):**
+- **Rename sweep complete** — all remaining "swarm-wars" refs removed from service units,
+  hermes config (`~/.hermes/config.yaml` key renamed), tunnel-url.sh, deploy.sh, docs.
+  HERMES_TESTS/ and TEMP/ added to `.gitignore`.
+- **CF Pages deployment pipeline** — fixed env var injection: CF Pages Functions read vars
+  baked into the Worker bundle at deploy time, NOT from the dashboard at runtime. Solution:
+  write `wrangler.toml [vars]` with live tunnel URL before `wrangler pages deploy`, then
+  restore the placeholder. `deploy.sh --pages` handles end-to-end.
+- **`deploy.sh` two bugs fixed**: CF API PATCH needs `"type": "plain_text"` on every var
+  (silently ignored without it); wrangler restore path was relative and broke after `cd`.
+  Fixed with absolute `FRONTEND_DIR` computed before any directory change.
+- **`frontend/_redirects`** — routing rules must be ordered: specific before `/`. Final:
+  `/game` → `/game/` (302), `/game/` → `index.html` (200), `/` → `landing.html` (302) last.
+  Root rule acts as catch-all if placed first — was routing `/game?match=…` to landing.
+- **Match-watch routing** — `index.html` reads `?match=` URL param and connects to
+  `/ws/{match_id}`; clicking a row in `matches.html` now loads the correct match canvas.
+- **MCP bridge match routing** — `get_directive`, `list_seats`, `game_control` were all
+  hitting the default match via unscoped legacy endpoints. Fixed to use `_colony_match`
+  dict + `_match_path()` helper so they correctly target the joined match.
+- **Minimum income** — `engine/world.py step()`: `c.food += 1; c.food_earned_tick += 1`
+  per living colony each tick (running phase only). Prevents complete stall with no workers
+  and no larders; `income_per_s` now reflects this floor.
+- **Trigger `else` clause** — `engine/colony.py DirectiveEngine`: when condition is False
+  and `"else"` key exists in trigger, apply the `else` dict as patches. Lets triggers undo
+  their own state changes (e.g. `"else": {"military.retreat": false}`) instead of latching.
+- **Auth worker** — email field dropped; registration is username-only. Worker code is
+  complete in `auth-worker/` but was never deployed. `AGANTS_AUTH_URL` empty → open-access.
+- **Landing page** — stats count only active matches (`winner == null`); Watch nav removed;
+  "Open full view →" changed to "View matches →". MCP snippet updated to stdio style.
+- **`server.py`** — `/game/` route added (CF Pages 308 redirect means `/game` → `/game/`
+  before _redirects fires; server must serve both).
+- **README.md** — full rewrite for public-facing state.
+
+**Session 22 lessons learned:**
+- CF Pages env vars set via the dashboard API appear in `wrangler pages deployment list`
+  metadata but are NOT injected into Workers during execution — they're compile-time bindings.
+  The only reliable path is `wrangler.toml [vars]` (or `--env`/`--var` CLI flags) at deploy.
+- CF `_redirects` rules are evaluated in document order; `/` will match every path if placed
+  first, silently defeating all more-specific rules that follow it.
+- Hermes false positives: `***` literal in CI output was flagged as a leaked token — it was
+  the shell `"${CF_TOKEN}"` echo. Validate false positives before chasing leaks.
+- MCP bridge `_colony_match` dict is the source of truth for which match an agent is in.
+  Any tool that mutates or reads match state must pass through `_match_path()`.
+
 **Session 3 changes:** no-upkeep economy, corpse food, unit conversion, guard post bot logic,
 fog-of-war fixes, food depletion display, min_ratio floor, waypoints, auto-forward rally,
 auto-attack, enemy queen HP hidden until sieging.

@@ -1,0 +1,13 @@
+name = "agants-auth"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+# Create the D1 database with: wrangler d1 create agants
+# Then paste the database_id returned below.
+[[d1_databases]]
+binding = "DB"
+database_name = "agants"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# Secrets (set via `wrangler secret put`):
+#   INTERNAL_SECRET — shared with the game server (AGANTS_AUTH_SECRET env var)
