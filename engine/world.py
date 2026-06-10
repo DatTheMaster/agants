@@ -346,6 +346,7 @@ class World:
         for c in self.colonies:
             if c.alive:
                 DirectiveEngine.eval_triggers(c, self)
+                DirectiveEngine.check_alerts(c, self)
 
         for c in self.colonies:
             if not c.alive: continue
@@ -1098,8 +1099,17 @@ class World:
                         self._kill(enemy)
         else:
             if c.directive["military"]["retreat"] and not in_siege:
+                dist_to_nest = abs(ant.x - c.nx) + abs(ant.y - c.ny)
                 ant.state = S_PATROLLING
-                self._move_to(ant, c.nx, c.ny, 2)
+                if dist_to_nest > 8:
+                    self._move_to(ant, c.nx, c.ny, 2)
+                else:
+                    # Defensive perimeter — 8 positions at radius 6 around nest
+                    _PERIM = [(6,0),(4,4),(0,6),(-4,4),(-6,0),(-4,-4),(0,-6),(4,-4)]
+                    ox, oy = _PERIM[ant.id % 8]
+                    px = max(0, min(MAP_W-1, c.nx + ox))
+                    py = max(0, min(MAP_H-1, c.ny + oy))
+                    self._move_to(ant, px, py, 2)
                 self._dep(ant.x, ant.y, 2, 0.3)
                 return
 

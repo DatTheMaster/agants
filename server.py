@@ -62,7 +62,7 @@ _load_dotenv()
 # Constants
 # ═══════════════════════════════════════════════════════════════════════════════
 
-VERSION = "2.10"
+VERSION = "2.11"
 
 # Version changelog (bump VERSION every session that changes gameplay or prompts)
 # 1.0 — initial engine: pheromones, food, combat, upgrades, WebSocket renderer
@@ -155,6 +155,15 @@ VERSION = "2.10"
 #           never had a "build" handler — added with worker-only guard and x,y validation;
 #         FIX rally walk-through: soldiers at rally (within 4 tiles) now only react to
 #           enemies within 5 tiles (was 15), preventing scouts from pulling them off station
+# 2.11 — Phase 3.5: RECALL + check_alerts
+#         RECALL: military.retreat=true now properly holds a defensive perimeter — soldiers
+#           walk home and once within 8 tiles of nest orbit a radius-6 ring (8 slots) instead
+#           of drifting; previously retreat just sent them toward the nest with no arrival logic
+#         check_alerts: DirectiveEngine.check_alerts() evaluates the directive's alerts[] array
+#           each tick and pushes "alert" notifications to the colony notification queue;
+#           sampling=True → edge-triggered (only on False→True transition, no spam);
+#           sampling=False → level-triggered (fires every 30 ticks while condition holds);
+#           namespace is identical to triggers (all trigger variables available in alert conditions);
 
 # ── Brain config ────────────────────────────────────────────────────────────────
 # Each colony is independently "bot" (heuristic) or "llm" (OpenAI-compatible API).
@@ -1459,150 +1468,241 @@ class RunLogger:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Match — per-match state container
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class Match:
+    """All mutable state for one game. Server.matches holds one or more of these."""
+    def __init__(self, tps: float = None):
+        self.match_id: str                    = str(uuid.uuid4())[:8]
+        self.tps: float                       = tps or TPS
+        self.world: World                     = World()
+        self.clients: set                     = set()
+        self.llm_memories: list               = [{}, {}]
+        self.llm_strategy_logs: list          = [[], []]
+        self.llm_stats: list                  = [
+            {"calls": 0, "prompt_tok": 0, "completion_tok": 0, "errors": 0},
+            {"calls": 0, "prompt_tok": 0, "completion_tok": 0, "errors": 0},
+        ]
+        self._placement_food: list            = []
+        self._placement_updates: list         = []
+        self._placement_start_t               = None
+        self._pending_strategies: deque       = deque()
+        self._step_in_progress: bool          = False
+        self.tokens: dict                     = {}
+        self.created_at: float                = time.time()
+        self._sim_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix=f"sim-{self.match_id[:4]}"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Server
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class Server:
     def __init__(self):
-        self.world = World()
-        self.clients = set()
-        # Per-colony LLM state [0]=RED, [1]=BLUE — reset each game
-        self.llm_memories      = [{}, {}]
-        self.llm_strategy_logs = [[], []]
-        self.llm_stats = [
-            {"calls": 0, "prompt_tok": 0, "completion_tok": 0, "errors": 0},
-            {"calls": 0, "prompt_tok": 0, "completion_tok": 0, "errors": 0},
-        ]
-        # Placement phase state (for late-joining clients)
-        self._placement_food    = []
-        self._placement_updates = []
-        self._placement_start_t = None   # monotonic time when phase started
-        # Sim decoupling: strategy queue + step-in-progress flag
-        self._pending_strategies: deque = deque()   # (colony_id, strategy_dict)
-        self._step_in_progress: bool = False
-        self._sim_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="sim"
-        )
-        # Auth tokens: token_str → {colony_id, agent}
-        self._tokens: dict = {}
+        self.matches: dict[str, Match] = {}
+        m = self._new_match()
+        self._default_match_id: str = m.match_id
 
-    def _make_init_msg(self):
+    # ── Match management ───────────────────────────────────────────────────────
+
+    def _new_match(self, tps: float = None) -> Match:
+        m = Match(tps=tps)
+        self.matches[m.match_id] = m
+        return m
+
+    def _get_match_or_default(self, req) -> "Match | None":
+        """Extract match_id from request path info; fall back to default match."""
+        mid = req.match_info.get("match_id")
+        if mid:
+            return self.matches.get(mid)  # None → caller returns 404
+        return self._m
+
+    def _start_match_tasks(self, m: Match):
+        """Spawn tick_loop + LLM loops for a newly created match."""
+        asyncio.create_task(self.tick_loop(m))
+        asyncio.create_task(self.llm_loop_for(m, 0))
+        asyncio.create_task(self.llm_loop_for(m, 1))
+
+    @property
+    def _m(self) -> Match:
+        return self.matches[self._default_match_id]
+
+    # Properties that forward to the default match (backward compat)
+    @property
+    def world(self): return self._m.world
+    @world.setter
+    def world(self, v): self._m.world = v
+
+    @property
+    def clients(self): return self._m.clients
+
+    @property
+    def _tokens(self): return self._m.tokens
+    @_tokens.setter
+    def _tokens(self, v): self._m.tokens = v
+
+    @property
+    def llm_memories(self): return self._m.llm_memories
+    @llm_memories.setter
+    def llm_memories(self, v): self._m.llm_memories = v
+
+    @property
+    def llm_strategy_logs(self): return self._m.llm_strategy_logs
+    @llm_strategy_logs.setter
+    def llm_strategy_logs(self, v): self._m.llm_strategy_logs = v
+
+    @property
+    def llm_stats(self): return self._m.llm_stats
+    @llm_stats.setter
+    def llm_stats(self, v): self._m.llm_stats = v
+
+    @property
+    def _pending_strategies(self): return self._m._pending_strategies
+
+    @property
+    def _step_in_progress(self): return self._m._step_in_progress
+    @_step_in_progress.setter
+    def _step_in_progress(self, v): self._m._step_in_progress = v
+
+    @property
+    def _placement_food(self): return self._m._placement_food
+    @_placement_food.setter
+    def _placement_food(self, v): self._m._placement_food = v
+
+    @property
+    def _placement_updates(self): return self._m._placement_updates
+    @_placement_updates.setter
+    def _placement_updates(self, v): self._m._placement_updates = v
+
+    @property
+    def _placement_start_t(self): return self._m._placement_start_t
+    @_placement_start_t.setter
+    def _placement_start_t(self, v): self._m._placement_start_t = v
+
+    def _make_init_msg(self, m: Match = None):
+        w = (m or self._m).world
         return json.dumps({
             "type": "init",
             "map": {"w": MAP_W, "h": MAP_H, "tile": TILE},
-            "terrain": [self.world.terrain[y][x] for y in range(MAP_H) for x in range(MAP_W)],
-            "seats": {str(k): v for k, v in self.world.mcp_seats.items()},
+            "terrain": [w.terrain[y][x] for y in range(MAP_H) for x in range(MAP_W)],
+            "seats": {str(k): v for k, v in w.mcp_seats.items()},
         })
 
-    async def _broadcast(self, msg):
+    async def _broadcast(self, msg, m: Match = None):
+        clients = (m or self._m).clients
         dead = set()
-        for ws in self.clients:
+        for ws in clients:
             try: await ws.send_str(msg)
             except: dead.add(ws)
-        self.clients -= dead
+        clients -= dead
 
-    async def _reset(self):
+    async def _reset(self, m: Match = None):
+        m = m or self._m
         for cid in (0, 1):
-            if self.llm_memories[cid] and self.world.logger:
-                self.world.logger.log_memory_snapshot(self.llm_memories[cid])
+            if m.llm_memories[cid] and m.world.logger:
+                m.world.logger.log_memory_snapshot(m.llm_memories[cid])
         Ant._id = 0
-        self.world = World()
-        self.llm_memories      = [{}, {}]
-        self.llm_strategy_logs = [[], []]
-        self.llm_stats = [
+        m.world                = World()
+        m.llm_memories         = [{}, {}]
+        m.llm_strategy_logs    = [[], []]
+        m.llm_stats            = [
             {"calls": 0, "prompt_tok": 0, "completion_tok": 0, "errors": 0},
             {"calls": 0, "prompt_tok": 0, "completion_tok": 0, "errors": 0},
         ]
-        self._pending_strategies.clear()
-        self._tokens.clear()
+        m._pending_strategies.clear()
+        m.tokens.clear()
         # Send new terrain and lobby state — game starts when client sends "start_game"
-        await self._broadcast(self._make_init_msg())
-        await self._broadcast(json.dumps({"type": "lobby", "seats": {"0": None, "1": None}}))
-        print("🔄  game reset to lobby — click START to begin")
+        await self._broadcast(self._make_init_msg(m), m=m)
+        await self._broadcast(json.dumps({"type": "lobby", "seats": {"0": None, "1": None}}), m=m)
+        print(f"🔄  [{m.match_id}] game reset to lobby — click START to begin")
 
-    async def _run_placement_phase(self):
+    async def _run_placement_phase(self, m: Match = None):
         """Fixed spawn positions on The Crossing — no placement decision needed."""
-        world = self.world
+        m = m or self._m
+        world = m.world
         red_pos, blue_pos = RED_SPAWN, BLUE_SPAWN
 
         print(f"\n{'═'*70}")
-        print(f"🗺️  {MAP_NAME} — {MAP_W}×{MAP_H}  RED@{red_pos} vs BLUE@{blue_pos}")
+        print(f"🗺️  [{m.match_id}] {MAP_NAME} — {MAP_W}×{MAP_H}  RED@{red_pos} vs BLUE@{blue_pos}")
         print(f"{'═'*70}")
 
         food_data = [[f["x"], f["y"], int(f["amt"]), f["kind"], f.get("tier","home")]
                      for f in world.foods]
-        self._placement_food    = food_data
-        self._placement_updates = []
+        m._placement_food    = food_data
+        m._placement_updates = []
 
         await self._broadcast(json.dumps({
             "type": "placement_phase",
             "food": food_data,
             "timeout": 2,
-        }))
+        }), m=m)
         await self._broadcast(json.dumps({"type": "placement_update", "colony": 0,
-                                          "pos": list(red_pos),  "label": "RED",  "score": 0}))
+                                          "pos": list(red_pos),  "label": "RED",  "score": 0}), m=m)
         await self._broadcast(json.dumps({"type": "placement_update", "colony": 1,
-                                          "pos": list(blue_pos), "label": "BLUE", "score": 0}))
-        await self._broadcast(json.dumps({"type": "placement_ready"}))
+                                          "pos": list(blue_pos), "label": "BLUE", "score": 0}), m=m)
+        await self._broadcast(json.dumps({"type": "placement_ready"}), m=m)
         await asyncio.sleep(0.5)
 
         world.finalize_placement(red_pos, blue_pos)
         if world.logger:
             world.logger.log_placement(red_pos, "fixed spawn", blue_pos, "fixed spawn")
-        self._placement_food    = []
-        self._placement_updates = []
+        m._placement_food    = []
+        m._placement_updates = []
 
-        await self._broadcast(self._make_init_msg())
+        await self._broadcast(self._make_init_msg(m), m=m)
         await self._broadcast(json.dumps({
             "type": "game_start",
             "red":  list(red_pos),
             "blue": list(blue_pos),
-        }))
-        print(f"🎮  GAME START — RED@{red_pos} vs BLUE@{blue_pos}")
+        }), m=m)
+        print(f"🎮  [{m.match_id}] GAME START — RED@{red_pos} vs BLUE@{blue_pos}")
         print(f"{'═'*70}\n")
 
-    async def tick_loop(self):
+    async def tick_loop(self, m: Match):
         bot_last_tick = 0
         loop = asyncio.get_event_loop()
         _last_idle_bc = 0.0
         while True:
             t0 = time.monotonic()
-            phase = self.world.phase
+            phase = m.world.phase
             if phase in ("lobby", "paused"):
                 # Broadcast idle state once per second so clients stay updated
                 if t0 - _last_idle_bc >= 1.0:
-                    seats = {str(k): v for k, v in self.world.mcp_seats.items()}
-                    await self._broadcast(json.dumps({"type": phase, "seats": seats}))
+                    seats = {str(k): v for k, v in m.world.mcp_seats.items()}
+                    await self._broadcast(json.dumps({"type": phase, "seats": seats}), m=m)
                     _last_idle_bc = t0
-                await asyncio.sleep(max(0, 1.0/TPS - (time.monotonic()-t0)))
+                await asyncio.sleep(max(0, 1.0/m.tps - (time.monotonic()-t0)))
                 continue
             # Drain queued strategy updates before stepping (main-thread, safe)
-            while self._pending_strategies:
-                cid, strat = self._pending_strategies.popleft()
-                if self.world.colonies[cid].alive:
-                    self.world.colonies[cid].set_strategy(strat)
+            while m._pending_strategies:
+                cid, strat = m._pending_strategies.popleft()
+                if m.world.colonies[cid].alive:
+                    m.world.colonies[cid].set_strategy(strat)
             # Bot decisions (tick-based, still safe here)
-            if phase == "running" and self.world.winner is None:
-                if self.world.tick - bot_last_tick >= LLM_INTERVAL:
-                    bot_last_tick = self.world.tick
+            if phase == "running" and m.world.winner is None:
+                if m.world.tick - bot_last_tick >= LLM_INTERVAL:
+                    bot_last_tick = m.world.tick
                     for cid in (0, 1):
                         btype = _brain_for(cid)["type"]
                         # Unclaimed MCP seats fall back to the bot brain so an absent
                         # agent doesn't leave the colony running on bare defaults;
                         # the bot steps aside the moment an agent joins the seat.
                         if btype == "bot" or (btype == "mcp"
-                                              and self.world.mcp_seats.get(cid) is None):
-                            update_bot_strategy(self.world, cid)
+                                              and m.world.mcp_seats.get(cid) is None):
+                            update_bot_strategy(m.world, cid)
             # Run step() in a thread so the event loop stays responsive during heavy ticks
-            self._step_in_progress = True
-            await loop.run_in_executor(self._sim_executor, self.world.step)
-            self._step_in_progress = False
-            if self.world.phase == "running":
-                state = self.world.serialize_tick()
-                await self._broadcast(json.dumps(state))
-            await asyncio.sleep(max(0, 1.0/TPS - (time.monotonic()-t0)))
+            m._step_in_progress = True
+            await loop.run_in_executor(m._sim_executor, m.world.step)
+            m._step_in_progress = False
+            if m.world.phase == "running":
+                state = m.world.serialize_tick()
+                await self._broadcast(json.dumps(state), m=m)
+            await asyncio.sleep(max(0, 1.0/m.tps - (time.monotonic()-t0)))
 
-    async def llm_loop_for(self, colony_id: int):
+    async def llm_loop_for(self, m: Match, colony_id: int):
         """LLM decision loop for one colony. Reads brain config live; skips if type=='bot'."""
         try:
             import openai as _openai
@@ -1622,7 +1722,7 @@ class Server:
         enemy_color     = "BLUE" if colony_id == 0 else "RED"
         # Stagger: BLUE fires half an interval later so both don't call simultaneously
         if colony_id == 1:
-            last_call_time -= (LLM_INTERVAL / TPS) / 2
+            last_call_time -= (LLM_INTERVAL / m.tps) / 2
 
         while True:
             await asyncio.sleep(0.1)
@@ -1642,7 +1742,7 @@ class Server:
                 last_url = base_url
                 print(f"🤖  LLM → {model} @ {base_url} (colony {name})")
 
-            world = self.world
+            world = m.world
             if world is not last_world:
                 last_world     = world
                 last_call_time = time.monotonic()  # reset on new game
@@ -1651,7 +1751,7 @@ class Server:
                 wid = id(world) * 10 + colony_id
                 if wid not in debriefed:
                     debriefed.add(wid)
-                    await self._llm_debrief(world, client, colony_id)
+                    await self._llm_debrief(m, world, client, colony_id)
                 continue
 
             # Colonies don't exist during placement phase — wait for game to start
@@ -1659,13 +1759,13 @@ class Server:
                 continue
 
             # Wall-clock interval: LLM_INTERVAL ticks converted to seconds at current TPS
-            llm_interval_secs = LLM_INTERVAL / TPS
+            llm_interval_secs = LLM_INTERVAL / m.tps
             if time.monotonic() - last_call_time < llm_interval_secs:
                 continue
 
             # Wait for the sim thread to finish its current step before reading world state.
             # This prevents data races when build_llm_prompt iterates colony/food lists.
-            while self._step_in_progress:
+            while m._step_in_progress:
                 await asyncio.sleep(0)
 
             colony = world.colonies[colony_id]
@@ -1674,9 +1774,9 @@ class Server:
                 continue
 
             # Snapshot world state synchronously (no await → no step() can start mid-read)
-            stats  = self.llm_stats[colony_id]
+            stats  = m.llm_stats[colony_id]
             prompt = build_llm_prompt(colony, world.tick, world=world,
-                                      memory=self.llm_memories[colony_id],
+                                      memory=m.llm_memories[colony_id],
                                       my_color=name, enemy_color=enemy_color)
             system_prompt = _make_llm_system_prompt(name, enemy_color)
             print(f"\n{'─'*70}")
@@ -1736,20 +1836,20 @@ class Server:
                 print(f"    ❌ error after {elapsed:.2f}s: {e}  (errors: {stats['errors']})")
                 print(f"{'─'*70}")
 
-            if world.winner is not None or world is not self.world:
+            if world.winner is not None or world is not m.world:
                 continue
 
             if strategy:
                 # Queue strategy for the tick loop to apply atomically before next step()
-                self._pending_strategies.append((colony_id, strategy))
+                m._pending_strategies.append((colony_id, strategy))
                 colony.push_event(f"[LLM] strategy → {json.dumps(strategy)}")
 
             if memory_update:
-                self.llm_memories[colony_id] = _trim_memory(
-                    apply_memory_update(self.llm_memories[colony_id], memory_update)
+                m.llm_memories[colony_id] = _trim_memory(
+                    apply_memory_update(m.llm_memories[colony_id], memory_update)
                 )
 
-            self.llm_strategy_logs[colony_id].append((world.tick, strategy))
+            m.llm_strategy_logs[colony_id].append((world.tick, strategy))
             world.logger.log_llm(colony_id, reasoning, strategy, prompt=prompt, feedback=feedback)
             world._llm_stats_list[colony_id] = {
                 "model":   model, "colony": name,
@@ -1758,7 +1858,7 @@ class Server:
             }
 
 
-    async def _llm_debrief(self, world, client, colony_id: int):
+    async def _llm_debrief(self, m: Match, world, client, colony_id: int):
         """Post-game reflection call — fires once per LLM colony when game ends."""
         if client is None: return
         name  = "RED" if colony_id == 0 else "BLUE"
@@ -1768,8 +1868,8 @@ class Server:
         print(f"🎓  [{name}] post-game debrief → {model}")
         print(f"{'═'*70}")
         prompt = build_debrief_prompt(world, colony_id,
-                                      self.llm_strategy_logs[colony_id],
-                                      memory=self.llm_memories[colony_id])
+                                      m.llm_strategy_logs[colony_id],
+                                      memory=m.llm_memories[colony_id])
         t0 = time.monotonic()
         try:
             resp = await client.chat.completions.create(
@@ -1812,12 +1912,12 @@ class Server:
                         k, _, v = line.partition(":")
                         debrief_mem[k.strip()] = v.strip()
             if debrief_mem:
-                self.llm_memories[colony_id] = _trim_memory(
-                    apply_memory_update(self.llm_memories[colony_id], debrief_mem)
+                m.llm_memories[colony_id] = _trim_memory(
+                    apply_memory_update(m.llm_memories[colony_id], debrief_mem)
                 )
                 print(f"[MEMORY ↑ debrief]  {json.dumps(debrief_mem)}")
             if world.logger:
-                world.logger.log_memory_snapshot(self.llm_memories[colony_id])
+                world.logger.log_memory_snapshot(m.llm_memories[colony_id])
 
         except Exception as e:
             elapsed = time.monotonic() - t0
@@ -1827,38 +1927,48 @@ class Server:
         return web.FileResponse("./index.html")
 
     async def on_ws(self, req):
+        return await self._on_ws_for(req, self._m)
+
+    async def on_ws_match(self, req):
+        """Match-scoped WebSocket — validates match_id, then delegates to shared handler."""
+        match_id = req.match_info["match_id"]
+        m = self.matches.get(match_id)
+        if m is None:
+            return web.Response(status=404, text=f"match {match_id!r} not found")
+        return await self._on_ws_for(req, m)
+
+    async def _on_ws_for(self, req, m: Match):
+        """Shared WebSocket handler scoped to a specific match."""
         ws = web.WebSocketResponse()
         await ws.prepare(req)
-        self.clients.add(ws)
+        m.clients.add(ws)
         try:
-            await ws.send_str(self._make_init_msg())
+            await ws.send_str(self._make_init_msg(m))
             # Send current phase state to newly connected client
-            seats_now = {str(k): v for k, v in self.world.mcp_seats.items()}
-            if self.world.phase == "lobby":
+            seats_now = {str(k): v for k, v in m.world.mcp_seats.items()}
+            if m.world.phase == "lobby":
                 await ws.send_str(json.dumps({"type": "lobby", "seats": seats_now}))
-            elif self.world.phase == "paused":
+            elif m.world.phase == "paused":
                 await ws.send_str(json.dumps({"type": "paused", "seats": seats_now}))
-            elif self.world.phase == "running":
+            elif m.world.phase == "running":
                 await ws.send_str(json.dumps({"type": "seats_update", "seats": seats_now}))
             # Replay placement state for clients that connect mid-phase
-            if self.world.phase == "placement" and self._placement_food:
-                remaining = 2
+            if m.world.phase == "placement" and m._placement_food:
                 await ws.send_str(json.dumps({
                     "type": "placement_phase",
-                    "food": self._placement_food,
-                    "timeout": remaining,
+                    "food": m._placement_food,
+                    "timeout": 2,
                 }))
-                for upd in self._placement_updates:
+                for upd in m._placement_updates:
                     await ws.send_str(json.dumps(upd))
-                # If all placements already done, tell the rejoining client immediately
-                if len(self._placement_updates) >= 2:
+                if len(m._placement_updates) >= 2:
                     await ws.send_str(json.dumps({"type": "placement_ready"}))
             async for msg in ws:
                 if msg.type == web.WSMsgType.TEXT:
                     try:
                         data = json.loads(msg.data)
                         if data.get("type") == "reset":
-                            await self._reset()
+                            await self._reset(m)
                         elif data.get("type") == "get_config":
                             await ws.send_str(json.dumps({
                                 "type": "config", "data": _current_config()
@@ -1911,39 +2021,39 @@ class Server:
                                 "type": "config_saved", "data": _current_config()
                             }))
                         elif data.get("type") == "start_game":
-                            if self.world.phase in ("lobby", "placement"):
-                                asyncio.create_task(self._run_placement_phase())
+                            if m.world.phase in ("lobby", "placement"):
+                                asyncio.create_task(self._run_placement_phase(m))
                         elif data.get("type") == "pause_game":
-                            if self.world.phase == "running":
-                                self.world.phase = "paused"
-                                await self._broadcast(json.dumps({"type": "paused", "seats": {str(k): v for k, v in self.world.mcp_seats.items()}}))
+                            if m.world.phase == "running":
+                                m.world.phase = "paused"
+                                await self._broadcast(json.dumps({"type": "paused", "seats": {str(k): v for k, v in m.world.mcp_seats.items()}}), m=m)
                         elif data.get("type") == "resume_game":
-                            if self.world.phase == "paused":
-                                self.world.phase = "running"
-                                await self._broadcast(json.dumps({"type": "resumed"}))
+                            if m.world.phase == "paused":
+                                m.world.phase = "running"
+                                await self._broadcast(json.dumps({"type": "resumed"}), m=m)
                         elif data.get("type") == "end_game":
-                            if self.world.phase in ("running", "paused"):
-                                self.world.winner = "draw"
-                                self.world.phase = "running"  # let tick_loop handle win broadcast
+                            if m.world.phase in ("running", "paused"):
+                                m.world.winner = "draw"
+                                m.world.phase = "running"
                         elif data.get("type") == "join_seat":
                             cid = data.get("colony_id")
                             agent = data.get("agent_name", "MCP Agent")
-                            if cid in (0, 1) and self.world.mcp_seats.get(cid) is None:
-                                self.world.mcp_seats[cid] = agent
+                            if cid in (0, 1) and m.world.mcp_seats.get(cid) is None:
+                                m.world.mcp_seats[cid] = agent
                                 key = "red_brain" if cid == 0 else "blue_brain"
                                 _save_config({key: {"type": "mcp", "agent": agent}})
-                                await self._broadcast(json.dumps({"type": "seat_joined", "colony_id": cid, "agent": agent}))
+                                await self._broadcast(json.dumps({"type": "seat_joined", "colony_id": cid, "agent": agent}), m=m)
                         elif data.get("type") == "release_seat":
                             cid = data.get("colony_id")
                             if cid in (0, 1):
-                                self.world.mcp_seats[cid] = None
+                                m.world.mcp_seats[cid] = None
                                 key = "red_brain" if cid == 0 else "blue_brain"
                                 _save_config({key: {"type": "bot"}})
-                                await self._broadcast(json.dumps({"type": "seat_released", "colony_id": cid}))
+                                await self._broadcast(json.dumps({"type": "seat_released", "colony_id": cid}), m=m)
                     except Exception:
                         pass
         finally:
-            self.clients.discard(ws)
+            m.clients.discard(ws)
         return ws
 
     # ─── REST API handlers ────────────────────────────────────────────────────
@@ -1974,39 +2084,50 @@ class Server:
         return await self._api_cors(web.json_response({"seats": seats}))
 
     async def api_matches(self, req):
-        """Match discovery endpoint — lists open games for agents to find seats."""
-        seats = {}
-        for k, agent in self.world.mcp_seats.items():
-            brain = RED_BRAIN if k == 0 else BLUE_BRAIN
-            seats[str(k)] = {"agent": agent, "brain_type": brain.get("type", "bot")}
-        return await self._api_cors(web.json_response({
-            "matches": [{
+        """Match discovery endpoint — lists all games with seat availability."""
+        result = []
+        for m in self.matches.values():
+            seats = {}
+            for k, agent in m.world.mcp_seats.items():
+                brain = RED_BRAIN if k == 0 else BLUE_BRAIN
+                seats[str(k)] = {"agent": agent, "brain_type": brain.get("type", "bot")}
+            result.append({
+                "match_id": m.match_id,
                 "game_url": "http://localhost:8083",
-                "phase": self.world.phase,
-                "tick": self.world.tick,
-                "map": "The Crossing (150×100)",
-                "seats": seats,
-            }]
-        }))
+                "ws_url":   f"ws://localhost:8083/ws/{m.match_id}",
+                "phase":    m.world.phase,
+                "tick":     m.world.tick,
+                "map":      "The Crossing (150×100)",
+                "seats":    seats,
+                "created_at": m.created_at,
+            })
+        return await self._api_cors(web.json_response({"matches": result}))
 
-    def _require_token(self, req, cid: int):
+    def _require_token(self, req, cid: int, m: Match = None):
         """Validate Bearer token. Returns (True, None) or (False, error_response)."""
         auth = req.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return False, web.json_response({"error": "missing Authorization: Bearer <token>"}, status=401)
         token = auth[7:]
-        entry = self._tokens.get(token)
+        tokens = (m or self._m).tokens
+        entry = tokens.get(token)
         if entry is None:
             return False, web.json_response({"error": "invalid or expired token"}, status=401)
         if entry["colony_id"] != cid:
             return False, web.json_response({"error": "token not scoped to this colony"}, status=403)
         return True, None
 
-    def _revoke_colony_token(self, cid: int):
+    def _revoke_colony_token(self, cid: int, m: Match = None):
         """Remove any token currently held for the given colony."""
-        self._tokens = {t: e for t, e in self._tokens.items() if e["colony_id"] != cid}
+        tokens = (m or self._m).tokens
+        to_del = [t for t, e in tokens.items() if e["colony_id"] == cid]
+        for t in to_del:
+            del tokens[t]
 
     async def api_join_seat(self, req):
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
@@ -2015,57 +2136,65 @@ class Server:
         except Exception:
             body = {}
         agent = body.get("agent_name", f"MCP-{cid}")
-        if self.world.mcp_seats.get(cid) is not None:
-            return await self._api_cors(web.json_response({"error": "seat occupied", "agent": self.world.mcp_seats[cid]}, status=409))
-        self.world.mcp_seats[cid] = agent
+        if m.world.mcp_seats.get(cid) is not None:
+            return await self._api_cors(web.json_response({"error": "seat occupied", "agent": m.world.mcp_seats[cid]}, status=409))
+        m.world.mcp_seats[cid] = agent
         key = "red_brain" if cid == 0 else "blue_brain"
         _save_config({key: {"type": "mcp", "agent": agent}})
-        self._revoke_colony_token(cid)
+        self._revoke_colony_token(cid, m)
         token = str(uuid.uuid4())
-        self._tokens[token] = {"colony_id": cid, "agent": agent}
-        await self._broadcast(json.dumps({"type": "seat_joined", "colony_id": cid, "agent": agent}))
-        return await self._api_cors(web.json_response({"ok": True, "colony_id": cid, "agent": agent, "token": token}))
+        m.tokens[token] = {"colony_id": cid, "agent": agent}
+        await self._broadcast(json.dumps({"type": "seat_joined", "colony_id": cid, "agent": agent}), m=m)
+        return await self._api_cors(web.json_response({
+            "ok": True, "colony_id": cid, "agent": agent,
+            "token": token, "match_id": m.match_id,
+        }))
 
     async def api_release_seat(self, req):
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
-        ok, err = self._require_token(req, cid)
+        ok, err = self._require_token(req, cid, m)
         if not ok:
             return await self._api_cors(err)
-        self._revoke_colony_token(cid)
-        self.world.mcp_seats[cid] = None
+        self._revoke_colony_token(cid, m)
+        m.world.mcp_seats[cid] = None
         key = "red_brain" if cid == 0 else "blue_brain"
         _save_config({key: {"type": "bot"}})
-        await self._broadcast(json.dumps({"type": "seat_released", "colony_id": cid}))
+        await self._broadcast(json.dumps({"type": "seat_released", "colony_id": cid}), m=m)
         return await self._api_cors(web.json_response({"ok": True, "colony_id": cid}))
 
     async def api_control(self, req):
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
         try:
             body = await req.json()
         except Exception:
             return await self._api_cors(web.json_response({"error": "bad json"}, status=400))
         action = body.get("action", "")
         if action == "start":
-            if self.world.phase in ("lobby", "placement"):
-                asyncio.create_task(self._run_placement_phase())
+            if m.world.phase in ("lobby", "placement"):
+                asyncio.create_task(self._run_placement_phase(m))
                 return await self._api_cors(web.json_response({"ok": True, "phase": "starting"}))
         elif action == "pause":
-            if self.world.phase == "running":
-                self.world.phase = "paused"
-                await self._broadcast(json.dumps({"type": "paused", "seats": {str(k): v for k, v in self.world.mcp_seats.items()}}))
+            if m.world.phase == "running":
+                m.world.phase = "paused"
+                await self._broadcast(json.dumps({"type": "paused", "seats": {str(k): v for k, v in m.world.mcp_seats.items()}}), m=m)
                 return await self._api_cors(web.json_response({"ok": True, "phase": "paused"}))
         elif action == "resume":
-            if self.world.phase == "paused":
-                self.world.phase = "running"
-                await self._broadcast(json.dumps({"type": "resumed"}))
+            if m.world.phase == "paused":
+                m.world.phase = "running"
+                await self._broadcast(json.dumps({"type": "resumed"}), m=m)
                 return await self._api_cors(web.json_response({"ok": True, "phase": "running"}))
         elif action == "end":
-            if self.world.phase in ("running", "paused"):
-                w = self.world
+            if m.world.phase in ("running", "paused"):
+                w = m.world
                 scores = None
                 if w.winner is None:
-                    # Adjudicate by score (same formula as stalemate resolution)
                     _val = {A_WORKER: 5, A_SOLDIER: 20, A_SCOUT: 8}
                     scores = []
                     for c in w.colonies:
@@ -2080,12 +2209,13 @@ class Server:
                     **({"scores": {"red": scores[0], "blue": scores[1]}} if scores else {}),
                 }))
         elif action == "reset":
-            asyncio.create_task(self._reset())
+            asyncio.create_task(self._reset(m))
             return await self._api_cors(web.json_response({"ok": True, "phase": "lobby"}))
-        return await self._api_cors(web.json_response({"error": f"invalid action '{action}' for phase '{self.world.phase}'"}, status=400))
+        return await self._api_cors(web.json_response({"error": f"invalid action '{action}' for phase '{m.world.phase}'"}, status=400))
 
-    def _build_colony_state(self, cid: int) -> dict:
-        w = self.world
+    def _build_colony_state(self, cid: int, m: Match = None) -> dict:
+        m = m or self._m
+        w = m.world
         if not w.colonies or cid >= len(w.colonies):
             return {"error": "game not started"}
         c = w.colonies[cid]
@@ -2281,28 +2411,37 @@ class Server:
         }
 
     async def api_state(self, req):
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
-        return await self._api_cors(web.json_response(self._build_colony_state(cid)))
+        return await self._api_cors(web.json_response(self._build_colony_state(cid, m)))
 
     async def api_notifications(self, req):
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
-        if not self.world.colonies:
+        if not m.world.colonies:
             return await self._api_cors(web.json_response({"notifications": []}))
-        notifs = self.world.colonies[cid].pop_notifications()
+        notifs = m.world.colonies[cid].pop_notifications()
         return await self._api_cors(web.json_response({"notifications": notifs, "count": len(notifs)}))
 
     async def api_intel_map(self, req):
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
-        if not self.world.colonies:
+        if not m.world.colonies:
             return await self._api_cors(web.json_response({"error": "game not started"}))
-        c = self.world.colonies[cid]
-        w = self.world
+        c = m.world.colonies[cid]
+        w = m.world
         COLS, ROWS = 30, 20
         cell_w = MAP_W / COLS
         cell_h = MAP_H / ROWS
@@ -2365,40 +2504,46 @@ class Server:
         }))
 
     async def api_directive(self, req):
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
-        if not self.world.colonies:
+        if not m.world.colonies:
             return await self._api_cors(web.json_response({"error": "game not started"}))
-        return await self._api_cors(web.json_response({"directive": self.world.colonies[cid].directive}))
+        return await self._api_cors(web.json_response({"directive": m.world.colonies[cid].directive}))
 
     async def api_patch_directive(self, req):
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
-        ok, err = self._require_token(req, cid)
+        ok, err = self._require_token(req, cid, m)
         if not ok:
             return await self._api_cors(err)
-        if not self.world.colonies:
+        if not m.world.colonies:
             return await self._api_cors(web.json_response({"error": "game not started"}))
         try:
             body = await req.json()
         except Exception:
             return await self._api_cors(web.json_response({"error": "bad json"}, status=400))
-        c = self.world.colonies[cid]
         if "directive" in body:
-            self._pending_strategies.append((cid, {"directive": body["directive"]}))
+            m._pending_strategies.append((cid, {"directive": body["directive"]}))
         elif "patches" in body:
-            self._pending_strategies.append((cid, {"directive": body["patches"]}))
+            m._pending_strategies.append((cid, {"directive": body["patches"]}))
         else:
-            self._pending_strategies.append((cid, {"directive": body}))
+            m._pending_strategies.append((cid, {"directive": body}))
         return await self._api_cors(web.json_response({"ok": True}))
 
-    def _apply_unit_command(self, cid: int, body: dict) -> dict:
+    def _apply_unit_command(self, cid: int, body: dict, m: Match = None) -> dict:
         """Apply a unit-level override command to a specific ant. Returns result dict."""
-        if not self.world.colonies:
+        m = m or self._m
+        if not m.world.colonies:
             return {"error": "game not started"}
-        c = self.world.colonies[cid]
+        c = m.world.colonies[cid]
         ant_id = body.get("ant_id")
         command = body.get("command", "")
         if ant_id is None:
@@ -2447,13 +2592,16 @@ class Server:
         return {"ok": True, "ant_id": ant_id, "type": ant.type, "override": ant.unit_override}
 
     async def api_command(self, req):
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
-        ok, err = self._require_token(req, cid)
+        ok, err = self._require_token(req, cid, m)
         if not ok:
             return await self._api_cors(err)
-        if not self.world.colonies:
+        if not m.world.colonies:
             return await self._api_cors(web.json_response({"error": "game not started"}))
         try:
             body = await req.json()
@@ -2462,7 +2610,7 @@ class Server:
         cmd_type = body.get("type", "")
         if cmd_type == "buy_upgrade":
             unit = body.get("unit", True)
-            c = self.world.colonies[cid]
+            c = m.world.colonies[cid]
             _UPGRADE_COSTS_MAP = {
                 "worker":  WORKER_UPGRADE_COSTS,
                 "scout":   SCOUT_UPGRADE_COSTS,
@@ -2474,7 +2622,7 @@ class Server:
                 "soldier": c.soldier_tier,
             }
             if unit is True:
-                self._pending_strategies.append((cid, {"buy_upgrade": unit}))
+                m._pending_strategies.append((cid, {"buy_upgrade": unit}))
                 return await self._api_cors(web.json_response({"ok": True, "status": "queued_cheapest"}))
             elif unit in _UPGRADE_COSTS_MAP:
                 tier  = _UPGRADE_TIERS_MAP[unit]
@@ -2483,7 +2631,7 @@ class Server:
                     return await self._api_cors(web.json_response(
                         {"ok": False, "error": f"{unit} already at max tier (T{tier})"}, status=400))
                 cost = costs[tier]
-                self._pending_strategies.append((cid, {"buy_upgrade": unit}))
+                m._pending_strategies.append((cid, {"buy_upgrade": unit}))
                 if c.food >= cost:
                     return await self._api_cors(web.json_response({
                         "ok": True, "status": "will_purchase_this_tick",
@@ -2498,7 +2646,7 @@ class Server:
                     }))
         elif cmd_type == "build":
             b = body.get("build", {})
-            c = self.world.colonies[cid]
+            c = m.world.colonies[cid]
             # Synchronous dirt validation before queuing
             _BUILD_COSTS = {"guard_post": GUARD_POST_COST, "watchtower": WATCHTOWER_COST,
                             "barracks": BARRACKS_COST, "wall": WALL_COST, "larder": LARDER_COST}
@@ -2507,7 +2655,7 @@ class Server:
             stype = "guard_post" if isinstance(b, list) else b.get("type", "guard_post")
             dirt_cost = _BUILD_COSTS.get(stype, GUARD_POST_COST)
             limit = _BUILD_LIMITS.get(stype, GUARD_POST_MAX)
-            own_count = sum(1 for st in self.world.structures if st["colony"] == cid and st.get("type", "guard_post") == stype)
+            own_count = sum(1 for st in m.world.structures if st["colony"] == cid and st.get("type", "guard_post") == stype)
             if c.dirt < dirt_cost:
                 return await self._api_cors(web.json_response({
                     "error": f"insufficient dirt for {stype}: need {dirt_cost}◆, have {int(c.dirt)}◆",
@@ -2518,19 +2666,19 @@ class Server:
                     "error": f"{stype} limit reached ({own_count}/{limit})",
                     "limit": limit, "current_count": own_count
                 }, status=400))
-            self._pending_strategies.append((cid, {"build": b}))
+            m._pending_strategies.append((cid, {"build": b}))
             return await self._api_cors(web.json_response({
                 "ok": True, "dirt_required": dirt_cost,
                 "dirt_remaining": int(c.dirt - dirt_cost)
             }))
         elif cmd_type == "convert":
-            self._pending_strategies.append((cid, {"convert": body.get("convert", {})}))
+            m._pending_strategies.append((cid, {"convert": body.get("convert", {})}))
         elif cmd_type == "cancel_spawn":
             unit_type = body.get("unit_type", "all")
             if unit_type not in {"worker", "soldier", "scout", "all"}:
                 return await self._api_cors(web.json_response(
                     {"error": "unit_type must be 'worker', 'soldier', 'scout', or 'all'"}, status=400))
-            c = self.world.colonies[cid]
+            c = m.world.colonies[cid]
             _type_map = {"worker": A_WORKER, "soldier": A_SOLDIER, "scout": A_SCOUT}
             if unit_type == "all":
                 cancelled = len(c.spawn_queue)
@@ -2539,16 +2687,16 @@ class Server:
                 t_int = _type_map[unit_type]
                 cancelled = sum(1 for t, _, _ in c.spawn_queue if t == t_int)
                 refund = sum(cost for t, _, cost in c.spawn_queue if t == t_int)
-            self._pending_strategies.append((cid, {"cancel_spawn": unit_type}))
+            m._pending_strategies.append((cid, {"cancel_spawn": unit_type}))
             return await self._api_cors(web.json_response({
                 "ok": True, "cancelled": cancelled, "food_refunded": refund
             }))
         elif cmd_type == "unit_command":
-            result = self._apply_unit_command(cid, body)
+            result = self._apply_unit_command(cid, body, m)
             return await self._api_cors(web.json_response(result, status=400 if "error" in result else 200))
         elif cmd_type == "unit_command_batch":
             cmds = body.get("commands", [])
-            results = [self._apply_unit_command(cid, c) for c in cmds]
+            results = [self._apply_unit_command(cid, c, m) for c in cmds]
             errors = [r for r in results if "error" in r]
             return await self._api_cors(web.json_response({"ok": len(results) - len(errors), "errors": errors}))
         else:
@@ -2556,16 +2704,19 @@ class Server:
         return await self._api_cors(web.json_response({"ok": True}))
 
     async def api_events(self, req):
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
         cid = int(req.match_info["colony_id"])
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
-        if not self.world.colonies:
+        if not m.world.colonies:
             return await self._api_cors(web.json_response({"events": []}))
         since_tick = int(req.rel_url.query.get("since_tick", 0))
-        c = self.world.colonies[cid]
-        events = list(c.events)  # newest first
+        c = m.world.colonies[cid]
+        events = list(c.events)
         return await self._api_cors(web.json_response({
-            "events": events[:30], "tick": self.world.tick
+            "events": events[:30], "tick": m.world.tick
         }))
 
     async def api_feedback(self, req):
@@ -2579,8 +2730,8 @@ class Server:
             return await self._api_cors(web.json_response({"error": "feedback field required"}, status=400))
         entry = {
             "ts": datetime.now().isoformat(),
-            "tick": self.world.tick,
-            "phase": self.world.phase,
+            "tick": self._m.world.tick,
+            "phase": self._m.world.phase,
             "colony_id": body.get("colony_id"),
             "agent": body.get("agent"),
             "category": body.get("category", "general"),  # general|ux|missing_data|bug|balance
@@ -2592,25 +2743,77 @@ class Server:
         print(f"💬  Agent feedback [{entry['category']}]: {feedback_text[:80]}{'...' if len(feedback_text)>80 else ''}")
         return await self._api_cors(web.json_response({"ok": True, "stored": entry}))
 
+    async def api_create_match(self, req):
+        """Create a new match. Body: {config: {tps?: float}}. Returns match_id + ws_url."""
+        try:
+            body = await req.json()
+        except Exception:
+            body = {}
+        cfg = body.get("config", {})
+        tps = float(cfg["tps"]) if "tps" in cfg else None
+        m = self._new_match(tps=tps)
+        self._start_match_tasks(m)
+        return await self._api_cors(web.json_response({
+            "ok":       True,
+            "match_id": m.match_id,
+            "ws_url":   f"ws://localhost:8083/ws/{m.match_id}",
+            "phase":    m.world.phase,
+            "tps":      m.tps,
+        }))
+
+    async def api_get_match(self, req):
+        """Return info about a specific match."""
+        match_id = req.match_info["match_id"]
+        m = self.matches.get(match_id)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
+        seats = {str(k): {"agent": v, "brain_type": (_brain_for(k).get("type","bot"))}
+                 for k, v in m.world.mcp_seats.items()}
+        return await self._api_cors(web.json_response({
+            "match_id":   m.match_id,
+            "ws_url":     f"ws://localhost:8083/ws/{m.match_id}",
+            "phase":      m.world.phase,
+            "tick":       m.world.tick,
+            "winner":     m.world.winner,
+            "tps":        m.tps,
+            "seats":      seats,
+            "created_at": m.created_at,
+        }))
+
     async def run(self):
         app = web.Application()
         app.router.add_get("/", self.on_index)
         app.router.add_get("/ws", self.on_ws)
-        # REST API routes
-        app.router.add_get("/api/tick", self.api_tick)
-        app.router.add_get("/api/seats", self.api_seats)
-        app.router.add_get("/api/matches", self.api_matches)
-        app.router.add_post("/api/seat/{colony_id}", self.api_join_seat)
-        app.router.add_delete("/api/seat/{colony_id}", self.api_release_seat)
-        app.router.add_post("/api/control", self.api_control)
-        app.router.add_get("/api/state/{colony_id}", self.api_state)
-        app.router.add_get("/api/notifications/{colony_id}", self.api_notifications)
-        app.router.add_get("/api/intel_map/{colony_id}", self.api_intel_map)
-        app.router.add_get("/api/directive/{colony_id}", self.api_directive)
-        app.router.add_post("/api/directive/{colony_id}", self.api_patch_directive)
-        app.router.add_post("/api/command/{colony_id}", self.api_command)
-        app.router.add_get("/api/events/{colony_id}", self.api_events)
-        app.router.add_post("/api/feedback", self.api_feedback)
+        app.router.add_get("/ws/{match_id}", self.on_ws_match)
+        # REST API — match management
+        app.router.add_get( "/api/matches",              self.api_matches)
+        app.router.add_post("/api/matches",              self.api_create_match)
+        app.router.add_get( "/api/matches/{match_id}",   self.api_get_match)
+        # REST API — legacy single-match routes (target default match)
+        app.router.add_get("/api/tick",                          self.api_tick)
+        app.router.add_get("/api/seats",                         self.api_seats)
+        app.router.add_post("/api/seat/{colony_id}",             self.api_join_seat)
+        app.router.add_delete("/api/seat/{colony_id}",           self.api_release_seat)
+        app.router.add_post("/api/control",                      self.api_control)
+        app.router.add_get("/api/state/{colony_id}",             self.api_state)
+        app.router.add_get("/api/notifications/{colony_id}",     self.api_notifications)
+        app.router.add_get("/api/intel_map/{colony_id}",         self.api_intel_map)
+        app.router.add_get("/api/directive/{colony_id}",         self.api_directive)
+        app.router.add_post("/api/directive/{colony_id}",        self.api_patch_directive)
+        app.router.add_post("/api/command/{colony_id}",          self.api_command)
+        app.router.add_get("/api/events/{colony_id}",            self.api_events)
+        app.router.add_post("/api/feedback",                     self.api_feedback)
+        # REST API — per-match routes (same handlers, match_id resolved from path)
+        app.router.add_post("/api/matches/{match_id}/seat/{colony_id}",             self.api_join_seat)
+        app.router.add_delete("/api/matches/{match_id}/seat/{colony_id}",           self.api_release_seat)
+        app.router.add_post("/api/matches/{match_id}/control",                      self.api_control)
+        app.router.add_get("/api/matches/{match_id}/state/{colony_id}",             self.api_state)
+        app.router.add_get("/api/matches/{match_id}/notifications/{colony_id}",     self.api_notifications)
+        app.router.add_get("/api/matches/{match_id}/intel_map/{colony_id}",         self.api_intel_map)
+        app.router.add_get("/api/matches/{match_id}/directive/{colony_id}",         self.api_directive)
+        app.router.add_post("/api/matches/{match_id}/directive/{colony_id}",        self.api_patch_directive)
+        app.router.add_post("/api/matches/{match_id}/command/{colony_id}",          self.api_command)
+        app.router.add_get("/api/matches/{match_id}/events/{colony_id}",            self.api_events)
         # CORS preflight
         app.router.add_route("OPTIONS", "/api/{path_info:.*}", self.api_options)
         runner = web.AppRunner(app)
@@ -2618,9 +2821,8 @@ class Server:
         await web.TCPSite(runner, "0.0.0.0", 8083).start()
         print("🐜  Agants — http://localhost:8083")
         print("🔌  MCP REST API — http://localhost:8083/api/")
-        asyncio.create_task(self.llm_loop_for(0))
-        asyncio.create_task(self.llm_loop_for(1))
-        await self.tick_loop()
+        self._start_match_tasks(self._m)
+        await asyncio.Future()  # run forever; tasks are started above
 
 if __name__ == "__main__":
     asyncio.run(Server().run())

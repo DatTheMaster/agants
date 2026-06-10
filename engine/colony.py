@@ -156,11 +156,8 @@ class DirectiveEngine:
                 base[k] = v
 
     @staticmethod
-    def eval_triggers(colony, world):
-        """Evaluate triggers; auto-patch directive when conditions are met."""
-        triggers = colony.directive.get("triggers", [])
-        if not triggers:
-            return
+    def _build_ns(colony, world):
+        """Build the shared evaluation namespace used by triggers and alerts."""
         counts = [0, 0, 0, 0]
         for a in colony.ants:
             counts[a.type] += 1
@@ -189,7 +186,7 @@ class DirectiveEngine:
                              if a.type == A_SOLDIER and a.lifespan and a.age >= int(a.lifespan * 0.80))
         enemy_intel_age = (world.tick - colony.enemy_scouted_tick
                            if hasattr(colony, 'enemy_scouted_tick') else 9999)
-        ns = {
+        return {
             "food": colony.food,
             "dirt": colony.dirt,
             "income_per_s": colony.income_smooth if colony.income_history else colony.income_per_s,
@@ -209,6 +206,14 @@ class DirectiveEngine:
             "aging_soldiers": aging_soldiers,
             "enemy_intel_age": enemy_intel_age,
         }
+
+    @staticmethod
+    def eval_triggers(colony, world):
+        """Evaluate triggers; auto-patch directive when conditions are met."""
+        triggers = colony.directive.get("triggers", [])
+        if not triggers:
+            return
+        ns = DirectiveEngine._build_ns(colony, world)
         if not hasattr(colony, "trigger_cooldowns"):
             colony.trigger_cooldowns = {}
         for trigger in sorted(triggers, key=lambda t: t.get("priority", 0), reverse=True):
@@ -244,6 +249,42 @@ class DirectiveEngine:
                             })
             except Exception:
                 pass
+
+    @staticmethod
+    def check_alerts(colony, world):
+        """Evaluate alerts; push notifications when conditions fire.
+
+        sampling=True  → edge-triggered: notify only on False→True transition
+        sampling=False → level-triggered: notify every 30 ticks while condition holds
+        """
+        alerts = colony.directive.get("alerts", [])
+        if not alerts:
+            return
+        ns = DirectiveEngine._build_ns(colony, world)
+        if not hasattr(colony, "alert_states"):
+            colony.alert_states = {}
+        for alert in alerts:
+            condition = alert.get("if", "")
+            label = alert.get("label", "?")
+            sampling = alert.get("sampling", False)
+            if not condition:
+                continue
+            try:
+                expr = condition.replace(" AND ", " and ").replace(" OR ", " or ")
+                fired = bool(eval(expr, {"__builtins__": {}}, ns))  # noqa: S307
+            except Exception:
+                continue
+            prev = colony.alert_states.get(label, False)
+            if sampling:
+                if fired and not prev:
+                    colony.push_notification("alert", {"label": label}, tick=world.tick)
+            else:
+                if fired:
+                    last_tick = colony.alert_states.get(f"{label}_tick", -(31))
+                    if world.tick - last_tick >= 30:
+                        colony.push_notification("alert", {"label": label}, tick=world.tick)
+                        colony.alert_states[f"{label}_tick"] = world.tick
+            colony.alert_states[label] = fired
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

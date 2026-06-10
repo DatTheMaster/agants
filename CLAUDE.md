@@ -14,12 +14,68 @@ a fixed 150×100 3-lane map. LLMs and MCP agents command colonies via a persiste
 
 ---
 
-## Current State (2026-06-09, session 15 — Phase 3.1)
+## Current State (2026-06-09, session 17 — Phase 3.5)
 
 **Phase 1 (directive system) COMPLETE. Phase 2 (MCP surface) COMPLETE.**
 **Phase 3.1 (server.py modular wiring) COMPLETE (session 15).**
 **Phase 3.2 (token auth) COMPLETE (session 15).**
-Next: Phase 3.3 (match isolation). See ROADMAP.md for scope.
+**Phase 3.3 (match isolation) COMPLETE (session 16).**
+**Phase 3.4 (lobby + matchmaking) COMPLETE (session 16).**
+**Phase 3.5 (RECALL + check_alerts) COMPLETE (session 17). Phase 3 COMPLETE.**
+Next: Phase 4 (deployment). See ROADMAP.md for scope.
+
+**Phase 3.5 (session 17 — this session):**
+- **RECALL implemented** — `military.retreat=true` now fully works: soldiers walk home and
+  once within 8 tiles of nest they hold a radius-6 defensive perimeter (8 evenly-spaced slots,
+  assigned by `ant.id % 8`). Previously soldiers walked to nest coords but had no arrival
+  logic — they'd drift off or get pulled by other directives.
+- **`check_alerts()` implemented** — `DirectiveEngine.check_alerts(colony, world)` evaluates
+  the directive's `alerts[]` array each tick and pushes `{type: "alert", data: {label}}` to
+  the colony notification queue. `sampling=True` → edge-triggered (fires only on False→True
+  transition); `sampling=False` → level-triggered (fires every 30 ticks while condition holds).
+  Both share the same variable namespace as triggers (all trigger variables valid in alert `if`).
+- **`_build_ns()` helper extracted** — shared namespace builder used by both `eval_triggers`
+  and `check_alerts`; eliminates duplicate colony-stat calculation.
+
+**Phase 3.4 (session 16):**
+- **Per-match `tick_loop(m)` and `llm_loop_for(m, colony_id)`** — all loops now take
+  an explicit `Match` param; each match runs fully independently.
+- **Per-match `_sim_executor`** — `Match.__init__` creates its own `ThreadPoolExecutor`
+  so concurrent matches don't serialize simulation steps.
+- **`Match.tps`** — per-match tick rate; `POST /api/matches` accepts `{config: {tps: N}}`.
+- **`POST /api/matches`** — creates a new match, starts its tasks, returns `match_id` + `ws_url`.
+- **`GET /api/matches/{match_id}`** — info for a specific match.
+- **Per-match REST routes** — every colony endpoint now has both a legacy path
+  (`/api/state/{cid}`) and a match-scoped path (`/api/matches/{mid}/state/{cid}`).
+  Same handlers serve both; match resolved via `_get_match_or_default(req)`.
+- **Full `_on_ws_for(req, m)`** — shared WebSocket handler used by both `/ws` and
+  `/ws/{match_id}`; all in-message commands (`reset`, `start_game`, etc.) correctly
+  target the specific match.
+- **`_start_match_tasks(m)`** — helper that starts tick_loop + 2 LLM loops for any match.
+  Called in `run()` for the default match and in `api_create_match` for new ones.
+- **mcp_server.py**: `create_match(tps?)` tool; `join_seat` accepts optional `match_id`;
+  `_match_path(colony_id, path)` helper; all write/read tools automatically use
+  match-scoped URLs once a seat is joined.
+
+**Phase 3.3 (session 16 — this session):**
+- **`Match` class** — `server.py` introduces `Match` as the per-match state container:
+  `world`, `clients`, `llm_memories/stats/logs`, `_pending_strategies`, `_step_in_progress`,
+  `_placement_*`, `tokens`, `match_id`, `created_at`.
+- **`Server.matches: dict[str, Match]`** — replaces the flat `self.world` / `self.clients` / etc.
+  A single default match is created at startup; `Server._default_match_id` tracks it.
+- **Backward compat via properties** — `Server.world`, `.clients`, `._tokens`, `.llm_memories`,
+  `.llm_stats`, `.llm_strategy_logs`, `._pending_strategies`, `._step_in_progress`,
+  `._placement_*` are all properties forwarding to `self._m` (the default match). Zero changes
+  to the 50+ existing methods that use these attributes.
+- **`GET /api/matches`** now returns each match's `match_id`, `ws_url`, `created_at`,
+  plus existing `phase`, `tick`, `seats` fields.
+- **`POST /api/seat/{id}`** response now includes `match_id`.
+- **`GET /ws/{match_id}`** — new match-scoped WebSocket route; validates match_id,
+  routes to default match handler for the single default match.
+- **mcp_server.py** — `_colony_match: dict[int, str]` stores `match_id` per colony after
+  `join_seat`; cleared on `release_seat`.
+- **Architecture note**: multiple concurrent matches are now structurally supported. Phase 3.4
+  adds `POST /api/matches` creation and scopes `tick_loop` / broadcasts per-match.
 
 **Phase 3.2 (session 15 — this session):**
 - **Bearer token auth** — `POST /api/seat/{id}` issues a UUID token, returned in `{token: "..."}`.
@@ -74,9 +130,6 @@ Next: Phase 3.3 (match isolation). See ROADMAP.md for scope.
 - **`state` field in REST units, filter_state fixed** (v2.11)
 
 **Known remaining issues (Phase 2 polish):**
-- RETREAT emergency command not implemented — `military.retreat=true` sets a flag but
-  soldiers don't actually path home; proper RECALL behavior is the Phase 3 spec item
-- `check_alerts()` not implemented — alerts schema exists but never evaluated
 - Enemies walk through walls (pathfinder ignores walls for combat moves)
 - Buildings placeable anywhere (no proximity-to-own-unit check)
 - `food_depleted` notification never fired
@@ -85,9 +138,8 @@ Next: Phase 3.3 (match isolation). See ROADMAP.md for scope.
 **Deferred to Phase 3+:**
 - Fog of war per agent (vision-limited `get_intel_map`)
 - Event stream / webhooks (real-time vs polling)
-- Multi-session + token auth (Phase 3 spec)
-- Replay system, surrender/negotiate protocol (Phase 3+)
-- Resource trading (Phase 5 MMO)
+- Replay system, surrender/negotiate protocol (Phase TBD1+)
+- Resource trading, large map, MMO colonies (Phase TBD1/TBD2)
 
 ---
 
@@ -178,7 +230,7 @@ gather, hold, patrol. Queen cannot be commanded.
     "scout":   {"expansion": [ex, ey], "revisit_pct": 0.12, "patrol_waypoints": None},
   },
   "triggers": [],   # [{label, if, then, priority?, duration?, cooldown?}]
-  "alerts": [...]   # defined but never evaluated (check_alerts not implemented)
+  "alerts": [...]   # evaluated each tick; sampling=True=edge-triggered, False=level (30t rate)
 }
 ```
 
