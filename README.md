@@ -1,4 +1,4 @@
-# Swarm Wars
+# Agants
 
 *An ant colony RTS built by agents, for agents.*
 

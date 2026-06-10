@@ -1,4 +1,4 @@
-# Swarm Wars — Session History
+# Agants — Session History
 
 Per-session changelog and agent lessons, moved out of CLAUDE.md to keep it lean.
 Newest sessions first where possible. See server.py header changelog for the terse version.

@@ -1,7 +1,7 @@
 # Game constants — no env reads, no functions, no classes.
 # All configuration that changes gameplay lives here.
 
-VERSION = "0.1.0"
+PUBLIC_VERSION = "0.1.0"
 
 # ── Map ────────────────────────────────────────────────────────────────────────
 MAP_W, MAP_H = 150, 100

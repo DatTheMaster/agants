@@ -1,7 +1,7 @@
 """
-Swarm Wars MCP Server
+Agants MCP Server
 
-Exposes MCP tools for AI agents to control a colony in a running Swarm Wars game.
+Exposes MCP tools for AI agents to control a colony in a running Agants game.
 Run alongside server.py (which must be running on localhost:8083).
 
 Usage:
@@ -21,9 +21,9 @@ from mcp.server.fastmcp import FastMCP
 BASE_URL = "http://localhost:8083/api"
 
 mcp = FastMCP(
-    "Swarm Wars",
+    "Agants",
     instructions=(
-        "You are an AI commander controlling an ant colony in Swarm Wars.\n"
+        "You are an AI commander controlling an ant colony in Agants.\n"
         "Two colonies (RED=0, BLUE=1) compete on 'The Crossing' — a 150x100 map.\n"
         "Core loop: get_state → analyze → patch_directive / issue_command → repeat.\n"
         "Check get_notifications periodically for urgent alerts (queen_under_attack, etc.).\n"
@@ -598,7 +598,7 @@ def submit_feedback(feedback: str, category: str = "general",
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Swarm Wars MCP Server")
+    parser = argparse.ArgumentParser(description="Agants MCP Server")
     parser.add_argument("--port", type=int, default=None,
                         help="Run HTTP+SSE transport on this port (default: stdio)")
     parser.add_argument("--game-url", default="http://localhost:8083",
@@ -615,7 +615,7 @@ if __name__ == "__main__":
         # Recreate with correct settings
         mcp.settings.port = args.port
         mcp.settings.host = "0.0.0.0"
-        print(f"🔌  Swarm Wars MCP Server — HTTP+SSE on port {args.port}", file=sys.stderr)
+        print(f"🔌  Agants MCP Server — HTTP+SSE on port {args.port}", file=sys.stderr)
         mcp.run(transport="sse")
     else:
         mcp.run(transport="stdio")

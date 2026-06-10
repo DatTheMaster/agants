@@ -1,4 +1,4 @@
-# Swarm Wars — Session Passdown
+# Agants — Session Passdown
 
 *This file is Claude's session passdown. The project (repo: Agants) is proudly built
 by agents, for agents — human + AI collaboration is the whole point.*
@@ -14,19 +14,29 @@ a fixed 150×100 3-lane map. LLMs and MCP agents command colonies via a persiste
 
 ---
 
-## Current State (2026-06-09, session 14 — v0.1.0 public release)
+## Current State (2026-06-09, session 15 — Phase 3.1)
 
 **Phase 1 (directive system) COMPLETE. Phase 2 (MCP surface) COMPLETE.**
-**v0.1.0 open-source restructuring COMPLETE (session 14).**
-Next: Phase 3 (multi-session + auth + server.py slim). See ROADMAP.md for scope.
+**Phase 3.1 (server.py modular wiring) COMPLETE (session 15).**
+Next: Phase 3.2 (token auth). See ROADMAP.md for scope.
 
-**v0.1.0 (session 14 — this session):**
+**Phase 3.1 (session 15 — this session):**
+- **server.py wired to engine/** — `from engine.constants import *`, `from engine.colony import ...`,
+  `from engine.world import ...`, `from bot import update_bot_strategy`
+- **Duplicate code removed** from server.py — reduced from ~5100 to ~2600 lines
+  (constants, Ant, DirectiveEngine, Colony, Predator, World, _apply_upgrade_effects, gen_terrain)
+- **`Server._update_bot_strategy`** removed; now delegates to `bot.update_bot_strategy` (fixes
+  the latent `self.world.structures/tick` bug that was still in the Server method copy)
+- **engine/constants.py** `VERSION = "0.1.0"` renamed to `PUBLIC_VERSION` to avoid shadowing
+  server.py's internal gameplay `VERSION = "2.10"`
+- **Agants rename sweep** — all "Swarm Wars" branding updated across server.py, mcp_server.py,
+  index.html, HISTORY.md, README.md, CLAUDE.md, engine/__init__.py, .env.example
+
+**v0.1.0 (session 14):**
 - **Public release restructuring** — renamed project "Agants", version bumped to semantic 0.1.0
 - **engine/ split** — `engine/constants.py` (pure game constants), `engine/colony.py` (Ant,
   DirectiveEngine, Colony), `engine/world.py` (World, Predator, gen_terrain), `engine/__init__.py`
-  NOTE: `server.py` still carries its own copies — wire-up to import from engine/ is Phase 3 task 1
-- **bot.py** — `update_bot_strategy(world, colony_id)` extracted from Server method; fixes
-  `self.world.structures/tick` → `world.structures/tick` (was a latent bug in the method sig)
+- **bot.py** — `update_bot_strategy(world, colony_id)` extracted from Server method
 - **README.md** rewritten as public-facing ("for agents by agents" framing)
 - **ROADMAP.md** created from TRANSITION.md + MMO_PLAN.md (stale originals deleted)
 - **DEVELOPMENT.md**, **CONTRIBUTING.md** created
