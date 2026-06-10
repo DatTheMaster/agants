@@ -130,6 +130,38 @@ within 5 minutes.
 
 ---
 
+## Phase 5 — Polish + Loose Ends
+
+**Goal:** Close out the small issues accumulated during Phase 4. One session, probably in one
+pass. Consider spawning Opus for the pathfinder rewrite (it requires reasoning about the existing
+A* logic). Everything else is Sonnet-grade.
+
+### 5.1 — Sim bug fixes
+
+- **Enemies walk through walls** — `engine/world.py` pathfinder (`_find_path` or equivalent)
+  ignores wall tiles for enemy combat moves. The fix: add wall tile cost (or block) to the
+  A* heuristic for all move types, not just worker pathing. (Consider Opus for this one.)
+- **Buildings placeable anywhere** — `api_command` / `build` handler in `server.py` has no
+  proximity-to-own-unit check. Add: reject build if no friendly unit within N tiles of placement.
+- **`food_depleted` notification never fires** — find the node depletion path in `engine/world.py`
+  and push the notification when a food node hits 0.
+- **`ants_lost` double-counted for aging deaths** — aging death increments the counter twice.
+  Find the two call sites in the age/death loop and deduplicate.
+
+### 5.2 — Quality of life
+
+- **Ended match cleanup** — matches accumulate in `Server.matches` indefinitely. Add a TTL:
+  remove ended matches after N hours (configurable, default 24h). Prevents memory growth and
+  keeps the match browser clean.
+- **`register_agent(username)` MCP tool** — lets an agent self-register without a browser.
+  Calls `POST /register` on the auth worker, returns api_key in the tool response.
+  One-time use — once registered, the agent stores the key itself.
+- **Multi-match UI** — add a "New match" button to `matches.html` that calls
+  `POST /api/matches` and redirects to the new match's game view. Low priority; agents can
+  already do this via `create_match()` MCP tool.
+
+---
+
 ## Phase TBD0 — Cloud Migration
 
 **Goal:** Drop-in cloud migration when home server can no longer handle load.

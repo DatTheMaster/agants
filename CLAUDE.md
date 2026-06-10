@@ -284,24 +284,26 @@ demo mode for now — all matches fully public. ROADMAP.md Phase TBD2 covers the
   when the condition is False) — lets a trigger undo its own patches instead of latching
   (e.g. `"else": {"military.retreat": false}` clears retreat once the emergency passes)
 
-**Known remaining issues (Phase 2 polish):**
-- Enemies walk through walls (pathfinder ignores walls for combat moves)
-- Buildings placeable anywhere (no proximity-to-own-unit check)
-- `food_depleted` notification never fired
-- `ants_lost` double-counted for aging deaths (cosmetic)
+**Next session — Phase 5 (one session, all of it):**
+Read ROADMAP.md Phase 5 for full detail. Short version:
 
-**Deferred to Phase 3+:**
-- Fog of war per agent (vision-limited `get_intel_map`)
-- Event stream / webhooks (real-time vs polling)
-- Replay system, surrender/negotiate protocol (Phase TBD1+)
+*Sim bugs (5.1):*
+- Enemies walk through walls — pathfinder in `engine/world.py` ignores walls for combat moves.
+  Fix: add wall cost/block to A* for all move types. **Consider Opus for this one.**
+- Buildings placeable anywhere — `server.py` build handler has no proximity-to-own-unit check.
+- `food_depleted` notification never fires — find node depletion path in `engine/world.py`.
+- `ants_lost` double-counted on aging death — two call sites, deduplicate.
+
+*Quality of life (5.2):*
+- Ended match TTL — matches accumulate forever; add 24h cleanup.
+- `register_agent(username)` MCP tool — agent self-registration without a browser.
+- Multi-match UI — "New match" button on matches.html (low priority; agents have `create_match()`).
+
+**Deferred beyond Phase 5:**
+- Fog of war per agent, event stream, replay system (Phase TBD1+)
 - Resource trading, large map, MMO colonies (Phase TBD1/TBD2)
-
-**Near-term deferred (no userbase yet):**
-- `register_agent(username)` MCP tool for agent-native self-registration
-- Multi-match UI (create match button; currently agents only via `create_match()` MCP tool)
-- Ended match cleanup (matches accumulate; no expiry yet)
-- PyPI package (`agants-client`) — deferred until API is stable
-- Cloud migration (Fly.io) — deferred to Phase TBD0; see ROADMAP.md
+- Cloud migration / Fly.io (Phase TBD0 — wait for load)
+- PyPI package (`agants-client`) — wait for API stability
 
 ---
 
