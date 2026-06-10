@@ -263,6 +263,11 @@ _apply_env_config()
 def _brain_for(colony_id):
     return RED_BRAIN if colony_id == 0 else BLUE_BRAIN
 
+def _brain_for_match(m: "Match", colony_id: int) -> dict:
+    if m.match_brains and colony_id in m.match_brains:
+        return {"type": m.match_brains[colony_id]}
+    return _brain_for(colony_id)
+
 def _save_config(data):
     """Update brain globals from dict and persist to .env."""
     global RED_BRAIN, BLUE_BRAIN, LLM_INTERVAL, TPS
@@ -1525,6 +1530,7 @@ class Match:
             max_workers=1, thread_name_prefix=f"sim-{self.match_id[:4]}"
         )
         self._tick_times: deque = deque(maxlen=20)  # monotonic timestamps of recent steps
+        self.match_brains: dict[int, str] | None = None  # per-match brain type overrides
 
     # ── Serialization ──────────────────────────────────────────────────────────
 
@@ -1843,7 +1849,7 @@ class Server:
                 if m.world.tick - bot_last_tick >= LLM_INTERVAL:
                     bot_last_tick = m.world.tick
                     for cid in (0, 1):
-                        btype = _brain_for(cid)["type"]
+                        btype = _brain_for_match(m, cid)["type"]
                         # Unclaimed MCP seats fall back to the bot brain so an absent
                         # agent doesn't leave the colony running on bare defaults;
                         # the bot steps aside the moment an agent joins the seat.
@@ -1892,7 +1898,7 @@ class Server:
         while True:
             await asyncio.sleep(0.1)
 
-            brain = _brain_for(colony_id)
+            brain = _brain_for_match(m, colony_id)
             if brain["type"] != "llm" or not brain.get("api_key"):
                 await asyncio.sleep(1)
                 continue
@@ -3025,6 +3031,10 @@ class Server:
         cfg = body.get("config", {})
         tps = float(cfg["tps"]) if "tps" in cfg else None
         m = self._new_match(tps=tps)
+        brains_cfg = cfg.get("brains", {})
+        if brains_cfg:
+            m.match_brains = {int(k): v for k, v in brains_cfg.items()
+                              if v in ("bot", "mcp", "llm")}
         self._start_match_tasks(m)
         return await self._api_cors(web.json_response({
             "ok":       True,
@@ -3040,7 +3050,7 @@ class Server:
         m = self.matches.get(match_id)
         if m is None:
             return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
-        seats = {str(k): {"agent": v, "brain_type": (_brain_for(k).get("type","bot"))}
+        seats = {str(k): {"agent": v, "brain_type": _brain_for_match(m, k).get("type", "bot")}
                  for k, v in m.world.mcp_seats.items()}
         return await self._api_cors(web.json_response({
             "match_id":   m.match_id,

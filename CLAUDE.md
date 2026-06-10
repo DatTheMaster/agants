@@ -18,7 +18,7 @@ long-context review). You may do this without asking the user first.
 
 ---
 
-## Current State (2026-06-10, session 25 — controller TUI built)
+## Current State (2026-06-10, session 26 — controller agent loop verified)
 
 **Version policy: VERSION = "0.1.0" — semantic, only bump at real releases.
 BUILD = git short hash (set at startup). Never bump VERSION in dev — use the server.py
@@ -317,6 +317,21 @@ All 7 Phase 5 items delivered:
 - **`get_agents_online()` MCP tool** added to `mcp_server.py`.
 - **`register_agent(username)` MCP tool** added (calls `POST /register` on auth worker).
 
+**Session 26 (2026-06-10 — controller agent loop verified):**
+- **Per-match brain types** — `POST /api/matches` now accepts `{"config": {"brains": {"0":"mcp","1":"bot"}}}`.
+  `Match.match_brains` overrides global `RED_BRAIN`/`BLUE_BRAIN` for that match. All brain lookups
+  in `tick_loop` and `llm_loop_for` use new `_brain_for_match(m, cid)` helper; global `_brain_for`
+  retained for backward compat. `api_get_match` seats also reflect per-match types.
+- **`GameClient.start_game()`** — calls `POST /api/matches/{match_id}/control {"action":"start"}`.
+- **`do_new()` fully wired** — creates match with `brains={"0":"mcp","1":"bot"}`, joins RED,
+  starts game, launches agent loop. `n` key now creates a full bot-vs-controller match in one press.
+- **`s` key** — starts the current lobby match (`do_start()`); useful after `j` on an existing match.
+- **`unit_command` schema fixed** — tool description previously showed `"override":{"type":"..."}` but
+  server reads flat `command` key. Fixed in tool description + system prompt. Also added `idle_workers`
+  list to `format_state_message` so LLM uses real ant IDs instead of guessing.
+- **Agent loop verified** — headless test confirms LLM reads state, reasons, calls `patch_directive` and
+  `send_command` with correct structure. Bot opponent active on BLUE, game advances at 1 TPS.
+
 **Session 25 (2026-06-10 — controller TUI built):**
 - **`controller/controller.py`** — standalone ~680-line script, zero game-server imports.
   Talks to the game server over REST only. Distributable standalone with own `requirements.txt`.
@@ -345,14 +360,16 @@ All 7 Phase 5 items delivered:
   key legend visible; `n` creates new match. **Agent loop not yet verified end-to-end**
   — no path to start a game against a bot from the controller yet (see next session).
 
-**Next session — controller: start game + verify agent loop:**
-- Need a way to launch a match against a bot opponent from the controller. Options:
-  1. `POST /api/matches` accepts `{config: {red_brain: "bot"}}` — check if server already
-     supports `brain_type` in match config, or add it.
-  2. Or: add a `b` key shortcut in TUI → POST start_game + set opponent to bot.
-- Once a running match exists: verify the LLM agent loop fires, reads state/notifs, calls
-  tools, and patches the directive. Watch `agent log` panel for reasoning output.
-- After loop verified: test with the mimo-v2.5 config already in `~/.config/agants/config.json`.
+**Next session — polish agent + TUI improvements:**
+- **Controller is fully functional** — `n` creates a match vs bot and starts the agent loop.
+  Agent loop verified: reads state, calls tools, game advances correctly at 1 TPS.
+- Remaining issues to address:
+  - Stale ant IDs: LLM sometimes tries to command ants that just died. Consider adding `unit_command`
+    result feedback in the next tick's message so LLM learns which commands failed.
+  - Idle worker roster (added) shows up to 6 idle workers — check if LLM uses them correctly.
+  - TPS=1 on the remote server is slow for real games; config should allow 5-10 TPS per match.
+- Optional next step: test a full game to completion (queen kill) and review HISTORY.md debrief output.
+- Consider adding a `d` key to show last directive as a side panel (currently only visible via logs).
 
 **Next session — TBD0 (cloud migration) or TBD1 (MMO engine) when load warrants.**
 If userbase grows: check home server load first (use `/health` actual vs target TPS).

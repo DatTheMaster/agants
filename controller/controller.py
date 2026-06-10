@@ -96,10 +96,17 @@ class GameClient:
         except httpx.HTTPError:
             return []
 
-    async def new_match(self) -> str:
-        r = await self.http.post(f"{self.base}/api/matches", json={})
+    async def new_match(self, brains: dict | None = None) -> str:
+        body: dict = {}
+        if brains:
+            body["config"] = {"brains": brains}
+        r = await self.http.post(f"{self.base}/api/matches", json=body)
         r.raise_for_status()
         return r.json()["match_id"]
+
+    async def start_game(self) -> dict:
+        path = self._mpath("/control")
+        return await self._tool_request("POST", path, {"action": "start"})
 
     async def join(self, match_id: str | None, colony_id: int, name: str) -> dict:
         self.match_id = match_id
@@ -181,7 +188,8 @@ TOOLS = [
                        "'build' (data {\"build\":{\"type\":\"larder|watchtower|guard_post|barracks|wall\",\"x\":N,\"y\":M}}), "
                        "'convert' (data {\"convert\":{\"id\":antId,\"to\":\"soldier\"}}), "
                        "'cancel_spawn' (data {\"unit_type\":\"worker|soldier|scout|all\"}), "
-                       "'unit_command' (data {\"ant_id\":N,\"override\":{\"type\":\"move_to|attack_xy|gather|hold|patrol\",\"x\":X,\"y\":Y}}).",
+                       "'unit_command' (data {\"ant_id\":N,\"command\":\"move_to|attack_xy|gather|hold|patrol|clear\",\"x\":X,\"y\":Y}). "
+                       "For unit_command: command is a flat key alongside ant_id, x, y — do NOT nest inside an 'override' dict.",
         "parameters": {"type": "object", "properties": {
             "command_type": {"type": "string"},
             "data": {"type": "object"}},
@@ -234,7 +242,9 @@ STRATEGY:
 
 TOOLS: patch_directive(patches) sets standing orders. send_command(command_type,data) for
 buy_upgrade/build/convert/cancel_spawn/unit_command. get_intel_map() for a spatial picture.
-send_chat(message) to taunt. Be decisive and economical: usually 0-2 tool calls per tick."""
+send_chat(message) to taunt. Be decisive and economical: usually 0-2 tool calls per tick.
+For unit_command: data must be flat: {{\"ant_id\":N,\"command\":\"move_to\",\"x\":X,\"y\":Y}}.
+Do NOT use an \"override\" sub-dict."""
 
 
 # --------------------------------------------------------------------------- #
@@ -264,6 +274,11 @@ def format_state_message(state: dict, notifs: list[dict]) -> str:
         lines.append("food_nodes: " + ", ".join(
             f"({n['pos'][0]},{n['pos'][1]}){n['tier'][:1]}={n['amt']}({n['pct']}%)w{n['workers_here']}/{n['cap']}"
             for n in nodes[:6]))
+    units = state.get("units", [])
+    if units:
+        idle_workers = [u for u in units if u["type"] == "worker" and u.get("state") == "idle" and not u.get("override")][:6]
+        if idle_workers:
+            lines.append("idle_workers: " + ", ".join(f"id={u['id']}@({u['x']},{u['y']})" for u in idle_workers))
     if state.get("advisor"):
         lines.append("ADVISOR: " + " | ".join(state["advisor"]))
     if state.get("events"):
@@ -408,7 +423,7 @@ def render(ui: UI, client: GameClient, total_height: int = 32) -> Layout:
     if ui.prompt is not None:
         footer = Text(f"{ui.prompt}: {ui.prompt_buf}_", style="bold yellow")
     else:
-        footer = Text("[j] join   [n] new match   [w] watch   [↑/↓] select   [q] quit   "
+        footer = Text("[j] join   [n] new vs bot   [s] start   [w] watch   [↑/↓] select   [q] quit   "
                       f"— {ui.status}", style="dim")
     layout["footer"].update(footer)
     return layout
@@ -573,6 +588,8 @@ async def run_tui(cfg: dict):
             asyncio.create_task(do_join())
         elif ch == "n":
             asyncio.create_task(do_new())
+        elif ch == "s":
+            asyncio.create_task(do_start())
         elif ch == "w":
             do_watch()
 
@@ -602,13 +619,28 @@ async def run_tui(cfg: dict):
 
     async def do_new():
         try:
-            mid = await client.new_match()
+            mid = await client.new_match(brains={"0": "mcp", "1": "bot"})
             await client.join(mid, 0, "controller")
             ui.status = f"seated RED @ {mid[:8]} (new)"
             ui.add_log(f"created + joined {mid[:8]} as RED")
+            r = await client.start_game()
+            if "error" in r:
+                ui.add_log(f"[warn] start: {r['error']}")
+            else:
+                ui.add_log("game starting — placement phase in progress")
             await start_agent()
         except httpx.HTTPError as e:
             ui.add_log(f"[err] new match: {e}")
+
+    async def do_start():
+        if client.match_id is None:
+            ui.add_log("[warn] not in a match — press 'j' to join one first")
+            return
+        r = await client.start_game()
+        if "error" in r:
+            ui.add_log(f"[warn] start: {r['error']}")
+        else:
+            ui.add_log("game starting")
 
     def do_watch():
         mid = client.match_id or (ui.matches[ui.selected]["match_id"] if ui.matches else None)

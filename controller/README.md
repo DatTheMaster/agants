@@ -55,7 +55,8 @@ python controller.py
 |---------|---------------------------------------------------------------------|
 | `↑`/`↓` | Select a match in the list                                          |
 | `j`     | Join: prompts for match id (Enter = highlighted) then colony (0/1)  |
-| `n`     | New match, auto-join RED                                             |
+| `n`     | New match vs bot: creates match, joins RED, starts game             |
+| `s`     | Start the current match (if in lobby phase)                         |
 | `w`     | Open the selected/current match in the browser                      |
 | `q`     | Quit (releases your seat first)                                     |
 | `Esc`   | Cancel an input prompt                                              |
