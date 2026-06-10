@@ -45,12 +45,14 @@ def setup_wizard() -> None:
     print("Agants Controller setup\n")
     game_url = input("Game server URL [https://api.datthemaster.com]: ").strip() or "https://api.datthemaster.com"
     api_key = input("Agants API key (from agants.datthemaster.com/register.html): ").strip()
+    name = input("Agent name (shown in match seats, e.g. your username): ").strip() or "agent"
     base_url = input("LLM base URL [https://api.openai.com/v1]: ").strip() or "https://api.openai.com/v1"
     llm_key = input("LLM API key: ").strip()
     model = input("Model [gpt-4o]: ").strip() or "gpt-4o"
     cfg = {
         "game_url": game_url,
         "api_key": api_key,
+        "name": name,
         "llm": {"base_url": base_url, "api_key": llm_key, "model": model},
     }
     GLOBAL_CONFIG.parent.mkdir(parents=True, exist_ok=True)
@@ -229,22 +231,40 @@ DIRECTIVE LEVERS (patch_directive):
    military.attack_target [x,y], military.auto_attack, military.retreat,
    military.siege_priority "queen"
 
-STRATEGY:
- - Early: ~60% workers, build economy, scout the map. Buy worker/scout upgrades when food allows.
- - Mass soldiers at a rally_point near midfield BEFORE attacking; set rally_release_at (~10-14).
-   Soldiers that trickle in die one by one.
- - When sieging the enemy nest, ALWAYS set military.siege_priority="queen" — otherwise soldiers
-   fight bodyguards and deal no damage to her. Watch combat.queen_dps_actual vs siege_dps_potential.
- - Before approach/home food depletes (mid-game), build larders for sustained income.
- - If queen_hp drops or enemy_soldiers_near_nest > 0, set military.retreat=true to pull soldiers home
-   into a defensive perimeter; clear it once the threat passes.
- - Read 'advisor' hints in state — they point at neglected levers.
+HARD RULES — violating these loses games:
+
+1. RETREAT CANCELS ATTACK. Never set retreat=True while attack_target is set — soldiers will
+   just circle your own nest forever. To attack: patch {{\"military\":{{\"retreat\":false,
+   \"attack_target\":[ex,ey]}}}} in a single call. To defend: clear attack_target first.
+
+2. RALLY BEFORE ATTACKING. Set rally_point near midfield (x=75,y=50) and rally_release_at=12
+   BEFORE you set attack_target. Soldiers that advance without rallying die one-by-one at the
+   chokepoint. The sequence is: (a) set rally_point+rally_release_at → wait for count → (b) set
+   attack_target and clear rally_point in the same patch.
+
+3. BUILD A LARDER BY TICK 200. Home/approach food nodes deplete ~tick 300. After that, income=0
+   means you can never spawn again. Larder costs 150 dirt (+6 food/t passive forever). Use
+   send_command("build", {{"build":{{"type":"larder","x":<near nest>,"y":<near nest>}}}}).
+   Check dirt value in state — workers passively accumulate it.
+
+4. SIEGE REQUIRES siege_priority="queen". Without it soldiers fight bodyguards and deal 0
+   damage to the queen. Set it the moment your soldiers enter enemy territory.
+
+STRATEGY FLOW:
+ - Early (0–150): 60% workers, auto_upgrade=true, scout the flanks, queue 1-2 soldiers.
+ - Mid (150–300): shift to 50% soldiers, set rally_point=[75,50], rally_release_at=12.
+   Build larder NOW before food depletes.
+ - Attack: once rally count hit, patch retreat=false + attack_target=[{enemy_nest}] +
+   rally_point=null + siege_priority="queen" in one call.
+ - Defend: if enemy_soldiers_near_nest>3, patch retreat=true + attack_target=null.
+   Clear retreat once threat passes.
+ - Read 'advisor' hints — they name exactly what's being neglected.
 
 TOOLS: patch_directive(patches) sets standing orders. send_command(command_type,data) for
 buy_upgrade/build/convert/cancel_spawn/unit_command. get_intel_map() for a spatial picture.
-send_chat(message) to taunt. Be decisive and economical: usually 0-2 tool calls per tick.
-For unit_command: data must be flat: {{\"ant_id\":N,\"command\":\"move_to\",\"x\":X,\"y\":Y}}.
-Do NOT use an \"override\" sub-dict."""
+send_chat(message) to taunt. Be decisive: usually 1-2 tool calls per tick.
+For unit_command: data is flat — {{\"ant_id\":N,\"command\":\"move_to\",\"x\":X,\"y\":Y}}.
+Do NOT nest command inside an \"override\" dict."""
 
 
 # --------------------------------------------------------------------------- #
@@ -385,7 +405,9 @@ def _brief(args: dict) -> str:
 async def poller(client: GameClient, ui: UI):
     while ui.running:
         try:
-            ui.matches = await client.list_matches()
+            all_matches = await client.list_matches()
+            ui.matches = [m for m in all_matches
+                          if m.get("phase") == "lobby" and m.get("winner") is None]
         except Exception as e:
             ui.add_log(f"[poll] matches: {type(e).__name__}: {str(e)[:80]}")
         try:
@@ -450,14 +472,14 @@ def render_matches(ui: UI, client: GameClient) -> Panel:
         line.append(f"t{m.get('tick',0)} R:{red} B:{blue}", style="dim")
         t.add_row(line)
     if not ui.matches:
-        t.add_row(Text("(no matches — press 'n')", style="dim"))
+        t.add_row(Text("(no open lobbies — press 'n' to create one)", style="dim"))
 
     online = Table.grid(padding=(0, 1))
     online.add_row(Text(f"Online agents ({len(ui.online)}):", style="bold"))
     for a in ui.online[:8]:
         online.add_row(Text(f" {a['agent']:<12} {a['colony']:<5} {a['seconds_ago']}s ago", style="dim"))
 
-    return Panel(Group(t, Text(""), online), title="Matches", border_style="grey50")
+    return Panel(Group(t, Text(""), online), title="Open Lobbies", border_style="grey50")
 
 
 def render_colony(ui: UI, client: GameClient) -> Panel:
@@ -599,6 +621,8 @@ async def run_tui(cfg: dict):
             agent_task.cancel()
         agent_task = asyncio.create_task(agent_loop(client, llm, model, ui, loop))
 
+    agent_name = cfg.get("name", "agent")
+
     async def do_join():
         if client.colony_id is not None:
             await client.release()
@@ -610,7 +634,7 @@ async def run_tui(cfg: dict):
         if col is None or col not in ("0", "1"):
             return
         try:
-            await client.join(mid.strip(), int(col), "controller")
+            await client.join(mid.strip(), int(col), agent_name)
             ui.status = f"seated {'RED' if int(col) == 0 else 'BLUE'} @ {client.match_id[:8]}"
             ui.add_log(f"joined {client.match_id[:8]} as colony {col}")
             await start_agent()
@@ -620,7 +644,7 @@ async def run_tui(cfg: dict):
     async def do_new():
         try:
             mid = await client.new_match(brains={"0": "mcp", "1": "bot"})
-            await client.join(mid, 0, "controller")
+            await client.join(mid, 0, agent_name)
             ui.status = f"seated RED @ {mid[:8]} (new)"
             ui.add_log(f"created + joined {mid[:8]} as RED")
             r = await client.start_game()
@@ -710,7 +734,7 @@ async def run_headless(cfg: dict, spec: str):
             print(line, flush=True)
     ui.log = StdoutLog()  # type: ignore
 
-    await client.join(mid_str, int(col_str), "controller")
+    await client.join(mid_str, int(col_str), cfg.get("name", "agent"))
     print(f"joined {client.match_id} as colony {col_str}", flush=True)
     try:
         await agent_loop(client, llm, cfg["llm"]["model"], ui, loop)
