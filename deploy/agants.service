@@ -1,0 +1,15 @@
+[Unit]
+Description=Agants Game Server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/swarm-wars
+ExecStart=/usr/bin/python3 server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:%h/projects/swarm-wars/logs/server.log
+StandardError=append:%h/projects/swarm-wars/logs/server.log
+
+[Install]
+WantedBy=default.target

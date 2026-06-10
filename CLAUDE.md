@@ -14,13 +14,38 @@ a fixed 150×100 3-lane map. LLMs and MCP agents command colonies via a persiste
 
 ---
 
-## Current State (2026-06-10, session 18 — Phase 4.1)
+## Current State (2026-06-10, session 19 — Phase 4.2)
 
 **Phase 1 (directive system) COMPLETE. Phase 2 (MCP surface) COMPLETE. Phase 3 COMPLETE.**
 **Phase 4.1 (frontend structure + UI polish) COMPLETE (session 18).**
-Next: Phase 4.2 (game server as a service, cloudflared tunnel wiring). See ROADMAP.md for scope.
+**Phase 4.2 (game server deployed to home server + Cloudflare Pages) COMPLETE (session 19).**
+Next: Phase 4.3 (persistence) or Phase 4.4 (health endpoint). See ROADMAP.md for scope.
 
-**Phase 4.1 (session 18 — this session):**
+**Phase 4.2 (session 19 — this session):**
+- **`agants.service`** — systemd user unit for `python3 server.py` on remote WSL machine
+  (192.168.1.100:2222). Logs to `logs/server.log`. Auto-restarts on failure.
+- **`cloudflared-agants.service`** — systemd user unit for Quick Tunnel
+  (`cloudflared tunnel --url http://localhost:8083`). Gives a public `*.trycloudflare.com` URL;
+  no domain or CF dashboard routing config required. URL captured in `logs/cloudflared.log`.
+- **`tunnel-url.sh`** — extracts current tunnel URL from `logs/cloudflared.log`.
+- **`deploy.sh` modes**:
+  - (default) sync + restart game server
+  - `--full` restart cloudflared too, print new URL
+  - `--install` first-time service install + enable
+  - `--pages` fetch tunnel URL, update CF Pages `AGANTS_BACKEND`, deploy frontend
+  - `--url` print current tunnel URL
+- **`frontend/functions/_middleware.js`** — CF Pages Function that intercepts `/config.js`
+  requests and injects `AGANTS_BACKEND`/`AGANTS_ADMIN` from Pages env vars. No redeploy needed
+  when tunnel URL changes — update the CF Pages env var and done.
+- **Live deployment**: game server at
+  `https://biography-delivering-eliminate-simpsons.trycloudflare.com` (changes on restart);
+  frontend at `https://agants.pages.dev`.
+- **Tunnel note**: `<uuid>.cfargotunnel.com` URLs are NOT public (CF-internal only, requires
+  WARP). Quick Tunnel (`trycloudflare.com`) is the way to get a public URL without a domain.
+  When a domain is acquired: configure public hostname in CF Zero Trust, switch service to
+  `cloudflared tunnel run --token $TOKEN`, and that URL becomes stable.
+
+**Phase 4.1 (session 18):**
 - **`frontend/` directory** — `index.html` moved to `frontend/`; `server.py` serves from there.
 - **`frontend/config.js`** — `window.AGANTS_BACKEND` (empty = same-origin; set to tunnel URL
   for Pages deploy) and `window.AGANTS_ADMIN` (auto-true on localhost, false everywhere else).
