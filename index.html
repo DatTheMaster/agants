@@ -23,12 +23,12 @@ canvas { display: block; }
 
 /* ── Sidebar ── */
 #panel {
-  width: 250px;
+  width: 280px;
   background: #0a0a0a;
   border-left: 1px solid #1a1a1a;
   display: flex;
   flex-direction: column;
-  font-size: 11px;
+  font-size: 13px;
   overflow: hidden;
 }
 
@@ -40,8 +40,22 @@ canvas { display: block; }
   align-items: baseline;
   gap: 8px;
 }
-#header h1 { font-size: 15px; color: #fff; letter-spacing: 2px; flex: 1; }
-#clock { font-size: 11px; color: #444; font-variant-numeric: tabular-nums; }
+#header h1 { font-size: 16px; color: #fff; letter-spacing: 2px; flex: 1; }
+#clock { font-size: 13px; color: #444; font-variant-numeric: tabular-nums; }
+#game-controls { display: flex; gap: 5px; align-items: center; }
+.ctrl-btn { font-size: 12px; padding: 4px 10px; border: 1px solid #444; background: #1a1a1a; color: #aaa; cursor: pointer; border-radius: 3px; }
+.ctrl-btn:hover { background: #2a2a2a; color: #fff; }
+.ctrl-btn.start { border-color: #4a8; color: #4a8; }
+.ctrl-btn.start:hover { background: #4a8; color: #000; }
+.ctrl-btn.pause { border-color: #fa5; color: #fa5; }
+.ctrl-btn.end { border-color: #a44; color: #a44; }
+#lobby-overlay { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 50; gap: 16px; }
+#lobby-overlay h2 { color: #fff; font-size: 24px; letter-spacing: 3px; }
+#lobby-overlay .lobby-start { font-size: 18px; padding: 10px 30px; border: 2px solid #4a8; background: transparent; color: #4a8; cursor: pointer; border-radius: 4px; }
+#lobby-overlay .lobby-start:hover { background: #4a8; color: #000; }
+#paused-overlay { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50; pointer-events: none; }
+#paused-overlay span { font-size: 36px; color: #fa5; letter-spacing: 6px; text-shadow: 0 0 20px #fa5; }
+.seat-badge { font-size: 11px; color: #56a; font-style: italic; margin-left: 4px; }
 
 /* ── Colony cards ── */
 .col-card {
@@ -52,7 +66,7 @@ canvas { display: block; }
 .col-card.blue { border-left: 2px solid #33c; }
 
 .col-name {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: bold;
   letter-spacing: 1px;
   margin-bottom: 7px;
@@ -63,7 +77,7 @@ canvas { display: block; }
 .col-card.red  .col-name { color: #e55; }
 .col-card.blue .col-name { color: #55e; }
 
-.col-name .pop { font-size: 18px; font-weight: bold; }
+.col-name .pop { font-size: 20px; font-weight: bold; }
 
 /* Food bar */
 .food-track {
@@ -82,8 +96,8 @@ canvas { display: block; }
 .col-card.red  .food-fill { background: linear-gradient(90deg, #711, #d44); }
 .col-card.blue .food-fill { background: linear-gradient(90deg, #117, #44d); }
 
-.food-val { font-size: 10px; color: #555; margin-bottom: 6px; display: flex; justify-content: space-between; }
-.income-val { font-size: 10px; font-weight: bold; font-variant-numeric: tabular-nums; }
+.food-val { font-size: 12px; color: #555; margin-bottom: 6px; display: flex; justify-content: space-between; }
+.income-val { font-size: 12px; font-weight: bold; font-variant-numeric: tabular-nums; }
 .income-val.pos { color: #4a8; }
 .income-val.neg { color: #c44; }
 .income-val.zero { color: #444; }
@@ -117,26 +131,42 @@ canvas { display: block; }
 
 /* Strategy line */
 .strat-line {
-  font-size: 9px;
+  font-size: 11px;
   color: #383838;
   letter-spacing: 0.5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.5;
+  word-break: break-all;
 }
+
+/* Spawn queue */
+.queue-line {
+  font-size: 11px;
+  color: #2a4a2a;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.queue-line.active { color: #4a8a5a; }
+
+/* Aging warning */
+.aging-line {
+  font-size: 11px;
+  color: #5a3a1a;
+  margin-top: 1px;
+}
+.aging-line.warn { color: #c86030; font-weight: bold; }
 
 /* Stats row */
 .stat-row {
   display: flex;
   gap: 10px;
-  font-size: 9px;
+  font-size: 11px;
   color: #333;
   margin-top: 3px;
 }
 
 /* Upgrade tier badge */
 .tier-badge {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: bold;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -156,7 +186,7 @@ canvas { display: block; }
   padding-top: 5px;
 }
 .upg-label {
-  font-size: 8px;
+  font-size: 10px;
   color: #333;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -166,21 +196,21 @@ canvas { display: block; }
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 9px;
+  font-size: 11px;
   padding: 2px 0;
   border-bottom: 1px solid #111;
 }
 .upg-row:last-child { border-bottom: none; }
 .upg-name { color: #555; flex: 1; }
 .upg-cost { color: #444; margin: 0 6px; font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
-.upg-status { min-width: 52px; text-align: right; font-size: 8px; font-weight: bold; letter-spacing: 0.5px; }
+.upg-status { min-width: 52px; text-align: right; font-size: 10px; font-weight: bold; letter-spacing: 0.5px; }
 .upg-row.owned  .upg-name   { color: #888; }
 .upg-row.owned  .upg-status { color: #4a8; }
 .upg-row.ready  .upg-name   { color: #cc9; }
 .upg-row.ready  .upg-status { color: #cc9; }
 .upg-row.locked .upg-status { color: #2a2a2a; }
 .upg-unit-header {
-  font-size: 8px; color: #2a4a3a; letter-spacing: 1px;
+  font-size: 10px; color: #2a4a3a; letter-spacing: 1px;
   text-transform: uppercase; margin: 5px 0 1px; font-weight: bold;
 }
 .upg-unit-header.scout-hdr  { color: #2a3a4a; }
@@ -195,7 +225,7 @@ canvas { display: block; }
   flex-direction: column;
 }
 #events-section h3 {
-  font-size: 9px;
+  font-size: 11px;
   color: #2a2a2a;
   letter-spacing: 1.5px;
   text-transform: uppercase;
@@ -207,7 +237,7 @@ canvas { display: block; }
   overflow-y: hidden;
   padding: 4px 14px;
 }
-.ev { font-size: 9.5px; padding: 2px 0; border-bottom: 1px solid #111; line-height: 1.5; }
+.ev { font-size: 11px; padding: 3px 0; border-bottom: 1px solid #111; line-height: 1.5; }
 .ev.red  { color: #744; }
 .ev.blue { color: #447; }
 .ev.sys  { color: #333; }
@@ -217,14 +247,14 @@ canvas { display: block; }
   padding: 8px 14px;
   border-bottom: 1px solid #141414;
 }
-#legend h3 { font-size: 9px; color: #2a2a2a; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 5px; }
-.leg { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 9.5px; color: #383838; }
+#legend h3 { font-size: 11px; color: #2a2a2a; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 5px; }
+.leg { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 11px; color: #383838; }
 .leg .dot { width: 7px; height: 7px; border-radius: 1px; flex-shrink: 0; }
 
 /* ── Footer ── */
 #footer {
   padding: 8px 14px;
-  font-size: 9px;
+  font-size: 11px;
   color: #222;
   display: flex;
   justify-content: space-between;
@@ -342,7 +372,7 @@ canvas { display: block; }
   background: rgba(0,0,0,0.82);
   align-items: center;
   justify-content: center;
-  z-index: 30;
+  z-index: 200;
 }
 #config-modal.show { display: flex; }
 .cfg-box {
@@ -371,7 +401,7 @@ canvas { display: block; }
 .cfg-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 18px; }
 .cfg-section { display: flex; flex-direction: column; gap: 8px; }
 .cfg-section-title {
-  font-size: 9px; letter-spacing: 2px; color: #444; text-transform: uppercase;
+  font-size: 11px; letter-spacing: 2px; color: #444; text-transform: uppercase;
   border-bottom: 1px solid #161616; padding-bottom: 4px;
 }
 .cfg-row { display: flex; flex-direction: column; gap: 4px; }
@@ -473,6 +503,17 @@ canvas { display: block; }
       <button id="btn-new-game" onclick="sendReset()">NEW GAME</button>
     </div>
 
+    <div id="lobby-overlay">
+      <h2>SWARM WARS</h2>
+      <div style="color:#888;font-size:13px">Configure brain types in Settings, then start the game.</div>
+      <button class="lobby-start" onclick="sendCtrl('start')">▶ START GAME</button>
+      <div id="lobby-seats" style="font-size:11px;color:#556;margin-top:4px"></div>
+    </div>
+
+    <div id="paused-overlay" style="display:none">
+      <span>PAUSED</span>
+    </div>
+
     <div id="status">connecting…</div>
   </div>
 
@@ -480,16 +521,21 @@ canvas { display: block; }
     <div id="header">
       <h1>SWARM WARS</h1>
       <span id="clock">T+0</span>
+      <div id="game-controls">
+        <button class="ctrl-btn start" id="btn-start" onclick="sendCtrl('start')" title="Start game">▶ START</button>
+        <button class="ctrl-btn pause" id="btn-pause" onclick="togglePause()" title="Pause/Resume" style="display:none">⏸ PAUSE</button>
+        <button class="ctrl-btn end" id="btn-end" onclick="sendCtrl('end')" title="End game" style="display:none">■ END</button>
+      </div>
       <button id="btn-config" title="Settings" onclick="openConfig()">⚙</button>
     </div>
 
     <!-- Red colony -->
     <div class="col-card red">
       <div class="col-name">
-        <span>RED COLONY</span>
+        <span id="r-colony-name">RED (Bot)</span>
         <span class="pop" id="r-pop">—</span>
       </div>
-      <div class="food-val"><span>Food: <span id="r-food">—</span></span><span class="income-val zero" id="r-inc">—</span></div>
+      <div class="food-val"><span>Food: <span id="r-food">—</span></span><span class="income-val zero" id="r-inc">—</span><span style="font-size:12px;color:#a87040;margin-left:6px" id="r-dirt">0◆</span></div>
       <div class="food-track"><div class="food-fill" id="r-foodbar" style="width:0%"></div></div>
       <div class="queen-hp"><div class="queen-hp-fill" id="r-queenhp" style="width:100%"></div></div>
       <div class="roster">
@@ -498,6 +544,8 @@ canvas { display: block; }
         <div class="r"><span class="k">Scouts</span><span class="v" id="r-c">—</span></div>
         <div class="r"><span class="k">Queen HP</span><span class="v" id="r-qhp">—</span></div>
       </div>
+      <div class="queue-line" id="r-queue">QUEUE: —</div>
+      <div class="aging-line" id="r-aging"></div>
       <div class="tier-badge t0" id="r-tier"></div>
       <div class="strat-line" id="r-strat">—</div>
       <div class="stat-row">
@@ -524,10 +572,10 @@ canvas { display: block; }
     <!-- Blue colony -->
     <div class="col-card blue">
       <div class="col-name">
-        <span>BLUE COLONY</span>
+        <span id="b-colony-name">BLUE (Bot)</span>
         <span class="pop" id="b-pop">—</span>
       </div>
-      <div class="food-val"><span>Food: <span id="b-food">—</span></span><span class="income-val zero" id="b-inc">—</span></div>
+      <div class="food-val"><span>Food: <span id="b-food">—</span></span><span class="income-val zero" id="b-inc">—</span><span style="font-size:12px;color:#4080c0;margin-left:6px" id="b-dirt">0◆</span></div>
       <div class="food-track"><div class="food-fill" id="b-foodbar" style="width:0%"></div></div>
       <div class="queen-hp"><div class="queen-hp-fill" id="b-queenhp" style="width:100%"></div></div>
       <div class="roster">
@@ -536,6 +584,8 @@ canvas { display: block; }
         <div class="r"><span class="k">Scouts</span><span class="v" id="b-c">—</span></div>
         <div class="r"><span class="k">Queen HP</span><span class="v" id="b-qhp">—</span></div>
       </div>
+      <div class="queue-line" id="b-queue">QUEUE: —</div>
+      <div class="aging-line" id="b-aging"></div>
       <div class="tier-badge t0" id="b-tier"></div>
       <div class="strat-line" id="b-strat">—</div>
       <div class="stat-row">
@@ -568,10 +618,10 @@ canvas { display: block; }
     <!-- Legend -->
     <div id="legend">
       <h3>Trails</h3>
-      <div class="leg"><div class="dot" style="background:#0e0"></div>Foraging</div>
-      <div class="leg"><div class="dot" style="background:#e33"></div>Alarm / Combat</div>
-      <div class="leg"><div class="dot" style="background:#dc0"></div>Territory</div>
-      <div class="leg"><div class="dot" style="background:#38f"></div>Scout</div>
+      <div class="leg"><div class="dot" style="background:#0e0"></div>Foraging <span style="opacity:0.5;font-size:11px">worker return paths</span></div>
+      <div class="leg"><div class="dot" style="background:#e33"></div>Alarm <span style="opacity:0.5;font-size:11px">combat/attack zone</span></div>
+      <div class="leg"><div class="dot" style="background:#dc0"></div>Territory <span style="opacity:0.5;font-size:11px">soldier patrol routes</span></div>
+      <div class="leg"><div class="dot" style="background:#38f"></div>Scout <span style="opacity:0.5;font-size:11px">explored area</span></div>
     </div>
 
     <!-- Footer -->
@@ -579,6 +629,7 @@ canvas { display: block; }
       <span>FPS <span id="fps">—</span></span>
       <span>Ants <span id="nant">—</span></span>
       <span>Food <span id="nfood">—</span></span>
+      <span id="pov-btn" onclick="cyclePov()" title="Toggle fog-of-war perspective" style="cursor:pointer;border:1px solid #444;padding:1px 6px;border-radius:3px;color:#aaa">👁 SPECTATOR</span>
     </div>
   </div>
 </div>
@@ -622,6 +673,13 @@ canvas { display: block; }
         <div class="brain-type-row">
           <label class="brain-radio"><input type="radio" name="red-type" value="bot" onchange="onBrainTypeChange('red')"> Bot (heuristic)</label>
           <label class="brain-radio"><input type="radio" name="red-type" value="llm" onchange="onBrainTypeChange('red')"> LLM</label>
+          <label class="brain-radio"><input type="radio" name="red-type" value="mcp" onchange="onBrainTypeChange('red')"> MCP Agent</label>
+        </div>
+        <div id="red-mcp-status" style="display:none;font-size:11px;color:#88b;margin-top:4px;padding:6px 8px;background:#0a0a14;border-radius:3px;line-height:1.6">
+          Colony waits for AI agent.<br>
+          1. Start <code>python3 mcp_server.py</code><br>
+          2. In your agent: <code>join_seat(0, "name")</code><br>
+          3. Game starts when you click START — agent connects any time.
         </div>
         <div id="red-llm-cfg" style="display:none;margin-top:8px;display:none;flex-direction:column;gap:8px;">
           <div class="cfg-row">
@@ -645,6 +703,13 @@ canvas { display: block; }
         <div class="brain-type-row">
           <label class="brain-radio"><input type="radio" name="blue-type" value="bot" onchange="onBrainTypeChange('blue')"> Bot (heuristic)</label>
           <label class="brain-radio"><input type="radio" name="blue-type" value="llm" onchange="onBrainTypeChange('blue')"> LLM</label>
+          <label class="brain-radio"><input type="radio" name="blue-type" value="mcp" onchange="onBrainTypeChange('blue')"> MCP Agent</label>
+        </div>
+        <div id="blue-mcp-status" style="display:none;font-size:11px;color:#88b;margin-top:4px;padding:6px 8px;background:#0a0a14;border-radius:3px;line-height:1.6">
+          Colony waits for AI agent.<br>
+          1. Start <code>python3 mcp_server.py</code><br>
+          2. In your agent: <code>join_seat(1, "name")</code><br>
+          3. Game starts when you click START — agent connects any time.
         </div>
         <div id="blue-llm-cfg" style="display:none;margin-top:8px;display:none;flex-direction:column;gap:8px;">
           <div class="cfg-row">
@@ -700,7 +765,7 @@ const C = document.getElementById("c");
 const X = C.getContext("2d");
 
 let MW, MH, TS, terrain, state;
-let terrainBuf, pheroBuf, pxCtx;
+let terrainBuf, terrBuf, terrCtx, fogBuf, fogCtx;
 let fpsCount = 0, fpsTime = 0, fpsVal = 0;
 let startTime = performance.now();
 let gameOver = false;
@@ -710,6 +775,9 @@ let ws = null;
 // Camera
 let camX = 0, camY = 0, camScale = 1;
 let isDragging = false, dragSX = 0, dragSY = 0, camSX = 0, camSY = 0;
+
+// Fog-of-war POV: 0=spectator (all visible), 1=RED colony, 2=BLUE colony
+let povMode = 0;
 
 // Interpolation + effects
 let antMap = new Map();         // id → {x,y,px,py,col,type,st,carrying,hp,maxHp,tier,lastAngle}
@@ -736,12 +804,12 @@ const CCOL = [
   [60, 60, 255],   // blue
 ];
 
-const PCOL = [
-  [0,   220, 0  ],  // forage  → green
-  [220, 30,  30 ],  // alarm   → red
-  [215, 185, 0  ],  // territory → gold
-  [30,  130, 255],  // scout   → blue
-];
+// Dirt node tier colors
+const DCOL = {
+  home:      { r: 130, g: 90,  b: 45,  label: "dirt" },
+  approach:  { r: 160, g: 110, b: 50,  label: "dirt" },
+  frontline: { r: 200, g: 140, b: 60,  label: "DIRT" },
+};
 
 const FCOL = {
   seeds:    { r: 210, g: 180, b: 70,  label: "SEEDS" },
@@ -773,6 +841,12 @@ function connect() {
     else if (d.type === "placement_ready")  { onPlacementReady(); }
     else if (d.type === "providers")        { handleProviders(d.data); }
     else if (d.type === "models")           { handleModels(d); }
+    else if (d.type === "lobby")            { onLobby(d); }
+    else if (d.type === "paused")           { onPaused(d); }
+    else if (d.type === "resumed")          { onResumed(d); }
+    else if (d.type === "seat_joined")      { onSeatJoined(d); }
+    else if (d.type === "seat_released")    { onSeatReleased(d); }
+    else if (d.type === "seats_update")     { _updateSeats(d.seats); }
     else { onTick(d); }
   };
 }
@@ -781,6 +855,99 @@ function sendReset() {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "reset" }));
   }
+}
+
+let _gamePhase = "lobby";
+
+function sendCtrl(action) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: action + "_game" }));
+  }
+}
+
+function togglePause() {
+  const action = _gamePhase === "paused" ? "resume_game" : "pause_game";
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: action }));
+}
+
+function _updateGameControls(phase) {
+  _gamePhase = phase;
+  const btnStart = document.getElementById("btn-start");
+  const btnPause = document.getElementById("btn-pause");
+  const btnEnd   = document.getElementById("btn-end");
+  if (phase === "lobby") {
+    btnStart.style.display = "";
+    btnPause.style.display = "none";
+    btnEnd.style.display   = "none";
+  } else if (phase === "running") {
+    btnStart.style.display = "none";
+    btnPause.style.display = "";
+    btnPause.textContent   = "⏸ PAUSE";
+    btnEnd.style.display   = "";
+  } else if (phase === "paused") {
+    btnStart.style.display = "none";
+    btnPause.style.display = "";
+    btnPause.textContent   = "▶ RESUME";
+    btnEnd.style.display   = "";
+  }
+}
+
+function _updateSeats(seats) {
+  if (!seats) return;
+  const names = { "0": "RED", "1": "BLUE" };
+  const lines = Object.entries(seats).map(([k, v]) =>
+    `${names[k]} seat: ${v ? `🤖 ${v}` : "open"}`);
+  const el = document.getElementById("lobby-seats");
+  if (el) el.textContent = lines.join("  ·  ");
+  // Update sidebar colony name labels: "RED (AgentName)" or "RED (Bot)"
+  const sidebarIds = { "0": "r-colony-name", "1": "b-colony-name" };
+  ["0", "1"].forEach(k => {
+    const nameEl = document.getElementById(sidebarIds[k]);
+    if (nameEl) nameEl.textContent = seats[k] ? `${names[k]} (${seats[k]})` : `${names[k]} (Bot)`;
+  });
+  // Update MCP status badges in settings
+  ["0", "1"].forEach(k => {
+    const side = k === "0" ? "red" : "blue";
+    const el = document.getElementById(`${side}-mcp-status`);
+    if (!el) return;
+    if (seats[k]) {
+      el.textContent = `🤖 Connected: ${seats[k]}`;
+      el.style.color = "#4a8";
+    } else {
+      el.innerHTML = `MCP seat open — agent can join via <code>join_seat(${k}, name)</code>`;
+      el.style.color = "#56a";
+    }
+  });
+}
+
+function onLobby(d) {
+  document.getElementById("lobby-overlay").style.display = "";
+  document.getElementById("paused-overlay").style.display = "none";
+  _updateGameControls("lobby");
+  if (d.seats) _updateSeats(d.seats);
+}
+
+function onPaused(d) {
+  document.getElementById("paused-overlay").style.display = "";
+  _updateGameControls("paused");
+  if (d.seats) _updateSeats(d.seats);
+}
+
+function onResumed(d) {
+  document.getElementById("paused-overlay").style.display = "none";
+  _updateGameControls("running");
+}
+
+function onSeatJoined(d) {
+  const seats = {};
+  seats[String(d.colony_id)] = d.agent;
+  _updateSeats(seats);
+}
+
+function onSeatReleased(d) {
+  const seats = {};
+  seats[String(d.colony_id)] = null;
+  _updateSeats(seats);
 }
 
 function onPlacementPhase(d) {
@@ -808,6 +975,9 @@ function onGameStart(d) {
   placementState   = null;
   placementMarkers = {};
   document.getElementById("placement-overlay").className = "";
+  document.getElementById("lobby-overlay").style.display = "none";
+  document.getElementById("paused-overlay").style.display = "none";
+  _updateGameControls("running");
 }
 
 function onInit(d) {
@@ -817,8 +987,16 @@ function onInit(d) {
   state = null;
   antMap.clear(); dyingAnts = []; effects = [];
   startTime = performance.now();
+  // Reset colony name labels, then apply any seats already present in init
+  const rn = document.getElementById("r-colony-name"); if (rn) rn.textContent = "RED (Bot)";
+  const bn = document.getElementById("b-colony-name"); if (bn) bn.textContent = "BLUE (Bot)";
+  if (d.seats) _updateSeats(d.seats);
   document.getElementById("overlay").className = "";
   document.getElementById("events-list").innerHTML = "";
+  document.getElementById("paused-overlay").style.display = "none";
+  document.getElementById("lobby-overlay").style.display = "none";
+  // lobby/paused overlays are shown by server messages ("lobby"/"paused") after init
+  // so refreshing during a running game shows the game immediately, not the lobby screen
   // placement overlay is cleared by onGameStart; don't clear here so markers stay visible
   // during the 2.5s window between second init and game_start
 
@@ -850,9 +1028,13 @@ function onInit(d) {
   }
   tc.putImageData(img, 0, 0);
 
-  pheroBuf = document.createElement("canvas");
-  pheroBuf.width = MW; pheroBuf.height = MH;
-  pxCtx = pheroBuf.getContext("2d");
+  terrBuf = document.createElement("canvas");
+  terrBuf.width = MW; terrBuf.height = MH;
+  terrCtx = terrBuf.getContext("2d");
+
+  fogBuf = document.createElement("canvas");
+  fogBuf.width = MW; fogBuf.height = MH;
+  fogCtx = fogBuf.getContext("2d");
 
   requestAnimationFrame(render);
 }
@@ -982,6 +1164,12 @@ function onTick(d) {
   const now = performance.now();
   if (state) tickInterval = Math.max(50, Math.min(2000, now - lastTickMs));
   lastTickMs = now;
+  // Sync controls if we reconnected to a running game without a lobby/paused message
+  if (d.phase === "running" && _gamePhase !== "running") {
+    _updateGameControls("running");
+    document.getElementById("lobby-overlay").style.display = "none";
+    document.getElementById("paused-overlay").style.display = "none";
+  }
 
   for (let ci = 0; ci < d.colonies.length; ci++) {
     colTiers[ci] = d.colonies[ci][11] || [0, 0, 0];
@@ -1151,29 +1339,38 @@ function render() {
   // ═══ 1. Terrain ═══
   X.drawImage(terrainBuf, 0, 0);
 
-  // ═══ 2. Pheromone overlay ═══
-  const PWEIGHT = [1.0, 1.0, 0.45, 0.35];
-  const pd = state.phero;
-  const pImg = pxCtx.createImageData(MW, MH);
-  const pp = pImg.data;
-  const keys = ["f", "a", "t", "s"];
-  for (let i = 0; i < MW * MH; i++) {
-    let r = 0, g = 0, b = 0, a = 0;
-    for (let k = 0; k < 4; k++) {
-      const v = pd[keys[k]][i] / 255;
-      if (v > 0.05) { r += PCOL[k][0]*v; g += PCOL[k][1]*v; b += PCOL[k][2]*v; a += v*PWEIGHT[k]; }
+  // ═══ 2. Territory overlay (replaces pheromone trails) ═══
+  if (state.territory) {
+    const tImg = terrCtx.createImageData(MW, MH);
+    const tp = tImg.data;
+    const terr = state.territory;
+    for (let i = 0; i < MW * MH; i++) {
+      const v = terr[i];
+      if (v === 1) { // RED territory
+        tp[i*4]   = 210; tp[i*4+1] = 50; tp[i*4+2] = 50; tp[i*4+3] = 40;
+      } else if (v === 2) { // BLUE territory
+        tp[i*4]   = 50; tp[i*4+1] = 80; tp[i*4+2] = 220; tp[i*4+3] = 40;
+      }
     }
-    if (a > 0.04) {
-      const p = i*4, m = Math.min(1,a);
-      pp[p]   = Math.min(255, r*m);
-      pp[p+1] = Math.min(255, g*m);
-      pp[p+2] = Math.min(255, b*m);
-      pp[p+3] = Math.min(110, Math.pow(Math.min(a,2), 1.6) * 90);
-    }
+    terrCtx.putImageData(tImg, 0, 0);
+    X.imageSmoothingEnabled = false;
+    X.drawImage(terrBuf, 0, 0, MW*TS, MH*TS);
   }
-  pxCtx.putImageData(pImg, 0, 0);
-  X.imageSmoothingEnabled = true; X.imageSmoothingQuality = "high";
-  X.drawImage(pheroBuf, 0, 0, MW*TS, MH*TS);
+
+  // ═══ 2b. Fog-of-war overlay (non-spectator modes) ═══
+  const fogArr = (povMode > 0 && state.fog) ? state.fog[povMode - 1] : null;
+  if (fogArr) {
+    const fImg = fogCtx.createImageData(MW, MH);
+    const fd = fImg.data;
+    for (let i = 0; i < MW * MH; i++) {
+      const v = fogArr[i];
+      const alpha = v === 0 ? 210 : v === 1 ? 130 : 0;
+      fd[i*4+3] = alpha;  // r/g/b stay 0 (black fog)
+    }
+    fogCtx.putImageData(fImg, 0, 0);
+    X.imageSmoothingEnabled = true; X.imageSmoothingQuality = "high";
+    X.drawImage(fogBuf, 0, 0, MW*TS, MH*TS);
+  }
 
   // ═══ 3. Food sources ═══
   for (const f of state.food) {
@@ -1220,24 +1417,201 @@ function render() {
     }
   }
 
-  // ═══ 3c. Guard Posts ═══
+  // ═══ 3c. Dirt deposits ═══
+  if (state.dirt) {
+    for (const dn of state.dirt) {
+      const col = DCOL[dn[3]] || DCOL.home;
+      const fx = dn[0]*TS+TS/2, fy = dn[1]*TS+TS/2;
+      const amt = dn[2], tier = dn[3];
+      const pulse = 0.6 + 0.4 * Math.sin(elapsed/520 + dn[0]*0.17 + dn[1]*0.11);
+      const baseR = TS * 0.70;
+      // Glow halo
+      const g1 = X.createRadialGradient(fx, fy, 0, fx, fy, baseR*2.2);
+      g1.addColorStop(0,   `rgba(${col.r},${col.g},${col.b},${0.25*pulse})`);
+      g1.addColorStop(0.5, `rgba(${col.r},${col.g},${col.b},${0.06*pulse})`);
+      g1.addColorStop(1,   `rgba(${col.r},${col.g},${col.b},0)`);
+      X.fillStyle = g1;
+      X.beginPath(); X.arc(fx, fy, baseR*2.2, 0, Math.PI*2); X.fill();
+      // Core — hexagon shape for dirt
+      X.save(); X.translate(fx, fy);
+      X.fillStyle = `rgb(${col.r},${col.g},${col.b})`;
+      X.beginPath();
+      const hr = baseR * 0.28;
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI/6 + i * Math.PI/3;
+        if (i === 0) X.moveTo(Math.cos(a)*hr, Math.sin(a)*hr);
+        else X.lineTo(Math.cos(a)*hr, Math.sin(a)*hr);
+      }
+      X.closePath(); X.fill();
+      X.restore();
+      // Amount arc
+      const pct = Math.min(1, amt / 150);
+      X.strokeStyle = `rgba(${col.r},${col.g},${col.b},0.65)`; X.lineWidth = 1.5;
+      X.beginPath(); X.arc(fx, fy, baseR*0.55, -Math.PI/2, -Math.PI/2 + Math.PI*2*pct); X.stroke();
+      // Label
+      X.fillStyle = `rgba(${col.r},${col.g},${col.b},0.55)`;
+      X.font = "bold 7px monospace"; X.textAlign = "center";
+      X.fillText(col.label, fx, fy - baseR*0.9);
+      // Frontline ring
+      if (tier === "frontline") {
+        X.strokeStyle = `rgba(200,130,30,${0.5*pulse})`; X.lineWidth = 1.5;
+        X.beginPath(); X.arc(fx, fy, baseR*0.95, 0, Math.PI*2); X.stroke();
+      }
+    }
+  }
+
+  // ═══ 3d. Structures (guard posts, watchtowers, barracks, walls) ═══
   if (state.structures) {
+    // Pass 1: walls — drawn as connected stone segments
+    const walls = state.structures.filter(st => st[5] === "wall");
+    const wallSet = new Set(walls.map(st => `${st[0]},${st[1]}`));
+    for (const st of walls) {
+      const col = CCOL[st[2]];
+      const sx = st[0]*TS, sy = st[1]*TS;
+      const hpPct = st[3]/st[4];
+      // Stone fill
+      X.fillStyle = `rgba(${Math.round(col[0]*0.5+80)},${Math.round(col[1]*0.3+70)},${Math.round(col[2]*0.3+70)},0.85)`;
+      X.fillRect(sx, sy, TS, TS);
+      // Dark mortar outline
+      X.strokeStyle = "rgba(30,20,15,0.7)"; X.lineWidth = 1;
+      X.strokeRect(sx+0.5, sy+0.5, TS-1, TS-1);
+      // Stone pattern lines
+      X.strokeStyle = "rgba(0,0,0,0.25)"; X.lineWidth = 0.7;
+      X.beginPath(); X.moveTo(sx, sy+TS*0.5); X.lineTo(sx+TS, sy+TS*0.5); X.stroke();
+      X.beginPath(); X.moveTo(sx+TS*0.5, sy); X.lineTo(sx+TS*0.5, sy+TS*0.5); X.stroke();
+      X.beginPath(); X.moveTo(sx, sy+TS*0.5); X.lineTo(sx, sy+TS); X.stroke();
+      // Colony tint highlight
+      X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.18)`;
+      X.fillRect(sx, sy, TS, TS);
+      // HP bar if damaged
+      if (hpPct < 1) {
+        X.fillStyle = "rgba(0,0,0,0.5)"; X.fillRect(sx, sy+TS-3, TS, 3);
+        X.fillStyle = `rgb(${Math.round(255*(1-hpPct))},${Math.round(180*hpPct)},0)`;
+        X.fillRect(sx, sy+TS-3, TS*hpPct, 3);
+      }
+    }
+
+    // Pass 2: other structures
     for (const st of state.structures) {
+      const stype = st[5] || "guard_post";
+      if (stype === "wall") continue;
       const col = CCOL[st[2]];
       const sx = st[0]*TS+TS/2, sy = st[1]*TS+TS/2;
-      const hpPct = st[3]/st[4], sz2 = TS*0.75;
+      const hpPct = st[3]/st[4];
       const pulse = 0.7 + 0.3 * Math.sin(elapsed/400 + st[0]*1.7 + st[1]*0.9);
-      X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.65)`;
-      X.fillRect(sx-sz2/2, sy-sz2/2, sz2, sz2);
-      X.strokeStyle = `rgba(255,255,255,${0.5*pulse})`; X.lineWidth = 1.5;
-      X.strokeRect(sx-sz2/2, sy-sz2/2, sz2, sz2);
-      X.fillStyle = "rgba(255,255,255,0.9)";
-      X.font = "bold 6px monospace"; X.textAlign = "center"; X.textBaseline = "middle";
-      X.fillText("G", sx, sy); X.textBaseline = "alphabetic";
-      if (hpPct < 1) {
-        X.fillStyle = "rgba(0,0,0,0.55)"; X.fillRect(sx-sz2/2, sy+sz2/2+2, sz2, 3);
-        X.fillStyle = `rgb(${Math.round(255*(1-hpPct))},${Math.round(200*hpPct)},0)`;
-        X.fillRect(sx-sz2/2, sy+sz2/2+2, sz2*hpPct, 3);
+      const isActive = st[6] !== 0;  // st[6]=1 active, 0=under construction
+      const buildPct = (!isActive && st[8] > 0) ? Math.min(1, st[7] / st[8]) : 1;
+
+      // Under-construction scaffold — drawn instead of the normal sprite
+      if (!isActive) {
+        const scaffR = TS * 0.65;
+        // Scaffold outline (dashed effect via repeated arcs)
+        X.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.55)`; X.lineWidth = 1.5;
+        X.setLineDash([3, 3]);
+        X.strokeRect(sx - scaffR/2, sy - scaffR/2, scaffR, scaffR);
+        X.setLineDash([]);
+        // Progress fill overlay
+        if (buildPct > 0) {
+          X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.2)`;
+          X.fillRect(sx - scaffR/2, sy + scaffR/2 - scaffR*buildPct, scaffR, scaffR*buildPct);
+        }
+        // Structure type label (small)
+        X.fillStyle = `rgba(255,255,255,0.7)`;
+        X.font = "bold 5px monospace"; X.textAlign = "center"; X.textBaseline = "middle";
+        const ABBR = {guard_post:"G",watchtower:"W",barracks:"B",larder:"L",wall:"="};
+        X.fillText(ABBR[stype]||"?", sx, sy);
+        X.textBaseline = "alphabetic";
+        // Construction progress bar
+        X.fillStyle = "rgba(0,0,0,0.55)"; X.fillRect(sx-scaffR/2, sy+scaffR/2+2, scaffR, 3);
+        X.fillStyle = `rgb(80,220,${Math.round(80+100*buildPct)})`;
+        X.fillRect(sx-scaffR/2, sy+scaffR/2+2, scaffR*buildPct, 3);
+        continue;  // don't draw normal sprite
+      }
+
+      if (stype === "guard_post") {
+        const sz2 = TS*0.75;
+        X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.65)`;
+        X.fillRect(sx-sz2/2, sy-sz2/2, sz2, sz2);
+        X.strokeStyle = `rgba(255,255,255,${0.5*pulse})`; X.lineWidth = 1.5;
+        X.strokeRect(sx-sz2/2, sy-sz2/2, sz2, sz2);
+        X.fillStyle = "rgba(255,255,255,0.9)";
+        X.font = "bold 6px monospace"; X.textAlign = "center"; X.textBaseline = "middle";
+        X.fillText("G", sx, sy); X.textBaseline = "alphabetic";
+        if (hpPct < 1) {
+          X.fillStyle = "rgba(0,0,0,0.55)"; X.fillRect(sx-sz2/2, sy+sz2/2+2, sz2, 3);
+          X.fillStyle = `rgb(${Math.round(255*(1-hpPct))},${Math.round(200*hpPct)},0)`;
+          X.fillRect(sx-sz2/2, sy+sz2/2+2, sz2*hpPct, 3);
+        }
+
+      } else if (stype === "watchtower") {
+        // Tall tower silhouette
+        const tw = TS*0.55, th = TS*0.9;
+        X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.55)`;
+        X.fillRect(sx-tw/2, sy-th/2, tw, th);
+        // Crenellations (3 merlons on top)
+        const mw = tw/5, mh = th*0.18;
+        X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.75)`;
+        for (let m = 0; m < 3; m++) {
+          X.fillRect(sx - tw/2 + m*(tw/3) + tw/12, sy-th/2-mh, mw, mh);
+        }
+        // Vision halo ring
+        X.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${0.18*pulse})`; X.lineWidth = 1;
+        X.beginPath(); X.arc(sx, sy, TS*12, 0, Math.PI*2); X.stroke(); // 12 tile radius hint
+        // Letter
+        X.fillStyle = "rgba(255,255,255,0.9)";
+        X.font = "bold 6px monospace"; X.textAlign = "center"; X.textBaseline = "middle";
+        X.fillText("W", sx, sy); X.textBaseline = "alphabetic";
+        if (hpPct < 1) {
+          X.fillStyle = "rgba(0,0,0,0.55)"; X.fillRect(sx-tw/2, sy+th/2+2, tw, 3);
+          X.fillStyle = `rgb(${Math.round(255*(1-hpPct))},${Math.round(200*hpPct)},0)`;
+          X.fillRect(sx-tw/2, sy+th/2+2, tw*hpPct, 3);
+        }
+
+      } else if (stype === "barracks") {
+        // Wide rectangular building
+        const bw = TS*1.1, bh = TS*0.65;
+        X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.60)`;
+        X.fillRect(sx-bw/2, sy-bh/2, bw, bh);
+        // Roof accent
+        X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.85)`;
+        X.fillRect(sx-bw/2, sy-bh/2, bw, bh*0.18);
+        // Door
+        const dw = bw*0.22, dh = bh*0.5;
+        X.fillStyle = "rgba(0,0,0,0.5)";
+        X.fillRect(sx-dw/2, sy+bh/2-dh, dw, dh);
+        X.strokeStyle = `rgba(255,255,255,${0.45*pulse})`; X.lineWidth = 1.2;
+        X.strokeRect(sx-bw/2, sy-bh/2, bw, bh);
+        X.fillStyle = "rgba(255,255,255,0.9)";
+        X.font = "bold 6px monospace"; X.textAlign = "center"; X.textBaseline = "middle";
+        X.fillText("B", sx, sy); X.textBaseline = "alphabetic";
+        if (hpPct < 1) {
+          X.fillStyle = "rgba(0,0,0,0.55)"; X.fillRect(sx-bw/2, sy+bh/2+2, bw, 3);
+          X.fillStyle = `rgb(${Math.round(255*(1-hpPct))},${Math.round(200*hpPct)},0)`;
+          X.fillRect(sx-bw/2, sy+bh/2+2, bw*hpPct, 3);
+        }
+
+      } else if (stype === "larder") {
+        // Rounded storage dome
+        const lr = TS*0.52;
+        X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.55)`;
+        X.beginPath(); X.arc(sx, sy, lr, Math.PI, 0); X.closePath(); X.fill();
+        // Base platform
+        X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.75)`;
+        X.fillRect(sx-lr, sy, lr*2, TS*0.18);
+        // Income pulse ring
+        X.strokeStyle = `rgba(255,220,80,${0.35*pulse})`; X.lineWidth = 1.2;
+        X.beginPath(); X.arc(sx, sy, lr+3, 0, Math.PI*2); X.stroke();
+        X.strokeStyle = `rgba(255,255,255,${0.4*pulse})`; X.lineWidth = 1;
+        X.beginPath(); X.arc(sx, sy, lr, Math.PI, 0); X.closePath(); X.stroke();
+        // Letter
+        X.fillStyle = "rgba(255,255,255,0.9)";
+        X.font = "bold 6px monospace"; X.textAlign = "center"; X.textBaseline = "middle";
+        X.fillText("L", sx, sy-lr*0.25); X.textBaseline = "alphabetic";
+        if (hpPct < 1) {
+          X.fillStyle = "rgba(0,0,0,0.55)"; X.fillRect(sx-lr, sy+TS*0.22, lr*2, 3);
+          X.fillStyle = `rgb(${Math.round(255*(1-hpPct))},${Math.round(200*hpPct)},0)`;
+          X.fillRect(sx-lr, sy+TS*0.22, lr*2*hpPct, 3);
+        }
       }
     }
   }
@@ -1288,7 +1662,15 @@ function render() {
 
   // ═══ 6. Live ants (interpolated) ═══
   const alpha = Math.min(1, (now - lastTickMs) / Math.max(tickInterval, 16));
+  const watchColony = povMode - 1; // -1 = spectator, 0 = RED, 1 = BLUE
   for (const [, ant] of antMap) {
+    // In POV mode, hide enemy ants not currently visible to the watching colony
+    if (fogArr && ant.col !== watchColony) {
+      const tx = Math.round(ant.x), ty = Math.round(ant.y);
+      if (tx >= 0 && tx < MW && ty >= 0 && ty < MH) {
+        if (fogArr[ty * MW + tx] !== 2) continue;
+      }
+    }
     const ix = ant.px + (ant.x - ant.px) * alpha;
     const iy = ant.py + (ant.y - ant.py) * alpha;
     const wx = ix*TS+TS/2, wy = iy*TS+TS/2;
@@ -1346,6 +1728,8 @@ function updateSidebar(now) {
     const antsLost = col[9] || 0;
     const tiers  = col[11] || [0, 0, 0];   // [worker_tier, scout_tier, soldier_tier]
     const income = col[12] || 0;
+    const upgEta = col[15] || {};           // {worker, scout, soldier} ETA seconds
+    const dirt   = col[16] || 0;           // dirt stockpile
 
     // Queen info
     const queen = state.ants.find(a => a[5] === col[0] && a[6] === 3);
@@ -1354,9 +1738,11 @@ function updateSidebar(now) {
 
     document.getElementById(`${prefix}-pop`).textContent = total;
     document.getElementById(`${prefix}-food`).textContent = food;
+    const dirtEl = document.getElementById(`${prefix}-dirt`);
+    if (dirtEl) dirtEl.textContent = dirt + "◆";
     const incEl = document.getElementById(`${prefix}-inc`);
-    incEl.textContent = income >= 0 ? `+${income}/s` : `${income}/s`;
-    incEl.className = `income-val ${income > 5 ? "pos" : income < -5 ? "neg" : "zero"}`;
+    incEl.textContent = `+${income}/s`;
+    incEl.className = `income-val ${income >= 20 ? "pos" : income < 5 ? "neg" : "zero"}`;
     document.getElementById(`${prefix}-foodbar`).style.width = Math.min(100, food / FOOD_MAX * 100) + "%";
     document.getElementById(`${prefix}-queenhp`).style.width = (qhp / qmaxhp * 100) + "%";
     document.getElementById(`${prefix}-w`).textContent = ct[0];
@@ -1372,14 +1758,14 @@ function updateSidebar(now) {
 
     // Per-unit upgrade rows: worker=w0/w1/w2, scout=s0/s1/s2, soldier=m0/m1/m2
     const UPG_DEFS = [
-      { suffix: "w", tier: tiers[0], costs: [500, 2200, 6000],
+      { suffix: "w", tier: tiers[0], costs: [500, 2200, 6000], etaKey: "worker",
         names: ["Foraging I","Foraging II","Foraging III"] },
-      { suffix: "s", tier: tiers[1], costs: [450, 2000, 5500],
+      { suffix: "s", tier: tiers[1], costs: [450, 2000, 5500], etaKey: "scout",
         names: ["Pathfinding","Swift","Master Rec."] },
-      { suffix: "m", tier: tiers[2], costs: [600, 2800, 7500],
+      { suffix: "m", tier: tiers[2], costs: [600, 2800, 7500], etaKey: "soldier",
         names: ["Combat I","Combat II","Combat III"] },
     ];
-    for (const { suffix, tier: uTier, costs, names } of UPG_DEFS) {
+    for (const { suffix, tier: uTier, costs, etaKey, names } of UPG_DEFS) {
       for (let i = 0; i < 3; i++) {
         const row = document.getElementById(`${prefix}-upg-${suffix}${i}`);
         const statusEl = row.querySelector(".upg-status");
@@ -1387,12 +1773,16 @@ function updateSidebar(now) {
           row.className = "upg-row owned";
           statusEl.textContent = "OWNED";
         } else if (i === uTier) {
-          const needed = costs[i] - food;
-          if (needed <= 0) {
+          const eta = upgEta[etaKey];
+          if (eta === 0 || eta === 0.0) {
             row.className = "upg-row ready";
             statusEl.textContent = "READY";
+          } else if (eta != null) {
+            row.className = "upg-row locked";
+            statusEl.textContent = eta < 60 ? `~${Math.ceil(eta)}s` : `~${Math.ceil(eta/60)}m`;
           } else {
             row.className = "upg-row locked";
+            const needed = costs[i] - food;
             statusEl.textContent = `−${needed.toLocaleString()}`;
           }
         } else {
@@ -1403,9 +1793,60 @@ function updateSidebar(now) {
     }
 
     if (strat) {
-      const r = strat.roles;
-      document.getElementById(`${prefix}-strat`).textContent =
-        `W:${Math.round(r.worker*100)}% SC:${Math.round(r.scout*100)}% SO:${Math.round(r.soldier*100)}% · ${strat.defense}`;
+      // strat is now the full directive object
+      const sp  = strat.spawn  || {};
+      const mil = strat.military || {};
+      const w   = sp.worker   || {};
+      const sc  = sp.scout    || {};
+      const sol = sp.soldier  || {};
+      const wPct   = Math.round((w.target_ratio  || 0) * 100);
+      const scPct  = Math.round((sc.target_ratio || 0) * 100);
+      const solPct = Math.round((sol.target_ratio|| 0) * 100);
+      let stratParts = [`W:${wPct}% SC:${scPct}% Sol:${solPct}% · ${mil.stance || '?'}`];
+      if (w.max != null) stratParts.push(`cap:${w.max}`);
+      if (mil.rally_point) stratParts.push(`RALLY(${mil.rally_point[0]},${mil.rally_point[1]})`);
+      if (mil.formation && mil.formation !== "wedge") stratParts.push(mil.formation.toUpperCase());
+      if (mil.attack_target) stratParts.push(`ATK→(${mil.attack_target[0]},${mil.attack_target[1]})`);
+      if (mil.retreat) stratParts.push("RETREAT");
+      if ((strat.triggers || []).length > 0) stratParts.push(`${strat.triggers.length}T`);
+      document.getElementById(`${prefix}-strat`).textContent = stratParts.join(" · ");
+    }
+
+    // Spawn queue
+    const sqData = col[13];
+    const sqEl = document.getElementById(`${prefix}-queue`);
+    if (sqData !== undefined) {
+      const total = (sqData.w || 0) + (sqData.so || 0) + (sqData.sc || 0);
+      if (total > 0) {
+        const parts = [];
+        if (sqData.w)  parts.push(`${sqData.w}W`);
+        if (sqData.so) parts.push(`${sqData.so}S`);
+        if (sqData.sc) parts.push(`${sqData.sc}sc`);
+        const nextStr = sqData.next_t != null ? ` · next ${sqData.next_t}t` : "";
+        sqEl.textContent = `QUEUE: ${parts.join(" ")}${nextStr} · ${sqData.reserved}♦`;
+        sqEl.className = "queue-line active";
+      } else {
+        sqEl.textContent = "QUEUE: empty";
+        sqEl.className = "queue-line";
+      }
+    }
+
+    // Aging ants
+    const agingData = col[14];
+    const agingEl = document.getElementById(`${prefix}-aging`);
+    if (agingData !== undefined) {
+      const tnames = ["W", "S", "sc"];
+      const parts = [];
+      for (let t = 0; t < 3; t++) {
+        if (agingData[t]) parts.push(`${agingData[t]}${tnames[t]}`);
+      }
+      if (parts.length) {
+        agingEl.textContent = `AGING: ${parts.join(" ")}`;
+        agingEl.className = "aging-line warn";
+      } else {
+        agingEl.textContent = "";
+        agingEl.className = "aging-line";
+      }
     }
   }
 
@@ -1568,14 +2009,16 @@ function populateProviderDropdowns() {
   ["red", "blue"].forEach(side => {
     const sel = document.getElementById(`${side}-provider`);
     const cur = sel.value;
-    sel.innerHTML = '<option value="">— custom —</option>';
+    sel.innerHTML = '';
     cfgProviders.forEach(p => {
       const opt = document.createElement("option");
       opt.value = p.id;
       opt.textContent = p.name || p.id;
       sel.appendChild(opt);
     });
-    if (cur) sel.value = cur;
+    // Restore previous selection or default to first provider
+    if (cur && cfgProviders.find(x => x.id === cur)) sel.value = cur;
+    else if (cfgProviders.length) sel.value = cfgProviders[0].id;
   });
 }
 
@@ -1594,8 +2037,10 @@ function onProviderSelect(side) {
 
 function onBrainTypeChange(side) {
   const type = document.querySelector(`input[name="${side}-type"]:checked`)?.value;
-  const cfgDiv = document.getElementById(`${side}-llm-cfg`);
-  cfgDiv.style.display = type === "llm" ? "flex" : "none";
+  const cfgDiv    = document.getElementById(`${side}-llm-cfg`);
+  const mcpStatus = document.getElementById(`${side}-mcp-status`);
+  cfgDiv.style.display    = type === "llm" ? "flex" : "none";
+  if (mcpStatus) mcpStatus.style.display = type === "mcp" ? "block" : "none";
 }
 
 // ── Model fetch ──────────────────────────────────────────────────────────────
@@ -1643,8 +2088,10 @@ function populateConfig(data) {
     const brain = data[`${side}_brain`] || { type: "bot" };
     const radios = document.querySelectorAll(`input[name="${side}-type"]`);
     radios.forEach(r => { r.checked = r.value === brain.type; });
-    const cfgDiv = document.getElementById(`${side}-llm-cfg`);
+    const cfgDiv    = document.getElementById(`${side}-llm-cfg`);
+    const mcpStatus = document.getElementById(`${side}-mcp-status`);
     cfgDiv.style.display = brain.type === "llm" ? "flex" : "none";
+    if (mcpStatus) mcpStatus.style.display = brain.type === "mcp" ? "block" : "none";
     if (brain.type === "llm") {
       // Pre-select matching provider if saved
       const provSel = document.getElementById(`${side}-provider`);
@@ -1667,6 +2114,7 @@ function saveConfig() {
 
   function buildBrain(side) {
     const type = document.querySelector(`input[name="${side}-type"]:checked`)?.value || "bot";
+    if (type === "mcp") return { type: "mcp" };
     if (type !== "llm") return { type: "bot" };
     const sel = document.getElementById(`${side}-provider`);
     const pid = sel.value;
@@ -1723,6 +2171,20 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") closeConfig();
 });
 
+// ─── Camera clamping ─────────────────────────────────────────────────────────
+function clampCamera() {
+  if (!MW) return;
+  const w = C.clientWidth || C.width / (window.devicePixelRatio || 1);
+  const h = C.clientHeight || C.height / (window.devicePixelRatio || 1);
+  const fitScale = Math.min(w / (MW * TS), h / (MH * TS));
+  camScale = Math.max(fitScale * 0.7, Math.min(6, camScale));
+  const mapW = MW * TS * camScale;
+  const mapH = MH * TS * camScale;
+  const margin = 80;
+  camX = Math.max(-(mapW - margin), Math.min(w - margin, camX));
+  camY = Math.max(-(mapH - margin), Math.min(h - margin, camY));
+}
+
 // ─── Zoom (mouse wheel toward cursor) ───────────────────────────────────────
 const _stage = document.getElementById("stage");
 _stage.addEventListener("wheel", e => {
@@ -1733,7 +2195,8 @@ _stage.addEventListener("wheel", e => {
   const my = e.clientY - rect.top;
   camX = mx - (mx - camX) * f;
   camY = my - (my - camY) * f;
-  camScale = Math.max(0.08, Math.min(20, camScale * f));
+  camScale = camScale * f;
+  clampCamera();
 }, { passive: false });
 
 // ─── Pan (click-drag) ────────────────────────────────────────────────────────
@@ -1747,6 +2210,7 @@ window.addEventListener("mousemove", e => {
   if (!isDragging) return;
   camX = camSX + (e.clientX - dragSX);
   camY = camSY + (e.clientY - dragSY);
+  clampCamera();
 });
 window.addEventListener("mouseup", () => {
   isDragging = false;
@@ -1755,6 +2219,16 @@ window.addEventListener("mouseup", () => {
 
 // ─── Double-click to reset view ──────────────────────────────────────────────
 _stage.addEventListener("dblclick", () => { if (MW) resetCamera(); });
+
+// ─── POV / fog-of-war perspective toggle ─────────────────────────────────────
+function cyclePov() {
+  povMode = (povMode + 1) % 3;
+  const labels = ["👁 SPECTATOR", "🔴 RED POV", "🔵 BLUE POV"];
+  const btn = document.getElementById("pov-btn");
+  btn.textContent = labels[povMode];
+  btn.style.color = povMode === 1 ? "#f88" : povMode === 2 ? "#88f" : "#aaa";
+  btn.style.borderColor = povMode === 1 ? "#833" : povMode === 2 ? "#338" : "#444";
+}
 
 // ─── Window resize ───────────────────────────────────────────────────────────
 window.addEventListener("resize", resizeCanvas);

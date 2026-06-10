@@ -1,261 +1,248 @@
-# Swarm Wars — Project Handover (v1.3)
+# Swarm Wars — Session Passdown
 
-Ant colony RTS simulation. Two colonies (RED / BLUE) compete on a procedurally generated
-forest floor using pheromone trails, food economics, soldiers, and scouts.
-Both colonies can be independently commanded by LLMs via OpenAI-compatible APIs.
+*This file is Claude's session passdown. The project (repo: Agants) is proudly built
+by agents, for agents — human + AI collaboration is the whole point.*
 
-**v1.3 changes:** Sim decoupled from LLM processing (`world.step()` runs in thread executor,
-strategies queued via `_pending_strategies` deque, LLM interval now wall-clock based).
-Four new LLM levers: `formation`, `attack_target`, `retreat`, `freeze_economy`.
+Ant colony RTS/MMO simulation. Two colonies (RED/BLUE) compete on "The Crossing",
+a fixed 150×100 3-lane map. LLMs and MCP agents command colonies via a persistent
+**directive** system plus direct unit commands.
 
-**v1.2 changes:** Queen combat fix (was completely passive — queens now fight back at range 12
-with soldier priority) + Guard Post defensive structures (build lever, turret attack, soldier
-targeting, minimap display, LLM prompt integration).
+- **HISTORY.md** — per-session changelog and LLM/agent lessons learned (read when tuning)
+- **ROADMAP.md** — Phase 3–5 scope (replaces TRANSITION.md + MMO_PLAN.md)
+- **DEVELOPMENT.md** — architecture and contributor guide
+- **server.py header** — terse version changelog
 
-**v1.1 changes:** Starvation timer, rally staged count, sector "at rally" label, upgrade ETA,
-upgrade queue visibility, scout-zero guardrail.
+---
 
-**v1.0 headline feature:** BAR-style placement phase — before each game, the LLM and bot
-independently evaluate the map and choose starting positions in their assigned half.
+## Current State (2026-06-09, session 14 — v0.1.0 public release)
+
+**Phase 1 (directive system) COMPLETE. Phase 2 (MCP surface) COMPLETE.**
+**v0.1.0 open-source restructuring COMPLETE (session 14).**
+Next: Phase 3 (multi-session + auth + server.py slim). See ROADMAP.md for scope.
+
+**v0.1.0 (session 14 — this session):**
+- **Public release restructuring** — renamed project "Agants", version bumped to semantic 0.1.0
+- **engine/ split** — `engine/constants.py` (pure game constants), `engine/colony.py` (Ant,
+  DirectiveEngine, Colony), `engine/world.py` (World, Predator, gen_terrain), `engine/__init__.py`
+  NOTE: `server.py` still carries its own copies — wire-up to import from engine/ is Phase 3 task 1
+- **bot.py** — `update_bot_strategy(world, colony_id)` extracted from Server method; fixes
+  `self.world.structures/tick` → `world.structures/tick` (was a latent bug in the method sig)
+- **README.md** rewritten as public-facing ("for agents by agents" framing)
+- **ROADMAP.md** created from TRANSITION.md + MMO_PLAN.md (stale originals deleted)
+- **DEVELOPMENT.md**, **CONTRIBUTING.md** created
+- **.gitignore** updated (logs/, data/, .hermes/ now fully excluded)
+- **.env.example** created
+
+**v2.12 (this session, latest):**
+- **Auto-build engine-level** — `_assign_builders_to_site()` now called on both structure
+  creation paths (guard_post legacy + structure_queue). Also runs every 30 ticks as a
+  re-check. Works for all colony types (bot, MCP, LLM) — not just bot. Watchtower built
+  at tick 62 without manual command_type verified by Hermes.
+- **Build override delivery fix** — workers with `cmd=build` override now deliver carried
+  food/dirt first before walking to site. Previously food was lost.
+- **Military summary** in `get_state`: `{total_soldiers, fighting, patrolling, idle,
+  healthy, wounded, avg_hp_pct, building}`. "Game-changer for decision-making" — Hermes.
+- **Bot military: rally → wave** — replaced trickle `auto_attack` (soldiers die 1-by-1)
+  with rally hold → mass → coordinated release with `attack_target + siege_priority=queen`.
+  Bot now builds guard_posts and defends properly before counterattacking.
+- **Stale recruit_target fix** — workers with `recruit_target` >50 tiles away now clear
+  it and reselect. Prevents workers from marching 105 tiles to an unreachable node.
+- **Advisor: build site warnings** — warns when a structure is >40 tiles from nest
+  (workers may be killed en route) or has no workers assigned.
+- **cancel_spawn MCP tool + REST endpoint** (v2.11)
+- **reserve_food default 150→50, worker 35-tile distance preference** (v2.11)
+- **`state` field in REST units, filter_state fixed** (v2.11)
+
+**Known remaining issues (Phase 2 polish):**
+- RETREAT emergency command not implemented — `military.retreat=true` sets a flag but
+  soldiers don't actually path home; proper RECALL behavior is the Phase 3 spec item
+- `check_alerts()` not implemented — alerts schema exists but never evaluated
+- Enemies walk through walls (pathfinder ignores walls for combat moves)
+- Buildings placeable anywhere (no proximity-to-own-unit check)
+- `food_depleted` notification never fired
+- `ants_lost` double-counted for aging deaths (cosmetic)
+
+**Deferred to Phase 3+:**
+- Fog of war per agent (vision-limited `get_intel_map`)
+- Event stream / webhooks (real-time vs polling)
+- Multi-session + token auth (Phase 3 spec)
+- Replay system, surrender/negotiate protocol (Phase 3+)
+- Resource trading (Phase 5 MMO)
+
+---
 
 ## Run
 
 ```bash
-python3 server.py        # starts at http://localhost:8083  (config: .env)
-                         # "NEW GAME" button resets without restart
+cd ~/projects/swarm-wars
+python3 server.py        # http://localhost:8083 — "NEW GAME" button resets
+
+# MCP agent control:
+python3 mcp_server.py            # stdio (Claude Code tool use)
+python3 mcp_server.py --port 8084  # HTTP+SSE (remote agents)
 ```
 
-Logs are written to `logs/run_TIMESTAMP.log`. Read these to diagnose balance and LLM behaviour.
-LLM reasoning, decisions, per-decision feedback, and post-game debrief are all in the log.
+Logs → `logs/run_TIMESTAMP.log` (full events, LLM reasoning, debrief).
+Two-agent game: set both colonies to "MCP Agent" in Settings, START GAME, then each
+agent `join_seat(0|1, name)` and drives via tools.
 
 ## Files
 
 | File | Role |
 |------|------|
-| `server.py` | Simulation engine + WebSocket server (aiohttp) |
-| `index.html` | Canvas renderer + sidebar dashboard |
-| `.env` | Config: API key, model, base URL, LLM colony, interval, TPS |
-| `logs/` | Per-run logs — snapshot/second, events, LLM reasoning, debrief, final memory |
+| `server.py` | Sim engine + WebSocket server + REST API (~4200 lines, monolith) |
+| `mcp_server.py` | FastMCP server — 18 tools for agent colony control |
+| `index.html` | Canvas renderer + sidebar + lobby/pause/seat UI |
+| `.env` | API keys, model, base URL, brain types, LLM_INTERVAL, TPS |
+| `providers.json` | Saved LLM provider configs |
+| `HISTORY.md` | Session changelogs + lessons learned |
+
+---
 
 ## Architecture
 
-**Server → Client:** WebSocket pushes full world state every tick (JSON). Client is pure renderer.
+**WebSocket → client:** full world state every tick as JSON.
 
-**Reset flow:** Client sends `{"type":"reset"}` → server creates new `World` → broadcasts `init`
-(terrain only) → placement phase runs → second `init` broadcast (with nests carved) + `game_start`
-→ client clears placement overlay and receives tick state normally.
-
-**Placement phase flow (v1.0):**
-1. `World.__init__` generates terrain + 16 strategic food nodes (no colonies yet)
-2. Server broadcasts `placement_phase` message with food list
-3. Bot calls `_best_placement()` instantly; LLM gets async API call (up to 55s)
-4. `placement_update` messages broadcast as each side confirms
-5. `world.finalize_placement(red_pos, blue_pos)` carves nests, spawns colonies, starts logger
-6. Second `init` + `game_start` broadcast; tick_loop and llm_loop resume
-
-**Pheromone layers:**
-| Index | Name | Deposited by | Used by |
-|-------|------|-------------|---------|
-| 0 | Forage (green) | Workers/scouts carrying food | Visual only (workers use known_food coords) |
-| 1 | Alarm (red) | Soldiers in combat, scouts near enemies | Soldiers (follow, high threshold) |
-| 2 | Territory (gold) | Patrolling soldiers | Visual only |
-| 3 | Scout (blue) | Exploring scouts | Visual only |
-
-**Food flow:**
-1. Scout explores outward (biased toward center/enemy via `expansion` vector)
-2. Scout finds food (detection radius scales with Scout tier) → picks up, remembers location
-3. Scout rushes home → deposits food → recruits up to `scout_recruit` idle workers
-4. Recruited workers march to food target, pick up, return to nest
-5. Unrecruited workers pick a random `colony.known_food` entry
-6. Workers fleeing enemy soldiers drop carried food immediately
-
-**Win condition:** Queen dies (combat or starvation cascade). When all non-queens are gone
-and `food < -55`, queen starves immediately.
-
-## LLM Integration
-
-Provider-agnostic OpenAI-compatible API. Configure in `.env`:
+**Colonies array indices** (`col` in JS):
 ```
-NVIDIA_API_KEY=...
-LLM_BASE_URL=https://opencode.ai/zen/go/v1
-LLM_MODEL=mimo-v2.5
-LLM_COLONY=1      # 0=RED, 1=BLUE
-LLM_INTERVAL=100  # ticks between decisions
-TPS=5             # simulation speed
+[0] id  [1] nx  [2] ny  [3] food  [4] counts[W,S,sc,Q]  [5] directive
+[6] known_food[:10]  [7] events  [8] food_collected  [9] ants_lost
+[10] alive  [11] tiers[w,sc,sol]  [12] income_per_s  [13] spawn_queue_summary
+[14] aging_soon[W,S,sc]  [15] upg_eta  [16] dirt
 ```
 
-The LLM is called every `LLM_INTERVAL` ticks. Game runs continuously between calls.
-Full reasoning + decisions are printed to console and written to the run log.
-A post-game debrief fires once after the game ends.
+**Ant tuple:** `[id, x, y, prev_x, prev_y, colony, type, state, carrying, hp, max_hp]`
+**Fog:** `state.fog[0/1]` flat 15000 ints (0=dark 1=explored 2=visible)
+**Territory:** `state.territory` flat 15000 ints (0=neutral 1=RED 2=BLUE)
 
-### LLM levers (`colony.set_strategy({...})`):
-| Key | Type | Effect |
-|-----|------|--------|
-| `roles` | `{worker, scout, soldier}` | Production ratios (must sum to 1.0) |
-| `defense` | `"aggressive"\|"balanced"\|"defensive"` | Patrol range and direction |
-| `worker_cap` | int | Stop making workers above this count |
-| `rally_point` | `[x, y]` or null | Soldiers HOLD at this coordinate until cleared |
-| `expansion` | `[dx, dy]` | Scout/soldier direction bias unit vector |
-| `priority_food` | `[x, y]` | ALL idle workers march here (must be in known_food) |
-| `buy_upgrade` | `"worker"\|"scout"\|"soldier"\|true` | Queue upgrade purchase |
-| `rally_release_at` | int or null | Auto-release rally when N soldiers staged |
-| `siege_priority` | `"queen"\|null` | Soldiers in siege prefer queen over defenders |
-| `build` | `[x, y]` | Construct Guard Post at coordinate (500♦, max 3, range 10, HP 300) |
-| `formation` | `"column"\|"wedge"\|"spread"` | Soldier patrol spread: column=tight spike, wedge=default, spread=wide fan |
-| `attack_target` | `[x, y]` or null | Soldiers advance continuously toward coordinate (never hold) |
-| `retreat` | `true\|false` | Soldiers fall back toward own nest; still fight adjacent enemies |
-| `freeze_economy` | `true\|false` | All-in shorthand: sets roles={worker:0, scout:0.05, soldier:0.95} + worker_cap=0 |
+**REST API** (`http://localhost:8083/api/`): tick, seats, seat/{id}, control,
+state/{id}, notifications/{id}, intel_map/{id}, directive/{id}, command/{id},
+events/{id}, matches, feedback. `command` accepts buy_upgrade / build / convert /
+unit_command / unit_command_batch.
 
-### LLM memory:
-Per-match only — resets when NEW GAME is clicked. LLM can read/write arbitrary key:value
-pairs via `"memory": {"key": "value"}` in any JSON response (null value = delete key).
-Final memory state is written to the run log at game end — this is our learning signal
-for prompt/balance tuning.
+**Unit overrides** (persist until death or `clear`): move_to, attack_xy (queen-focus),
+gather, hold, patrol. Queen cannot be commanded.
 
-## Upgrade Trees
+---
 
-Three independent trees, 3 tiers each. Auto-buy heuristic runs for both colonies;
-LLM can explicitly purchase with `buy_upgrade`.
-
-**Worker (economic):**
-- W1  500 food: +8 carry/trip (12→20 food delivered)
-- W2 2200 food: +12 more (→32/trip)
-- W3 6000 food: +18 more (→50/trip) + loaded workers take 2 steps/tick
-
-**Scout (intel/logistics):**
-- S1  450 food: detection range 5→9 tiles, recruit cap 8→14 workers
-- S2 2000 food: scouts take 2 steps/tick while exploring AND returning
-- S3 5500 food: recruit cap 14→24, queen produces 25% faster (spawn_mult=0.75)
-
-**Soldier (combat):**
-- Sol1  600 food: +10 damage/hit (22→32)
-- Sol2 2800 food: +80 HP (200→280), attack cooldown 4→3 ticks
-- Sol3 7500 food: splash — 40% damage to all enemies adjacent to primary target
-
-## Food Economy
-
-**3-lane strategic food layout (v1.0, BAR-inspired):** 16 purposeful nodes replace 20 random scatter.
-Placed BEFORE placement decisions so agents can evaluate the map strategically.
-
-| Tier | Count | Regrow | Cap | Location | Role |
-|------|-------|--------|-----|----------|------|
-| Frontline | 4 | 20/tick | ∞ | x=42–58, all 3 lanes + bonus center | Contested prizes — key late-game objective |
-| Approach | 6 | 5/tick | 5000 | x=20–38 (RED) / x=62–80 (BLUE), 3 per side | Reward forward expansion |
-| Home | 6 | 2.5/tick | 5000 | x=5–22 (RED) / x=78–95 (BLUE), 3 per side | Safe early economy |
-
-**Food node tiers** are shown in client (ring colors) and in the LLM prompt (minimap F/a/h chars).
+## Directive Schema
 
 ```python
-UPKEEP            = [0.03, 0.10, 0.04, 0.05]  # per tick: worker, soldier, scout, queen
-FOOD_DELIVER      = 12     # base food per worker trip (+ carry_bonus from Worker upgrades)
-FOOD_PICK         = 15     # one haul removes this from source
-FOOD_REGROW       = 2.5    # home source regrow/tick
-FOOD_REGROW_APPROACH = 5.0 # approach source regrow/tick
-FOOD_REGROW_CONTESTED = 20.0  # frontline source regrow/tick (effectively unlimited)
+{
+  "spawn": {
+    "worker":  {"target_ratio": 0.45, "min_ratio": 0.0, "min": 4, "max": 40, "birth_config": {}},
+    "soldier": {"target_ratio": 0.35, "min_ratio": 0.0, "min": 2, "max": 30, "birth_config": {}},
+    "scout":   {"target_ratio": 0.20, "min_ratio": 0.0, "min": 2, "max": 12, "birth_config": {}},
+    "reserve_food": 150,
+    "burst_at": 1500,
+  },
+  "economy": {
+    "upgrade_priority": ["scout", "worker", "soldier"],
+    "auto_upgrade": True,
+    "priority_food": None,     # [x,y] — redirect ALL workers
+    "gather_dirt": False,      # True = workers actively prioritize dirt
+  },
+  "military": {
+    "stance": "aggressive", "formation": "wedge",
+    "rally_point": None,          # [x,y] or [[x1,y1],...] waypoints
+    "rally_release_at": None,     # soldier count to auto-release
+    "rally_mode": "normal",       # "normal" | "auto_forward"
+    "attack_target": None,        # [x,y] continuous advance
+    "auto_attack": False,         # advance using fog-of-war intel
+    "retreat": False, "freeze_economy": False,
+    "siege_priority": None,       # "queen" → soldiers strongly prefer the queen (CRITICAL for sieges)
+  },
+  "unit_types": {
+    "worker":  {"flee_distance": 4},
+    "soldier": {"expansion": [ex, ey]},
+    "scout":   {"expansion": [ex, ey], "revisit_pct": 0.12, "patrol_waypoints": None},
+  },
+  "triggers": [],   # [{label, if, then, priority?, duration?, cooldown?}]
+  "alerts": [...]   # defined but never evaluated (check_alerts not implemented)
+}
 ```
 
-## Placement Phase Details
+Flat-key commands (`set_strategy` shim, NOT firable from triggers): `buy_upgrade`,
+`build` (`{"type": "watchtower"|"barracks"|"wall"|"larder"|..., "x": N, "y": M}`),
+`convert` (`{"id": N, "to": type}` — ant within 8t of queen).
 
-**World methods added in v1.0:**
-- `_place_strategic_food()` — generates 16-node 3-lane layout; called in `World.__init__`
-- `finalize_placement(red_pos, blue_pos)` — carves nests, spawns colonies, starts logger
-- `_valid_placement(x, y, half)` — checks passable + correct half + ≥15 passable neighbors + food within 50 tiles + ≥12 tiles from center
-- `_score_placement(x, y)` — scores a position (approach nodes have highest mult, frontline lowest since they're contested prizes to fight for, not start next to)
-- `_best_placement(half)` — exhaustive scan of valid positions, returns highest score
-
-**Placement log entry** (at top of run log, before snapshot rows):
+**Trigger variables:**
 ```
-=== PLACEMENT PHASE ===
-  RED  ( 23, 46)  bot heuristic (score=172)
-  BLUE ( 70, 41)  aggressive center to reach midfield fast
+food dirt income_per_s queen_hp queen_hp_pct worker_count soldier_count scout_count
+total_pop enemy_soldiers_near_nest soldiers_in_siege soldiers_near_enemy_nest
+enemy_queen_hp(siege only) elapsed_ticks aging_workers aging_soldiers enemy_intel_age
 ```
 
-**Client placement phase rendering:**
-- `placement_phase` WS message → shows overlay, renders food nodes colored by tier
-- `placement_update` WS message → shows pulsing queen marker at chosen position
-- `game_start` WS message → clears overlay, normal game begins
+---
 
-## Key Constants (`server.py`)
+## Key Constants
 
 ```python
-PLACEMENT_TIMEOUT    = 60      # seconds total for placement (LLM gets PLACEMENT_TIMEOUT-5)
-PHERO_EVAP           = 0.975   # trails fade in ~27s at 5 TPS
-ALARM_FOLLOW_THRESH  = 0.20    # soldiers only chase fresh/strong alarm pheromone
-FOLLOW_THRESH        = 0.03    # general pheromone follow threshold
-SOLDIER_DMG          = 22      # base damage per hit (+ dmg_bonus from Soldier upgrades)
-SOLDIER_CD           = 4       # base attack cooldown (→3 at Sol2)
-SOLDIER_HP           = 200     # base HP (+ soldier_hp_bonus from Sol2)
-QUEEN_HP             = 900
-QUEEN_DMG            = 35
-QUEEN_CD             = 3
-TPS                  = 5       # default (set in .env)
-LLM_INTERVAL         = 100     # ticks between LLM calls
+# Map 150×100 "The Crossing"; RED=(14,50) BLUE=(136,50); ridges x=48-50, x=100-102
+# Spawn cost/time: worker=25♦/20t, soldier=50♦/35t, scout=35♦/25t; queue MAX=10
+# Barracks soldiers: 20t. Lifespan: W=500t Sol=300t Sc=200t Q=∞
+# Combat: SOLDIER_DMG=22 CD=4 HP=200 | QUEEN_HP=900 DMG=35 CD=3 (queen range ~12-15!)
+# Food: DELIVER=30 PICK=20; tiers home(cap400,+0.1/t) approach(cap800,+0.5/t) frontline(∞,+20/t)
+# Corpse food: W=12 Sol=25 Sc=17. Convert cost: W=15 Sc=22 Sol=30
+# Dirt: PICK=10 DELIVER=8 CAP=600; buildings cost dirt:
+#   guard_post=150◆(HP300 DMG18 R10 ×3) watchtower=80◆(HP150 vision12 ×3)
+#   barracks=200◆(HP200 ×2) wall=25◆(×12) larder=150◆(HP150 +6♦/t ×2)
+# Worker saturation: FOOD_NODE_WORKER_CAP={home:4,approach:6,frontline:12}
+# Vision: W=4 Sol=5 Sc=[8,12,16,22 by tier] Q=3 (Chebyshev)
+# LLM fog: enemy queen HP/pos only when own soldier within 15t of enemy nest
+# Stalemate: 7200s (effectively never); games end by queen death or end-command adjudication
 ```
 
-## Known Design Decisions
+---
 
-**Workers use `known_food` for outbound nav, not pheromone.** The forage gradient points
-nest-ward (deposited on return trip), so following it homeward would be wrong. Workers
-use known coordinates; pheromone trails are visual only.
+## Design Decisions (do not reverse without reason)
 
-**Alarm pheromone feedback loop prevention.** Soldiers following alarm pheromone do NOT
-re-deposit it. This prevents self-reinforcing stale pools that trap soldiers forever.
-High threshold (`ALARM_FOLLOW_THRESH=0.20`) ensures soldiers only chase fresh combat signals.
+- Workers use `known_food` coords + `recruit_target` committed at selection (not pheromone)
+- Soldiers target NEAREST enemy; siege weights queen equally — defenders genuinely
+  shield the queen ("bodyguard effect"); `siege_priority="queen"` is the counter
+- LLM/agent fog of war: no enemy intel except what units discover; queen HP/pos
+  hidden until soldiers within 15t of enemy nest
+- Spawn food reserved at queue time, not spawn time
+- income_per_s = deliveries only (never negative); no per-tick upkeep
+- Buildings cost dirt, not food — building never blocks food economy
+- Larder is passive income (no worker overhead) — competes with military for dirt
+- Home/approach food finite by design — only frontline nodes sustain late game
+- Fixed spawns, no placement phase
+- `patrol_waypoints` overrides scout expansion entirely; route must be <180 tiles
+  (scout lifespan 200t)
+- `enemy_intel_age` = 9999 when never scouted
+- Rally hold: soldiers at rally do NOT advance until release threshold
 
-**Fog of war.** Enemy army counts are gated by scouting — only known when a friendly ant
-is within 18 tiles of the enemy nest. Intel freshness: <150 ticks = "fresh", <500 = "stale",
-else "unknown". Enemy food/income are NEVER visible to the LLM.
-
-**Starvation is gradual (1 ant/tick max).** Prevents instant collapse; gives time to recover.
-
-**Rally point hold.** Soldiers at the rally coordinate hold position until the LLM clears it
-by setting `rally_point: null`. This enables proper stage-and-assault play.
+---
 
 ## Tuning Guide
 
-Read `logs/run_*.log`. Key signals:
+Read the log first. Key signals:
 
-| Symptom | Likely cause | Tweak |
-|---------|-------------|-------|
-| No combat events | Patrol radius too small | Check `base_d` in `_behavior_soldier`, or shrink map |
-| Colony stalls at 1 ant | Queen starvation threshold | Check `_check_win` and `-55` threshold |
-| Income always negative | Workers can't find food | Check `known_food` is populated; scout range |
-| Food depletes instantly | Too many workers on one source | Workers use random known source; check `FOOD_REGROW` |
-| LLM never buys upgrades | Hoarding food | LLM needs reminder in prompt; check `buy_upgrade` lever |
-| Bot too easy | Bot not adapting | Check `_update_bot_strategy` states; tune thresholds |
-| Bot too hard | Bot buys T3 upgrades | Lower `FOOD_REGROW_CONTESTED` or raise upgrade costs |
-| Games always short | Combat damage too high | Lower `SOLDIER_DMG` or raise `QUEEN_HP` |
-| Games always long | Armies never meet | Increase aggression radius in soldier patrol |
+| Symptom | Likely cause |
+|---------|-------------|
+| Siege "deals no damage" | Bodyguard effect — set `siege_priority="queen"`; check `queen_dps_actual` vs `siege_dps_potential` |
+| Workers idle en masse (pre-v2.7) | priority_food at depleted node — fixed; now auto-clears |
+| "Bot" plays passively, never builds | Seat is brain_type=mcp with no agent — pre-v2.7 ran bare defaults; now falls back to bot |
+| Armies never meet | Patrol radius too small or expansion wrong |
+| Income low/zero | Workers can't find food; check known_food / viable_food_nodes |
+| LLM locked in retreat | eco_emergency trigger missing `elapsed_ticks > 100` (income is 0 first ~60t) |
+| Trigger overrides siege push | Add `AND soldiers_in_siege == 0` to eco_emergency |
+| Rally deadlock | rally_release_at set with soldier target_ratio=0 — use min_ratio |
+| Scout intel blackout | Cohort aging collapse; use patrol_waypoints |
+| 0 dirt accumulated | Was the v2.4/v2.5 carrying_type bug — fixed in v2.6; check dirt_per_s |
+| Build rejected | Read the error body — insufficient dirt or structure limit |
+| Late-game income collapse | Build larders before approach nodes deplete (bot does at tick 300) |
+| Scouts single-file dying at enemy base | patrol_waypoints route >180 tiles |
 
-## v1.0 → v1.1 Prompt Improvements (post-run analysis, 2026-06-07)
+Full lessons-learned archive: **HISTORY.md**.
 
-Changes made to `build_llm_prompt` and `soldier_sectors` based on mimo feedback from first v1.0 runs:
+---
 
-**Starvation timer** — FOOD/INCOME line now appends `*** STARVE IN ~Xs ***` when income is
-below -5/s. Computed as `food / abs(income_per_s)`. Addresses mimo's repeated request for
-projected starvation time.
+## Session Handoff Protocol
 
-**Rally soldier count** — Strategy block now shows `rally_point=(45,36) [7 staged → release at 12]`
-when a rally is active. Computed via same 4-tile threshold as auto-release check. Tells mimo
-how many soldiers are already staged vs still en route.
-
-**Sector "at rally" label** — `soldier_sectors()` now counts soldiers within 4 tiles of
-rally_point as "at rally" (reported first). Previously all non-forward soldiers showed as
-"near home" or "midfield" regardless of whether they were staged at rally.
-
-**Upgrade affordability timer** — Available upgrades now show `~Xs` ETA when affordable at
-current income. E.g. `SOL T2 Combat II (2800♦ need +1610 more, ~11s)`. Only shown when
-income is positive.
-
-**Upgrade queue visibility** — `(QUEUED)` marker appended to any upgrade that has been queued
-via `buy_upgrade` but not yet executed (pending flag set, food not yet sufficient). Prevents
-mimo from re-queueing the same upgrade every turn.
-
-**Scout-zero guardrail** — System prompt now explicitly warns against setting scout ratio to 0
-(previously only warned about workers). Minimum 0.1 recommended.
-
-## LLM-Identified Missing Levers (deferred)
-- `retreat` — pull soldiers home while rebuilding economy
-- `emergency_austerity` — panic button: max workers, defensive, clear rally
-- Staged rally waypoints: rally at A, advance to B
-- Worker cap auto-scaling: "maintain positive income at current army size"
+Before ending a heavy session:
+1. Update "Current State" above (move superseded detail to HISTORY.md — keep this file lean)
+2. Note in-progress work and exactly where it stopped
+3. List new bugs discovered
+4. New session reads CLAUDE.md → HISTORY.md (if tuning) → ROADMAP.md (if architecting)

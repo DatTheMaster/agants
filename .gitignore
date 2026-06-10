@@ -11,11 +11,14 @@ providers.json
 *.env.local
 *.env.production
 
-# Logs (keep structure, ignore content)
-logs/*.log
+# Logs
+logs/
 
-# Data (game state, memory — regenerate)
-data/llm_memory.json
+# Data
+data/
+
+# Agent workspaces
+.hermes/
 
 # Build artifacts
 dist/

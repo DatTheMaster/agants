@@ -1,0 +1,197 @@
+# Swarm Wars — Session History
+
+Per-session changelog and agent lessons, moved out of CLAUDE.md to keep it lean.
+Newest sessions first where possible. See server.py header changelog for the terse version.
+
+**Session 3 changes:** no-upkeep economy, corpse food, unit conversion, guard post bot logic,
+fog-of-war fixes, food depletion display, min_ratio floor, waypoints, auto-forward rally,
+auto-attack, enemy queen HP hidden until sieging.
+
+**Session 4 changes:** zoom/pan clamping (min 0.7×fitScale, max 6×, 80px margin);
+scout trail visibility (deposit 0.3→0.6, PWEIGHT 0.35→0.65); territory trail PWEIGHT 0.45→0.60;
+trigger `priority` field documented in LLM system prompt with `eco_emergency AND soldiers_in_siege==0` pattern.
+
+**Session 5 changes (v1.4):**
+- Trigger event log — fired triggers recorded to `colony.trigger_log` (deque 30); shown in LLM prompt as `TRIGGER EVENTS: tick 352: [eco_emergency] → military.retreat=True`
+- Upgrade ETA — `_upgrade_next()` returns `food_short` + `eta_s`; shown in prompt income line (`ETA: WOR:500♦ ~12s`) and sidebar col[15]
+- Scout `patrol_waypoints` — `unit_types.scout.patrol_waypoints: [[x1,y1],...]`; scouts loop through coordinates indefinitely, ignoring expansion when set; `ant.patrol_idx` tracks current waypoint
+- Per-colony visual fog-of-war — `Colony.fog_explored` (bytearray 7500) + `Colony.fog_visible` (set of flat indices); VISION_RADIUS={worker:4, soldier:5, scout:8, queen:3}; Chebyshev squares, updated every tick; sent to client as `state.fog[0/1]`
+- Canvas POV toggle — spectator/RED/BLUE; enemy ants in unexplored tiles hidden in colony POV mode; `cyclePov()` cycles 0→1→2→0 with colored button
+- `enemy_intel_age` trigger variable — ticks since last scout within 18t of enemy nest (9999 if never scouted)
+- VERSION = "1.4" with changelog block at top of server.py
+
+**Session 7 changes (v1.7):**
+- **Starting food** — colony starts with 800♦ (was 400♦); bridges first ~60 ticks before workers deliver; prevents false eco_emergency triggers in early game
+- **3-lane food clarity** — added (75,19) and (75,81) frontline nodes; 7 frontline total, 3 clear lanes (north/center/south); FOOD_SOURCES 15→17
+- **Soldiers at rally now attack nearby structures** — staged soldiers within 15 tiles of enemy structure move toward and attack it; fixes bug where RED ignored a BLUE watchtower 5 tiles from rally
+- **Eco_emergency example fixed** — added `elapsed_ticks > 100` guard to ALL system prompt examples; income is naturally 0 for first ~60 ticks, triggering eco_emergency incorrectly was locking both LLMs into retreat mode
+- **Structure event messages** — now show actual structure type ("Watchtower destroyed") instead of hardcoded "Guard Post"
+
+**Session 8 changes (v1.8):**
+- **FOOD_DELIVER 12→20** — income scaled for 150-wide map; longer round trips mean workers earn more per haul
+- **Home nodes smaller** — cap 800→400, regrow 0.3→0.1/t, initial 400-700→200-350♦; depletes in ~3 min (was never under real pressure)
+- **Approach nodes drain** — cap 2000→800, regrow 1.5→0.5/t; depletes in ~5 min under worker pressure (was net 0.17♦/t drain — effectively infinite); forces push to center by minute 6
+- **known_food radius 35→50** — workers now start knowing 5 food nodes (2 home + 3 approach) instead of 3; income ramp-up much faster from tick 0
+- **worker max 50→60, MAX_SPAWN_QUEUE 10→15** — population can grow faster with richer food base
+- **Patrol_waypoints example replaced** — old example routed scouts to enemy nest at (136,50); scouts die before returning (200t lifespan, 120+ tile route). New examples cover own half + center only (158t loop); added CRITICAL warning about route length limit
+
+**Session 8 cont. (v1.9) — Scout redesign + intel maps:**
+- **Scout vision = primary upgrade** — `SCOUT_VISION_RADIUS = [8, 12, 16, 22]` per tier; each upgrade grows the vision bubble significantly; scout upgrade tree now reads "vision 8→12, vision 12→16+speed, vision 16→22"
+- **Colony intel map** — `colony.food_intel` dict `(x,y)→{amt,max,tier,last_seen}`; `colony.seen_structs` dict (enemy structures ever spotted); `colony.enemy_sightings` list (recent enemy presence zones with soldier count)
+- **`_update_fog` populates intel** — every tick, anything inside any unit's vision radius gets logged to food_intel (food nodes) and enemy sightings/structures; scouts with wide vision pre-discover frontline food nodes and enemy positions without physically touching them
+- **Worker idle exploration** — when `known_food` is empty, workers pick a random directed target 20-40 tiles away and walk toward it, picking up food they encounter; no longer just randomly wander in place
+- **LLM prompt overhaul** — `FOOD INTEL (N mapped)` replaces flat `KNOWN FOOD SOURCES`; shows amounts, percentages, last-seen ticks, STALE/DEPLETED/AGING flags; `ENEMY SIGHTINGS` shows where and when enemy ants were spotted; `ENEMY STRUCTURES SPOTTED` is now fog-compliant (only shows structures units have actually seen)
+- **food_intel pre-populated** — finalize_placement seeds intel with all nodes in the 50-tile radius so home/approach nodes are tracked from tick 0
+
+**Session 6 changes (v1.6):**
+- **"The Crossing" map** — 150×100 tiles (was 100×75); fixed spawns RED=(14,50) BLUE=(136,50); symmetric 3-lane structure with rocky ridges at x=48-50 and x=100-102; three passes (north/center/south); corner rock clusters; center pinch rocks; minimap 30×20
+- **Placement phase removed** — no more LLM placement prompt; fixed positions give 0.5s startup instead of 55s
+- **Food tier system** — home (cap 800, regrow 0.3/t, finite), approach (cap 2000, regrow 1.5/t), frontline/contested (uncapped, regrow 20/t — the prize). Forces genuine expansion.
+- **`known_food` pre-populated** — workers know food within 50 tiles of nest at game start (5 nodes: 2H + 3A); no wandering on tick 0
+- **Dirt resource** — second resource type `colony.dirt` (cap 600◆); workers passively gather dirt near deposits; `col[16]` in tick state; `dirt_per_s` in colony state
+- **Buildings now cost dirt (not food)** — guard_post 150◆, watchtower 80◆, barracks 200◆, wall 25◆/segment
+- **New buildings** — watchtower (fog reveal radius 12, max 3); barracks (front-line spawner, 20t/soldier, max 2); wall (impassable tile, max 12 segments); all `build` command accepts `{"build": {"type": "watchtower", "x": N, "y": M}}`
+- **Territory system** — `World.territory` bytearray(15000) tracks tile ownership; soldiers claim 2-tile radius, workers/scouts claim current tile; decays to neutral after 60 ticks without presence; sent to client as `state.territory`
+- **`soldiers_near_enemy_nest` trigger variable** — own soldiers within 20t of enemy nest (pre-siege approach signal)
+- **Enemy intel fog enforced** — LLMs see only what their units discover naturally (fog-of-war compliant); no more enemy counts by default
+- **Default spawn ratios** — W=45%, Sol=35%, Sc=20%, reserve_food=150, burst_at=800
+- **System prompt** — food tier depletion warning, soldiers_near_enemy_nest docs, trigger scope note (triggers can't fire buy_upgrade), patrol_waypoints full loop example
+
+**Session 11 changes (v2.5) — Larder + control-layer polish:**
+- **Larder structure** — `{"build": {"type": "larder", "x": N, "y": M}}`; costs 150◆ dirt, max 2 per colony; generates 6♦/tick passively; shows in LLM income line (`LARDERS: 1×6♦/t passive`); late-game food sustain when food nodes deplete
+- **Sidebar labels mid-game** — browser connecting while game is already running now receives `seats_update` message + init includes seats; labels update to "RED (Hermes)" correctly
+- **buy_upgrade informative response** — REST API now returns `status: "will_purchase_this_tick"` / `"queued_waiting_for_food"` / error when maxed; includes `cost`, `food_current`, `food_needed`
+- **Worker depleted-node abandonment** — when worker arrives at recruit_target and food < 10♦, clears recruit_target so worker reselects on next tick; eliminates workers stuck at 0% nodes
+- **Dirt restored in recruited outbound path** — workers pick up dirt opportunistically on the way to food nodes (broken in v2.4 by always-set recruit_target); dirt now flows without needing `gather_dirt: true`
+- VERSION = "2.5"
+
+**Session 10 changes (v2.1) — Unit commands + MCP polish:**
+- **Unit-level commands** — `Ant.unit_override` dict; persists until ant dies or agent clears it
+  - `move_to`/`attack_xy`: move toward (x,y), engage enemies encountered; `attack_xy` queen-focuses
+  - `gather`: workers keep harvesting a specific food node indefinitely
+  - `hold`: soldiers guard a position; fight within 5t, return to spot if chased off
+  - `patrol`: per-ant waypoint loop (overrides directive patrol_waypoints for that ant)
+  - `clear`: remove override, return to colony AI
+- **REST API**: `POST /api/command/{id}` now accepts `unit_command` and `unit_command_batch` types
+- **MCP tools**: `command_unit(colony_id, ant_id, command, x, y, waypoints)` + `command_units(batch)` added
+- **Trigger cooldown** — `"cooldown": N` field on triggers; won't re-fire for N ticks after firing
+- **Siege DPS/TTK display** — LLM prompt now shows `SIEGE: N soldiers × 32dmg/4t = 80dmg/s | queen 456HP → TTK ~5.7s`
+- **`_build_colony_state` additions** — `combat.siege_dps`, `combat.ttk_s`, and full `units[]` list with IDs/positions/overrides
+- **`api_seats` enriched** — each seat now includes `brain_type: "mcp"|"llm"|"bot"` so agents know which seats accept `join_seat()`
+- **`/api/matches`** — new discovery endpoint; returns open games with seat/phase info; future-ready for multi-server
+- **MCP tool `list_matches()`** — wraps `/api/matches`; use before `join_seat()` to find the right game
+- **`priority_food` docs** — LLM prompt now annotates the field with "set to [75,50] to redirect ALL workers"; system prompt explains it more explicitly
+- **Agent feedback system** — `POST /api/feedback` + `submit_feedback()` MCP tool; stored to `logs/agent_feedback.jsonl`
+- VERSION = "2.1"
+
+**Session 10 cont. (v2.4) — Economy transparency + saturation fix + bot structures:**
+- **Worker recruit_target committed at selection** — workers now set `recruit_target` when choosing a food node from `known_food`; fixes saturation counting (was 0 for in-transit workers), distributes workers across all known nodes instead of clustering at nearest
+- **`food_in_transit`** — new field in `get_state`: sum of expected deliveries from workers currently carrying food; makes economy transparent even while workers are mid-trip
+- **Default `reserve_food` 75→150** — more buffer before spawn queue eats everything; upgrades more affordable
+- **Bot passability check for structures** — bot now tries up to 10 positions when placing watchtowers/guard posts, ensuring it finds a passable tile (was silently placing on rocks in the ridgeline at x=48-50 or x=100-102)
+- **Enemy sightings army breakdown** — `enemy_sightings` tuples now include `workers` and `scouts` counts in addition to soldiers; LLM prompt shows `(5S/3W/2sc) near (75,50)`; REST state carries the full tuple
+- VERSION = "2.4"
+
+**Session 10 cont. (v2.3) — Build time + worker saturation:**
+- **Build time** — spawn queue is now a real production pipeline; `SPAWN_TIME` dramatically increased: Worker=20t, Scout=25t, Soldier=35t (was 3/4/5). `MAX_SPAWN_QUEUE` reduced 15→10. Queue entries still tick down in parallel; smaller queue + longer times means ~3x slower population growth; food can now accumulate for upgrades
+- **BARRACKS_SPAWN_TIME** — 14→20 ticks (maintains relative advantage over queen's 35t for soldiers)
+- **Worker saturation** — `FOOD_NODE_WORKER_CAP = {"home":4, "approach":6, "frontline":12}`; when choosing a food target, workers skip saturated nodes (too many already there) and pick unsaturated ones; falls back to any node if all are over cap; forces natural spreading to multiple nodes
+- **Saturation in LLM prompt** — FOOD INTEL now shows `[W:3/6]` worker count and `← SATURATED` flag per node
+- **Saturation in REST state** — `viable_food_nodes[]` entries now include `workers_here` and `cap` fields
+- **Spawn queue info enriched** — LLM prompt shows `[build times: W=20t S=35t sc=25t]`; REST `spawn_queue` includes `next_t` and `build_times`; sidebar shows "next Xt"
+- VERSION = "2.3"
+
+**Session 10 cont. (v2.2) — MCP control-layer fixes (from Hermes session 2 feedback):**
+- **Queen command rejection** — `command_unit` now returns `{"error": "queen cannot be commanded"}` for non-clear commands; queen position is fixed
+- **convert same-type validation** — convert orders for ant already of target type are now rejected with event message instead of silently wasting food
+- **build_structure synchronous validation** — `POST /api/command/N {"type":"build"}` now validates dirt and structure limit before queuing; returns `{"error": ..., "dirt_required": N, "dirt_current": M}` on failure, `{"ok": true, "dirt_required": N, "dirt_remaining": M}` on success
+- **`units_summary` field** — `get_state` response now includes `units_summary: {total, workers, soldiers, scouts, with_override, idle}` — compact overview without scanning full units list
+- **`viable_food_nodes` field** — `get_state` response now includes sorted list of food nodes with `{pos, amt, max, pct, tier, last_seen, dist}`, filtered to amt>0, sorted by distance from nest, capped at 10
+- **`recruit_target` in unit entries** — workers in `units[]` now include `recruit_target: [x,y]` if they have an assigned food node
+- **`enemy_queen_hp_observed`** — `combat.enemy_queen_hp_observed` tracks last HP seen by ANY unit with vision (not just siege range); `colony.enemy_queen_hp_last_seen` field; updated in `_update_fog`
+- **Team naming UI** — sidebar now shows "RED (AgentName)" when MCP agent is connected, "RED (Bot)" otherwise; `_updateSeats()` updates `#r-colony-name` / `#b-colony-name` spans
+- VERSION = "2.2"
+
+**Session 9 changes (v2.0) — MCP infrastructure:**
+- **Notification system** — `colony.notifications` deque (maxlen=50); `push_notification(type, data, tick)` / `pop_notifications()`; fires on structure_complete, upgrade_complete, queen_under_attack, enemy_contact (soldiers≥3)
+- **Game phases** — "lobby" | "running" | "paused" (was just "placement" | "running"); no auto-start; game waits in lobby until explicit start
+- **MCP seat tracking** — `world.mcp_seats = {0: None, 1: None}`; agents claim seats via REST API
+- **REST API** — full `/api/...` surface on http://localhost:8083/api/:
+  - `GET /api/tick` — tick, phase, winner, seats
+  - `GET /api/seats` — seat availability
+  - `POST /api/seat/{colony_id}` / `DELETE /api/seat/{colony_id}` — join/release seat
+  - `POST /api/control` — start/pause/resume/end/reset game
+  - `GET /api/state/{colony_id}` — full colony state JSON
+  - `GET /api/notifications/{colony_id}` — consume-on-read notification tray
+  - `GET /api/intel_map/{colony_id}` — 30×20 ASCII map + food_intel + enemy_sightings
+  - `GET/POST /api/directive/{colony_id}` — get/patch directive
+  - `POST /api/command/{colony_id}` — buy_upgrade, build, convert commands
+  - `GET /api/events/{colony_id}` — recent events
+- **`mcp_server.py`** — new file; FastMCP server with 15 tools (stdio or HTTP+SSE transport)
+  - `get_tick`, `list_seats`, `join_seat`, `release_seat`, `game_control`
+  - `get_state`, `get_notifications`, `get_intel_map`, `get_events`
+  - `get_directive`, `patch_directive`, `set_directive`
+  - `buy_upgrade`, `build_structure`, `convert_unit`
+- **UI: START/PAUSE/END buttons** — header game controls; START shows in lobby, PAUSE/END show when running
+- **UI: Lobby overlay** — shown on connect/reset; "START GAME" button; seat status display
+- **UI: Paused overlay** — "PAUSED" overlay on canvas when game is paused
+- **UI: MCP radio option** — third brain type option per colony in settings; shows MCP status/agent name
+- **MCP brain type** — `{"type": "mcp"}` skips LLM loop; colony controlled purely via REST API
+- `world.step()` now also guards on "lobby" and "paused" phases (not just "placement")
+- New WS message types: `start_game`, `pause_game`, `resume_game`, `end_game`, `join_seat`, `release_seat`
+- New WS messages from server: `lobby`, `paused`, `resumed`, `seat_joined`, `seat_released`
+
+
+## LLM Lessons Learned (from sessions 4-8 logs)
+
+These emerged from post-game debriefs — worth reading when tuning prompts or balance:
+
+- **Column formation decisive for queen kills** — BLUE explicitly credited column for rapid queen damage
+- **Rally deadlock pattern** — setting `rally_release_at: N` with `soldier target_ratio=0` starves the rally. Both LLMs independently identified this. `min_ratio` field added to prevent it.
+- **Scout cohort collapse** — producing many scouts at once means mass aging-out creates intel blackouts. LLMs asked for staggered spawn or a floor trigger. Use `patrol_waypoints` for permanent routes.
+- **Eco triggers threshold** — `income_per_s < -2` in old trigger examples was wrong (income is now always >= 0). Default example updated to `income_per_s < 5`.
+- **Enemy HP 900=ambiguous** — LLMs couldn't tell if 900 meant full health or unobserved. Fixed with fog-of-war gating.
+- **Trigger conflict: eco_emergency overrides siege** — both LLMs hit this: eco_emergency fires when food drops during siege, pulling soldiers out. Fix: add `AND soldiers_in_siege == 0` to eco_emergency condition. Now documented in LLM prompt with example.
+- **Trigger priority field unknown to LLMs** — `priority: N` field already implemented but not in prompt. LLMs both explicitly asked for it. Now documented: higher priority fires first, use priority=10 for final_push vs priority=5 for eco_emergency.
+- **Upgrade ETA** — ✓ IMPLEMENTED in v1.4. LLMs can now read `ETA: WOR:500♦ ~12s` in the income line.
+- **Siege DPS/TTK invisible** — LLMs have to estimate 22dmg/4-tick cooldown manually. Both asked for real-time display. **Still pending** (next good QoL addition).
+- **LLMs chose center spawns** — both models chose positions near map center in session 6, causing sub-10-tick games. Fixed by removing placement phase entirely (fixed spawns at opposite ends).
+- **Workers wandered at game start** — empty `known_food` caused random pathing on tick 0. Fixed by pre-populating with nodes within 50 tiles of spawn (5 nodes: 2H+3A).
+- **Home food didn't force expansion** — regrow was too high; games stagnated near nest. v1.8: home regrow=0.1/t (cap 400, ~3min), approach=0.5/t (cap 800, ~5min). Only frontline (20/t) sustains large armies.
+- **Approach nodes never depleted (pre-v1.8)** — net drain was only 0.17♦/t (regrow=1.5 vs ~1.67 drain). Would take 11,765 ticks to exhaust a 2000♦ node. Fixed by lowering to regrow=0.5/t and cap=800.
+- **FOOD_DELIVER=12 vs 150-wide map** — workers on approach nodes had ~60t round trips, earning 12♦ each. Population stagnated at 35W with 0 soldiers. Fixed: FOOD_DELIVER=20.
+- **LLMs didn't build structures** — games ended before economy grew enough (placement-caused). With fixed map and food pressure, expect structures from ~tick 100+.
+- **enemy_queen_hp < 400 trigger never fires** — queen HP only shows when in siege range (15t). Use `soldiers_near_enemy_nest >= 5` for pre-siege triggers instead.
+- **Patrol_waypoints bad example caused single-file march to enemy base** — the old example included enemy nest coords (136,50). All scouts marched 120+ tiles in a line and died at enemy base. Scout lifespan=200t means routes >180 Chebyshev tiles kill scouts before they complete a loop. Fixed: examples now cover own half only (~158t loop).
+- **Worker saturation = single biggest lever (v2.4)** — fixing `recruit_target` commitment at selection time (not just at node) caused +433% food collected, first upgrade purchase, -71% casualties in the same game. The entire economy was bottlenecked on all workers targeting the same node.
+- **recruit_target always-set breaks dirt gathering** — setting `recruit_target` at selection means workers always enter the recruited path and skip the opportunistic dirt pickup code. Fixed in v2.5 by adding dirt pickup inside the outbound recruited leg. Watch for this pattern if the recruited path is ever changed again.
+- **buy_upgrade called blindly before food available** — MCP agents called buy_upgrade 5+ times for the same upgrade before food accumulated; returns `ok: true` each time gave no signal to stop. Fixed in v2.5: response now includes `status: queued_waiting_for_food` with `food_needed` so agents know to wait.
+
+---
+
+**Session 12 changes (v2.7) — from Hermes v2.6 test:**
+- **Worker stranding fixed** — priority_food pointing at a depleted node caused an infinite reselect→arrive→abandon loop; now auto-clears with event + `priority_food_cleared` notification; worker selection filters to viable nodes (amt>10) before saturation check
+- **Saturation counting fixed** — `_workers_near` and REST `workers_here` now count `recruit_target` commitments (en-route workers), not just bodies within 5 tiles
+- **Unclaimed MCP seats fall back to the bot brain** — `.env` had both colonies `mcp`; with no agent in seat 1, BLUE ran on bare defaults all game. Bot now drives any mcp seat with no agent and steps aside when one joins.
+- **`advisor` field in REST state** — contextual hints (unspent dirt, idle workers, affordable upgrades, larder timing, mass-attack nudge)
+
+**Session 12 Hermes v2.7 test findings:**
+- **Siege DPS = 0 confirmed bug** — soldiers adjacent to queen (siege mode + attack_xy override) dealt zero damage. Root cause: the override-path adjacent attack called `_nearest_enemy(ant, 1)` without `queen_focus`; queen got `effective_d = d + 12 = 13 > radius+1 = 2`, so queen was structurally excluded. Every manually commanded soldier in the entire game was unable to damage the queen.
+- **Larder invisible** — larder structure type fell through the canvas else-if chain with no renderer.
+- **Rally never released** — rally system worked mechanically (soldiers went there) but 6/8 staged soldiers never grew to 8 because new soldiers were killed or distracted en route. No feedback to agent on fill progress.
+- **Mass command pain** — with 33 soldiers, every command required listing individual IDs from get_state. Spent most of game on manual army management rather than strategy.
+
+**Session 13 changes (v2.8):**
+- **FIX siege DPS bug** — `_nearest_enemy(ant, 1, siege=True, queen_focus=(cmd=="attack_xy"))` in the override adjacent attack; queen no longer excluded when soldiers have unit overrides
+- **Larder on canvas** — rendered as a dome with an "L" label and gold income pulse ring
+- **rally_released notification** — pushed when rally clears so agents know the army has been released
+- **Rally fill in advisor** — "RALLY: 4/8 soldiers at (75,50)" shows in get_state advisor when rally set
+- **`command_type()` MCP tool** — command all ants of a type without listing IDs; optional `filter_state` to skip already-engaged units
+
+**LLM lessons from session 12:**
+- **Unit overrides block queen damage** — agents using `command_units` with `attack_xy` expected soldiers to attack the queen but got zero DPS. The override adjacent attack was the missing link. Always test manual-command siege scenarios separately from directive-driven siege.
+- **Rally fill opacity** — agents set rally and never got feedback on whether it was filling. They lowered `rally_release_at` without knowing if that was the bottleneck. Adding advisor fill counts and the `rally_released` notification should close this.
+- **Larder income hard to notice** — `larder_income: 12` in the JSON blob was easy to miss. Adding it to advisor proactively ("Larder producing +12♦/t") would help.
+
+---
+
