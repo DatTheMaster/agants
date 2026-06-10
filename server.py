@@ -62,7 +62,7 @@ _load_dotenv()
 # Constants
 # ═══════════════════════════════════════════════════════════════════════════════
 
-VERSION = "2.11"
+VERSION = "2.12"
 
 # Version changelog (bump VERSION every session that changes gameplay or prompts)
 # 1.0 — initial engine: pheromones, food, combat, upgrades, WebSocket renderer
@@ -163,7 +163,13 @@ VERSION = "2.11"
 #           each tick and pushes "alert" notifications to the colony notification queue;
 #           sampling=True → edge-triggered (only on False→True transition, no spam);
 #           sampling=False → level-triggered (fires every 30 ticks while condition holds);
-#           namespace is identical to triggers (all trigger variables available in alert conditions);
+#           namespace is identical to triggers (all trigger variables available in alert conditions)
+# 2.12 — Default TPS 10→1, LLM_INTERVAL 100→15, default brain type bot→mcp
+#         TPS=1 makes live matches watchable and gives agents time for real decision cycles;
+#         LLM_INTERVAL=15 keeps bot/LLM updates on a 15-second cadence at 1 TPS;
+#         default brain type is now "mcp" so both seats advertise as agent-ready out of the box;
+#         empty mcp seat already falls back to update_bot_strategy() — the intelligent planning
+#         bot fills in automatically when only one agent is connected (no dumb dummy opponent)
 
 # ── Brain config ────────────────────────────────────────────────────────────────
 # Each colony is independently "bot" (heuristic) or "llm" (OpenAI-compatible API).
@@ -186,7 +192,7 @@ def _save_providers(providers):
 
 PROVIDERS = _load_providers()
 
-LLM_INTERVAL = int(os.environ.get("LLM_INTERVAL", "100"))
+LLM_INTERVAL = int(os.environ.get("LLM_INTERVAL", "15"))
 
 def _default_llm_brain():
     return {"type": "llm",
@@ -195,8 +201,8 @@ def _default_llm_brain():
             "model":    "deepseek-ai/deepseek-r1"}
 
 # Brain configs: 0=RED, 1=BLUE — loaded from .env on startup
-RED_BRAIN:  dict = {"type": "bot"}
-BLUE_BRAIN: dict = {"type": "bot"}
+RED_BRAIN:  dict = {"type": "mcp"}
+BLUE_BRAIN: dict = {"type": "mcp"}
 
 def _apply_env_config():
     """Load brain config from .env — new-style fields first, legacy fallback."""
@@ -206,8 +212,8 @@ def _apply_env_config():
     red_type  = os.environ.get("RED_BRAIN_TYPE",  "")
     blue_type = os.environ.get("BLUE_BRAIN_TYPE", "")
     if red_type or blue_type:
-        RED_BRAIN  = {"type": red_type  or "bot"}
-        BLUE_BRAIN = {"type": blue_type or "bot"}
+        RED_BRAIN  = {"type": red_type  or "mcp"}
+        BLUE_BRAIN = {"type": blue_type or "mcp"}
         if red_type == "llm":
             RED_BRAIN.update({"api_key":  os.environ.get("RED_API_KEY",  ""),
                                "base_url": os.environ.get("RED_BASE_URL", ""),
@@ -571,7 +577,7 @@ Respond in free text — NOT JSON. Be specific: cite tick numbers, exact decisio
 numbers from the stats. Brutal self-assessment is more useful than flattery.
 """
 
-TPS = int(os.environ.get("TPS", "10"))
+TPS = int(os.environ.get("TPS", "1"))
 
 def _trim_memory(mem):
     """Drop oldest keys until memory is within the char budget."""
