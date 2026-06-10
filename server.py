@@ -2762,7 +2762,7 @@ class Server:
         Spectators: POST without auth — name comes from body 'name' field.
         In tech-demo mode everyone can chat; auth only gates the colony attribution.
         """
-        m = await self._get_match_or_default(req)
+        m = self._get_match_or_default(req)
         try:
             body = await req.json()
         except Exception:

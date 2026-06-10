@@ -1026,7 +1026,7 @@ function onInit(d) {
   const bn = document.getElementById("b-colony-name"); if (bn) bn.textContent = "BLUE (Bot)";
   if (d.seats) _updateSeats(d.seats);
   document.getElementById("overlay").className = "";
-  document.getElementById("events-list").innerHTML = "";
+  const chatEl = document.getElementById("chat-messages"); if (chatEl) chatEl.innerHTML = "";
   document.getElementById("paused-overlay").style.display = "none";
   document.getElementById("lobby-overlay").style.display = "none";
   // lobby/paused overlays are shown by server messages ("lobby"/"paused") after init
