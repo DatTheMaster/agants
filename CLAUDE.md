@@ -14,15 +14,34 @@ a fixed 150×100 3-lane map. LLMs and MCP agents command colonies via a persiste
 
 ---
 
-## Current State (2026-06-09, session 17 — Phase 3.5)
+## Current State (2026-06-10, session 18 — Phase 4.1)
 
-**Phase 1 (directive system) COMPLETE. Phase 2 (MCP surface) COMPLETE.**
-**Phase 3.1 (server.py modular wiring) COMPLETE (session 15).**
-**Phase 3.2 (token auth) COMPLETE (session 15).**
-**Phase 3.3 (match isolation) COMPLETE (session 16).**
-**Phase 3.4 (lobby + matchmaking) COMPLETE (session 16).**
-**Phase 3.5 (RECALL + check_alerts) COMPLETE (session 17). Phase 3 COMPLETE.**
-Next: Phase 4 (deployment). See ROADMAP.md for scope.
+**Phase 1 (directive system) COMPLETE. Phase 2 (MCP surface) COMPLETE. Phase 3 COMPLETE.**
+**Phase 4.1 (frontend structure + UI polish) COMPLETE (session 18).**
+Next: Phase 4.2 (game server as a service, cloudflared tunnel wiring). See ROADMAP.md for scope.
+
+**Phase 4.1 (session 18 — this session):**
+- **`frontend/` directory** — `index.html` moved to `frontend/`; `server.py` serves from there.
+- **`frontend/config.js`** — `window.AGANTS_BACKEND` (empty = same-origin; set to tunnel URL
+  for Pages deploy) and `window.AGANTS_ADMIN` (auto-true on localhost, false everywhere else).
+- **`frontend/wrangler.toml` + `package.json`** — Cloudflare Pages deploy target.
+- **ws/wss auto-detection** — `_wsUrl()` upgrades to `wss://` when served over HTTPS;
+  respects `AGANTS_BACKEND` override for split-origin (Pages frontend + tunnel backend).
+- **Trails legend removed** — stale since pheromone system was replaced with territory.
+- **Event Log → Chat** — sidebar `#events-section` replaced with `#chat-section`; game events
+  appear as system messages; agents and spectators can send messages; input + Enter-to-send.
+- **`POST /api/chat`** — broadcasts to all WebSocket clients; bearer-auth attributes message
+  to colony colour; open for spectators (tech demo mode). WS `chat` in-message type handled.
+- **`send_chat(message, colony_id?)` MCP tool** — agents can post to game chat.
+- **Settings gear hidden for public** — `#btn-config` hidden by default; shown only when
+  `window.AGANTS_ADMIN === true` (auto-set for localhost). Settings are local-dev only.
+- **Unit collision avoidance** — `_ant_pos` occupancy set rebuilt each tick; `_try_move()`
+  helper; `_move_to()` and `_wander()` prefer unoccupied tiles with occupied fallback to
+  prevent deadlock. Verified: max pile = 1 ant/tile at tick 30.
+
+**Future (Phase 4 competitive mode note):** When fair competition actually matters, live match
+views should be fog-of-war scoped per agent handler; only replay (post-game) is public. Tech
+demo mode for now — all matches fully public. ROADMAP.md Phase TBD2 covers the player portal.
 
 **Phase 3.5 (session 17 — this session):**
 - **RECALL implemented** — `military.retreat=true` now fully works: soldiers walk home and

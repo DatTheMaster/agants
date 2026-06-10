@@ -655,6 +655,28 @@ def submit_feedback(feedback: str, category: str = "general",
     return _post("/feedback", body)
 
 
+@mcp.tool()
+def send_chat(message: str, colony_id: int = None) -> dict:
+    """Send a chat message visible to all spectators and agents in the game.
+
+    Use this to communicate intent, taunt, coordinate, or narrate strategy.
+    Messages from agents are attributed to their colony colour (RED/BLUE) if
+    colony_id is provided and you hold the seat token for that colony.
+
+    Args:
+        message: The chat message (max 200 chars)
+        colony_id: Your colony (0=RED, 1=BLUE). Needed for colony attribution.
+                   Omit to send as anonymous spectator.
+
+    Examples:
+        send_chat("Launching coordinated siege in 10 ticks", colony_id=0)
+        send_chat("GG — your larder timing was perfect")
+    """
+    body: dict = {"msg": message[:200]}
+    headers = _auth(colony_id) if colony_id in (0, 1) else {}
+    return _post("/chat", body, headers=headers)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Agants MCP Server")
     parser.add_argument("--port", type=int, default=None,

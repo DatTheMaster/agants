@@ -43,12 +43,14 @@ fallback when it can no longer handle load.
 **Stack:** Remote machine (192.168.1.100 WSL, 24/7) + cloudflared tunnel → game server backend.
 Frontend static files deployed to Cloudflare Pages. Fly.io Dockerfile ready but not primary.
 
-### 4.1 — Frontend directory structure
-- `frontend/` dir with `wrangler.toml` for Cloudflare Pages deploy
-- Move `index.html` → `frontend/`; add `config.js` that sets `window.AGANTS_BACKEND`
-  (empty = same-origin when served from game server; set to tunnel URL for Pages deploy)
-- Auto-upgrade `ws://` → `wss://` based on `location.protocol`
-- `package.json` with `deploy` script (`wrangler pages deploy`)
+### 4.1 — Frontend directory structure ✓ COMPLETE
+- `frontend/` dir with `wrangler.toml`, `package.json`, `config.js`
+- `window.AGANTS_BACKEND` (same-origin default; set to tunnel URL for Pages deploy)
+- `window.AGANTS_ADMIN` (auto-true localhost; false for public — hides Settings gear)
+- `_wsUrl()` upgrades ws→wss on HTTPS, respects AGANTS_BACKEND override
+- Chat section replaces event log; `POST /api/chat` + `send_chat()` MCP tool
+- Unit collision avoidance: `_ant_pos` occupancy set, `_try_move()`, max 1 ant/tile
+- Trails legend removed (stale since pheromone → territory swap)
 
 ### 4.2 — Game server as a service (home machine)
 - systemd-compatible service script for `server.py` on remote machine WSL

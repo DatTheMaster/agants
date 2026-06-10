@@ -1,0 +1,6 @@
+name = "agants"
+compatibility_date = "2024-09-23"
+
+[env.production]
+# Set AGANTS_BACKEND to your cloudflared tunnel URL, e.g.:
+# AGANTS_BACKEND = "https://agants.yourdomain.com"

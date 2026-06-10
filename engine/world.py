@@ -143,6 +143,7 @@ class World:
         self._llm_stats_list = [None, None]
         self.phase = "lobby"
         self.mcp_seats = {0: None, 1: None}
+        self._ant_pos: set = set()   # occupancy set rebuilt each tick
         self._build_map()
 
     def _build_map(self):
@@ -242,6 +243,9 @@ class World:
             return
 
         self.tick += 1
+
+        # Rebuild occupancy set for soft collision avoidance
+        self._ant_pos = {(a.x, a.y) for c in self.colonies for a in c.ants}
 
         self._update_territory()
 
@@ -1267,15 +1271,25 @@ class World:
         for ant in candidates[:slots]:
             ant.unit_override = {"cmd": "build", "x": sx, "y": sy}
 
+    def _try_move(self, ant, nx, ny, allow_occupied=False) -> bool:
+        if not self._passable(nx, ny):
+            return False
+        if not allow_occupied and (nx, ny) in self._ant_pos:
+            return False
+        self._ant_pos.discard((ant.x, ant.y))
+        ant.x, ant.y = nx, ny
+        self._ant_pos.add((nx, ny))
+        return True
+
     def _move_to(self, ant, tx, ty, layer):
         dx = (1 if tx > ant.x else -1) if tx != ant.x else 0
         dy = (1 if ty > ant.y else -1) if ty != ant.y else 0
         cands = [(ant.x+dx, ant.y+dy)]
         if dx and dy: cands += [(ant.x+dx, ant.y), (ant.x, ant.y+dy)]
         random.shuffle(cands)
+        # prefer unoccupied
         for nx, ny in cands:
-            if self._passable(nx, ny):
-                ant.x, ant.y = nx, ny; return
+            if self._try_move(ant, nx, ny): return
         tried = set(cands)
         fallback = sorted(
             [(ant.x+ddx, ant.y+ddy) for ddx in (-1, 0, 1) for ddy in (-1, 0, 1)
@@ -1283,8 +1297,10 @@ class World:
             key=lambda p: abs(p[0]-tx) + abs(p[1]-ty)
         )
         for nx, ny in fallback:
-            if self._passable(nx, ny):
-                ant.x, ant.y = nx, ny; return
+            if self._try_move(ant, nx, ny): return
+        # last resort: allow occupied to prevent deadlock
+        for nx, ny in cands + fallback:
+            if self._try_move(ant, nx, ny, allow_occupied=True): return
 
     def _move_prey(self, prey, tx, ty):
         dx = (1 if tx > prey.x else -1) if tx != prey.x else 0
@@ -1300,8 +1316,10 @@ class World:
         dirs = [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]
         random.shuffle(dirs)
         for dx, dy in dirs:
-            if self._passable(ant.x+dx, ant.y+dy):
-                ant.x, ant.y = ant.x+dx, ant.y+dy; return
+            if self._try_move(ant, ant.x+dx, ant.y+dy): return
+        # allow occupied if all neighbours taken
+        for dx, dy in dirs:
+            if self._try_move(ant, ant.x+dx, ant.y+dy, allow_occupied=True): return
 
     def _follow(self, ant, layer, radius=2, threshold=None):
         return False  # pheromone trails removed; territory system replaces them

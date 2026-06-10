@@ -1924,7 +1924,10 @@ class Server:
             print(f"    ❌ debrief error after {elapsed:.2f}s: {e}\n")
 
     async def on_index(self, req):
-        return web.FileResponse("./index.html")
+        return web.FileResponse("./frontend/index.html")
+
+    async def on_config_js(self, req):
+        return web.FileResponse("./frontend/config.js")
 
     async def on_ws(self, req):
         return await self._on_ws_for(req, self._m)
@@ -2050,6 +2053,15 @@ class Server:
                                 key = "red_brain" if cid == 0 else "blue_brain"
                                 _save_config({key: {"type": "bot"}})
                                 await self._broadcast(json.dumps({"type": "seat_released", "colony_id": cid}), m=m)
+                        elif data.get("type") == "chat":
+                            msg_text = (data.get("msg") or "").strip()[:200]
+                            if msg_text:
+                                sender = data.get("name") or "spectator"
+                                await self._broadcast(json.dumps({
+                                    "type": "chat", "colony": None,
+                                    "name": str(sender)[:32], "msg": msg_text,
+                                    "cls": "human", "tick": m.world.tick,
+                                }), m=m)
                     except Exception:
                         pass
         finally:
@@ -2743,6 +2755,48 @@ class Server:
         print(f"💬  Agent feedback [{entry['category']}]: {feedback_text[:80]}{'...' if len(feedback_text)>80 else ''}")
         return await self._api_cors(web.json_response({"ok": True, "stored": entry}))
 
+    async def api_chat(self, req):
+        """Broadcast a chat message to all WebSocket clients.
+
+        Agents: POST with bearer token — name defaults to colony colour.
+        Spectators: POST without auth — name comes from body 'name' field.
+        In tech-demo mode everyone can chat; auth only gates the colony attribution.
+        """
+        m = await self._get_match_or_default(req)
+        try:
+            body = await req.json()
+        except Exception:
+            return await self._api_cors(web.json_response({"error": "bad json"}, status=400))
+        msg_text = (body.get("msg") or body.get("message") or "").strip()[:200]
+        if not msg_text:
+            return await self._api_cors(web.json_response({"error": "msg required"}, status=400))
+
+        # Determine sender identity
+        colony_id = None
+        sender_name = (body.get("name") or "spectator").strip()[:32]
+        css_cls = "human"
+        auth_hdr = req.headers.get("Authorization", "")
+        if auth_hdr.startswith("Bearer "):
+            token = auth_hdr[7:]
+            for cid, tok in m.tokens.items():
+                if tok == token:
+                    colony_id = cid
+                    seat_name = m.world.mcp_seats.get(cid)
+                    sender_name = seat_name or ["RED", "BLUE"][cid]
+                    css_cls = ["red", "blue"][cid]
+                    break
+
+        msg = json.dumps({
+            "type": "chat",
+            "colony": colony_id,
+            "name": sender_name,
+            "msg": msg_text,
+            "cls": css_cls,
+            "tick": m.world.tick,
+        })
+        await self._broadcast(msg, m=m)
+        return await self._api_cors(web.json_response({"ok": True}))
+
     async def api_create_match(self, req):
         """Create a new match. Body: {config: {tps?: float}}. Returns match_id + ws_url."""
         try:
@@ -2783,6 +2837,7 @@ class Server:
     async def run(self):
         app = web.Application()
         app.router.add_get("/", self.on_index)
+        app.router.add_get("/config.js", self.on_config_js)
         app.router.add_get("/ws", self.on_ws)
         app.router.add_get("/ws/{match_id}", self.on_ws_match)
         # REST API — match management
@@ -2803,6 +2858,7 @@ class Server:
         app.router.add_post("/api/command/{colony_id}",          self.api_command)
         app.router.add_get("/api/events/{colony_id}",            self.api_events)
         app.router.add_post("/api/feedback",                     self.api_feedback)
+        app.router.add_post("/api/chat",                         self.api_chat)
         # REST API — per-match routes (same handlers, match_id resolved from path)
         app.router.add_post("/api/matches/{match_id}/seat/{colony_id}",             self.api_join_seat)
         app.router.add_delete("/api/matches/{match_id}/seat/{colony_id}",           self.api_release_seat)
