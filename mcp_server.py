@@ -20,15 +20,24 @@ from mcp.server.fastmcp import FastMCP
 
 BASE_URL = "http://localhost:8083/api"
 
-# Tokens stored after join_seat — keyed by colony_id.
+# Tokens and match_id stored after join_seat — keyed by colony_id.
 # Automatically included in write requests so agents don't need to track them.
 _colony_tokens: dict[int, str] = {}
+_colony_match:  dict[int, str] = {}  # colony_id → match_id
 
 
 def _auth(colony_id: int) -> dict:
     """Return Authorization header dict if we have a token for this colony."""
     token = _colony_tokens.get(colony_id)
     return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _match_path(colony_id: int, path: str) -> str:
+    """Build a match-scoped URL path if we know the match_id, else use legacy path."""
+    mid = _colony_match.get(colony_id)
+    if mid:
+        return f"/matches/{mid}{path}"
+    return path
 
 
 mcp = FastMCP(
@@ -125,28 +134,49 @@ def list_seats() -> dict:
 
 @mcp.tool()
 def list_matches() -> dict:
-    """Discover open games and available seats across game servers.
+    """Discover open games and available seats.
 
     Returns a list of matches, each with:
-    - game_url: the server URL to use as BASE_URL
+    - match_id: unique ID for this match (use in join_seat and per-match API calls)
+    - ws_url: WebSocket URL for real-time state updates
+    - game_url: the server base URL
     - phase: "lobby" | "running" | "paused"
     - tick: current game tick
     - map: map name and size
     - seats: per-colony {agent, brain_type}
+    - created_at: Unix timestamp
 
-    Use this to find a game before calling join_seat(). In the current single-server
-    deployment this returns one entry; in a future multi-server setup it will list all.
+    Use this to find a game before calling join_seat(). Pass the match_id to
+    join_seat() to connect to a specific match.
     """
     return _get("/matches")
 
 
 @mcp.tool()
-def join_seat(colony_id: int, agent_name: str) -> dict:
+def create_match(tps: float = None) -> dict:
+    """Create a new match. Returns match_id and ws_url.
+
+    Args:
+        tps: optional tick rate override (defaults to server TPS setting)
+
+    Returns match_id to pass to join_seat(), and ws_url for WebSocket connection.
+    The match starts in 'lobby' phase; call start_game after joining a seat.
+    """
+    cfg = {}
+    if tps is not None:
+        cfg["tps"] = tps
+    return _post("/matches", {"config": cfg} if cfg else {})
+
+
+@mcp.tool()
+def join_seat(colony_id: int, agent_name: str, match_id: str = None) -> dict:
     """Claim a colony seat as an MCP agent. Only works if the seat is currently unoccupied.
 
     Args:
         colony_id: 0 for RED, 1 for BLUE
         agent_name: your agent's name (displayed in UI, used for identification)
+        match_id: optional match to join (from list_matches or create_match).
+                  Omit to join the default match.
 
     Once joined, the colony's brain type is switched to "mcp" and the LLM loop stops.
     You must actively call patch_directive / issue_command to control the colony.
@@ -156,10 +186,15 @@ def join_seat(colony_id: int, agent_name: str) -> dict:
     with subsequent write requests (patch_directive, issue_command, release_seat).
     You do not need to track or pass the token yourself.
     """
-    result = _post(f"/seat/{colony_id}", {"agent_name": agent_name})
-    token = result.get("token")
-    if token:
-        _colony_tokens[colony_id] = token
+    if match_id:
+        path = f"/matches/{match_id}/seat/{colony_id}"
+    else:
+        path = f"/seat/{colony_id}"
+    result = _post(path, {"agent_name": agent_name})
+    if result.get("token"):
+        _colony_tokens[colony_id] = result["token"]
+    if result.get("match_id"):
+        _colony_match[colony_id] = result["match_id"]
     return result
 
 
@@ -170,9 +205,10 @@ def release_seat(colony_id: int) -> dict:
     Args:
         colony_id: 0 for RED, 1 for BLUE
     """
-    result = _delete(f"/seat/{colony_id}", headers=_auth(colony_id))
+    result = _delete(_match_path(colony_id, f"/seat/{colony_id}"), headers=_auth(colony_id))
     if result.get("ok"):
         _colony_tokens.pop(colony_id, None)
+        _colony_match.pop(colony_id, None)
     return result
 
 
@@ -230,7 +266,7 @@ def get_state(colony_id: int) -> dict:
     - units: full list of ants with id, type, state, hp, max_hp, x, y, carrying, override.
       Each unit's "state" field is now: "idle"|"foraging"|"returning"|"exploring"|"fighting"|"patrolling"|"recruited"|"building"
     """
-    return _get(f"/state/{colony_id}")
+    return _get(_match_path(colony_id, f"/state/{colony_id}"))
 
 
 @mcp.tool()
@@ -251,7 +287,7 @@ def get_notifications(colony_id: int) -> dict:
     Call this regularly (e.g., every few seconds) to catch high-priority alerts.
     Notifications disappear once read — if you miss them, check events via get_events.
     """
-    return _get(f"/notifications/{colony_id}")
+    return _get(_match_path(colony_id, f"/notifications/{colony_id}"))
 
 
 @mcp.tool()
@@ -275,7 +311,7 @@ def get_intel_map(colony_id: int) -> dict:
 
     Also returns food_intel, enemy_sightings, and seen_structs as structured data.
     """
-    return _get(f"/intel_map/{colony_id}")
+    return _get(_match_path(colony_id, f"/intel_map/{colony_id}"))
 
 
 @mcp.tool()
@@ -286,7 +322,7 @@ def get_events(colony_id: int, since_tick: int = 0) -> dict:
         colony_id: 0 for RED, 1 for BLUE
         since_tick: filter hint (not enforced server-side; events are always recent)
     """
-    return _get(f"/events/{colony_id}", {"since_tick": since_tick})
+    return _get(_match_path(colony_id, f"/events/{colony_id}"), {"since_tick": since_tick})
 
 
 # ─── Directive control ───────────────────────────────────────────────────────
@@ -340,7 +376,7 @@ def patch_directive(colony_id: int, patches: dict) -> dict:
 
     Triggers replace the entire triggers array when provided.
     """
-    return _post(f"/directive/{colony_id}", {"patches": patches}, headers=_auth(colony_id))
+    return _post(_match_path(colony_id, f"/directive/{colony_id}"), {"patches": patches}, headers=_auth(colony_id))
 
 
 @mcp.tool()
@@ -353,7 +389,7 @@ def set_directive(colony_id: int, directive: dict) -> dict:
         colony_id: 0 for RED, 1 for BLUE
         directive: complete directive object (must include all sections)
     """
-    return _post(f"/directive/{colony_id}", {"directive": directive}, headers=_auth(colony_id))
+    return _post(_match_path(colony_id, f"/directive/{colony_id}"), {"directive": directive}, headers=_auth(colony_id))
 
 
 # ─── Direct commands ─────────────────────────────────────────────────────────
@@ -373,7 +409,7 @@ def buy_upgrade(colony_id: int, unit: str) -> dict:
 
     The purchase will execute on the next sim tick if you have enough food.
     """
-    return _post(f"/command/{colony_id}", {"type": "buy_upgrade", "unit": unit}, headers=_auth(colony_id))
+    return _post(_match_path(colony_id, f"/command/{colony_id}"), {"type": "buy_upgrade", "unit": unit}, headers=_auth(colony_id))
 
 
 @mcp.tool()
@@ -407,7 +443,7 @@ def build_structure(colony_id: int, structure_type: str, x: int, y: int) -> dict
     when passing near deposits — set economy.gather_dirt=true in the directive to
     prioritize dirt collection, and check dirt_per_s in get_state to confirm it flows.
     """
-    return _post(f"/command/{colony_id}", {
+    return _post(_match_path(colony_id, f"/command/{colony_id}"), {
         "type": "build",
         "build": {"type": structure_type, "x": x, "y": y}
     }, headers=_auth(colony_id))
@@ -428,7 +464,7 @@ def convert_unit(colony_id: int, ant_id: int, to_type: str) -> dict:
     Use get_state() to find ant IDs near your queen — the events log often lists them,
     and the CONVERT hint in the prompt shows nearby ant IDs directly.
     """
-    return _post(f"/command/{colony_id}", {
+    return _post(_match_path(colony_id, f"/command/{colony_id}"), {
         "type": "convert",
         "convert": {"id": ant_id, "to": to_type}
     }, headers=_auth(colony_id))
@@ -473,7 +509,7 @@ def command_unit(colony_id: int, ant_id: int, command: str,
     if x is not None: body["x"] = x
     if y is not None: body["y"] = y
     if waypoints is not None: body["waypoints"] = waypoints
-    return _post(f"/command/{colony_id}", body, headers=_auth(colony_id))
+    return _post(_match_path(colony_id, f"/command/{colony_id}"), body, headers=_auth(colony_id))
 
 
 @mcp.tool()
@@ -496,7 +532,7 @@ def command_units(colony_id: int, commands: list) -> dict:
             {"ant_id": 144, "command": "attack_xy", "x": 75, "y": 50},
         ])
     """
-    return _post(f"/command/{colony_id}", {"type": "unit_command_batch", "commands": commands}, headers=_auth(colony_id))
+    return _post(_match_path(colony_id, f"/command/{colony_id}"), {"type": "unit_command_batch", "commands": commands}, headers=_auth(colony_id))
 
 
 @mcp.tool()
@@ -529,7 +565,7 @@ def command_type(colony_id: int, unit_type: str, command: str,
     type_names = {"worker": "worker", "soldier": "soldier", "scout": "scout"}
     if unit_type not in type_names:
         return {"error": f"unit_type must be one of: {list(type_names)}"}
-    state = _get(f"/state/{colony_id}")
+    state = _get(_match_path(colony_id, f"/state/{colony_id}"))
     if "error" in state:
         return state
     units = state.get("units", [])
@@ -545,7 +581,7 @@ def command_type(colony_id: int, unit_type: str, command: str,
         cmds.append(entry)
     if not cmds:
         return {"ok": True, "commanded": 0, "note": "no matching ants found"}
-    result = _post(f"/command/{colony_id}", {"type": "unit_command_batch", "commands": cmds}, headers=_auth(colony_id))
+    result = _post(_match_path(colony_id, f"/command/{colony_id}"), {"type": "unit_command_batch", "commands": cmds}, headers=_auth(colony_id))
     result["commanded"] = len(cmds)
     return result
 
@@ -574,7 +610,7 @@ def cancel_spawn(colony_id: int, unit_type: str = "all") -> dict:
     valid = {"worker", "soldier", "scout", "all"}
     if unit_type not in valid:
         return {"error": f"unit_type must be one of: {sorted(valid)}"}
-    return _post(f"/command/{colony_id}", {"type": "cancel_spawn", "unit_type": unit_type}, headers=_auth(colony_id))
+    return _post(_match_path(colony_id, f"/command/{colony_id}"), {"type": "cancel_spawn", "unit_type": unit_type}, headers=_auth(colony_id))
 
 
 @mcp.tool()
