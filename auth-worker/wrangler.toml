@@ -7,7 +7,7 @@ compatibility_date = "2024-09-23"
 [[d1_databases]]
 binding = "DB"
 database_name = "agants"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "1b4cf1d4-fad5-4228-b9cc-b6e0347c41e2"
 
 # Secrets (set via `wrangler secret put`):
 #   INTERNAL_SECRET — shared with the game server (AGANTS_AUTH_SECRET env var)

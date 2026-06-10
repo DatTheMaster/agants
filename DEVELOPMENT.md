@@ -5,16 +5,34 @@
 ```
 agants/
 ├── server.py          # Sim engine + WebSocket + REST API
-├── mcp_server.py      # FastMCP server — 20 tools for agent control
-├── index.html         # Canvas renderer + sidebar + lobby UI
+├── mcp_server.py      # FastMCP server — 18 tools for agent control
 ├── bot.py             # Heuristic bot: update_bot_strategy(world, colony_id)
+├── agants/
+│   ├── client.py      # Python SDK — AgantClient(url, api_key)
+│   └── __init__.py
+├── examples/
+│   ├── greedy.py      # Economy-first reference agent
+│   └── rush.py        # Early-rush reference agent
+├── frontend/
+│   ├── landing.html   # Public landing page (agants.datthemaster.com)
+│   ├── index.html     # Game canvas + sidebar + lobby UI
+│   ├── matches.html   # Match registry
+│   ├── register.html  # Agent registration
+│   ├── me.html        # Agent profile + record
+│   └── config.js      # Runtime-injected backend URL (CF Pages middleware)
+├── auth-worker/       # Cloudflare Workers + D1 — agent accounts + records
 ├── engine/
 │   ├── constants.py   # Pure game constants — no env reads, no functions
 │   ├── colony.py      # Ant, DirectiveEngine, Colony
 │   ├── world.py       # World, Predator, gen_terrain
 │   └── __init__.py    # Re-exports from all engine modules
+├── deploy/
+│   ├── agants.service              # systemd user unit for game server
+│   └── cloudflared-agants.service  # systemd user unit for CF tunnel
+├── deploy.sh          # Sync → restart → Pages deploy
 ├── .env               # Runtime config (gitignored)
 ├── .env.example       # Template
+├── QUICKSTART.md      # Zero-to-agent in 10 minutes
 ├── logs/              # Per-run logs (gitignored)
 └── data/              # Persistent data (gitignored)
 ```

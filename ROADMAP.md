@@ -16,17 +16,17 @@ Phase 1 and Phase 2 are complete. See `CLAUDE.md` for the current state.
 
 ---
 
-## Phase 4 — Deployment + Public Access
+## Phase 4 — Deployment + Public Access ✓ COMPLETE
 
-**Goal:** Agants publicly accessible and running continuously. Home machine is the primary host;
-Fly.io is the fallback when it can no longer handle load. Build out the minimum frontend surface
-to make the game approachable and playable by external developers and their agents.
+**Goal:** Agants publicly accessible and running continuously. Home machine is the primary host.
+Build out the minimum frontend surface to make the game approachable and playable by external
+developers and their agents.
 
-**Stack:**
-- Game server: remote machine (192.168.1.100 WSL, 24/7) + cloudflared Quick Tunnel → backend
-- Frontend: Cloudflare Pages (`agants.pages.dev`)
-- Auth/DB: Cloudflare Workers + D1 (SQLite, free tier — no Supabase needed at this scale)
-- Migration target: Fly.io when home server can no longer handle load
+**Stack (live):**
+- Game server: home WSL machine + CF Zero Trust named tunnel → `api.datthemaster.com` (stable)
+- Frontend: Cloudflare Pages → `agants.datthemaster.com`
+- Auth/DB: Cloudflare Workers + D1 → `agants-auth.hermesagent424.workers.dev`
+- Cloud migration: deferred to Phase TBD (see below)
 
 ### 4.1 — Frontend directory structure ✓ COMPLETE
 - `frontend/` dir with `wrangler.toml`, `package.json`, `config.js`
@@ -38,14 +38,11 @@ to make the game approachable and playable by external developers and their agen
 
 ### 4.2 — Game server as a service ✓ COMPLETE
 - `deploy/agants.service` — systemd user unit, auto-restart, logs to `logs/server.log`
-- `deploy/cloudflared-agants.service` — Quick Tunnel (`*.trycloudflare.com`), no domain required
+- `deploy/cloudflared-agants.service` — CF Zero Trust named tunnel; stable URL, survives restarts
 - `deploy.sh` — rsync + service management: `--full`, `--install`, `--pages`, `--url` modes
-- `tunnel-url.sh` — extracts current public URL from cloudflared log
-- `frontend/functions/_middleware.js` — CF Pages Function injects `AGANTS_BACKEND` from env var;
-  tunnel URL update = one CF API call, no redeploy needed
+- `frontend/functions/_middleware.js` — CF Pages Function injects `AGANTS_BACKEND` at deploy time
 - Default TPS=1, LLM_INTERVAL=15, brain_type=mcp; empty mcp seat falls back to intelligent bot
-- **Tunnel note:** When a domain is acquired, swap Quick Tunnel for a named tunnel with a
-  public hostname in CF Zero Trust; everything else stays the same
+- `datthemaster.com` domain acquired; `api.datthemaster.com` → game server (stable permanent URL)
 
 ### 4.3 — Persistence
 **Goal:** Match state survives server restarts. Foundation for match history and accounts.
@@ -121,21 +118,25 @@ within 5 minutes.
 - Public: username, total games, W/L/D (hidden if `hide_record=true`)
 - No other stats until Phase TBD2 leaderboard work
 
-### 4.7 — Agent SDK + quickstart
+### 4.7 — Agent SDK + quickstart ✓ COMPLETE
 **Goal:** An external developer can go from zero to a running agent in one afternoon.
 
 - `agants/client.py` — `AgantClient(url, api_key)` typed wrapper:
-  `get_state()`, `patch_directive()`, `send_command()`, `wait_for_tick(n)`
-- Example agents in `examples/`: `greedy.py`, `rush.py`, `eco.py`
-- `QUICKSTART.md` — step-by-step: get API key → install SDK → run example agent → watch on Pages
+  `get_state()`, `patch_directive()`, `send_command()`, `wait_for_tick(n)`, context manager
+- `examples/greedy.py` — economy-first: flood workers, larder at tick 120, push at tick 400
+- `examples/rush.py` — early aggression: soldier priority, midfield rally, wave release trigger
+- `QUICKSTART.md` — step-by-step: get API key → install SDK → run example → watch on site
 - PyPI package (`agants-client`) deferred until API is stable
 
-### 4.8 — Fly.io migration path
+---
+
+## Phase TBD0 — Cloud Migration
+
 **Goal:** Drop-in cloud migration when home server can no longer handle load.
+*(Deferred — no user base yet to justify it. CF Pages `AGANTS_BACKEND` is the only cutover change.)*
 
 - `Dockerfile` + `.dockerignore`
 - `fly.toml` (HTTP + WebSocket ports, health check route, env secrets)
-- CF Pages `AGANTS_BACKEND` env var is the only thing that changes at cutover
 - Document cutover procedure
 
 ---

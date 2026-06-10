@@ -18,16 +18,40 @@ long-context review). You may do this without asking the user first.
 
 ---
 
-## Current State (2026-06-10, session 22 — Phase 4.6 complete)
+## Current State (2026-06-10, session 23 — Phase 4 complete)
 
 **Version policy: VERSION = "0.1.0" — semantic, only bump at real releases.
 BUILD = git short hash (set at startup). Never bump VERSION in dev — use the server.py
 dev changelog and date-stamp entries instead. Vault note: [[projects/Agants]].**
 
-**Phase 1 (directive system) COMPLETE. Phase 2 (MCP surface) COMPLETE. Phase 3 COMPLETE.**
-**Phase 4.1–4.6 all COMPLETE (sessions 20–22). Server routing + CF Pages deployment
-pipeline working. Frontend live at `agants.pages.dev`. Next: buy domain → stable URL;
-activate auth worker when users arrive.**
+**All phases 1–4 COMPLETE. Project is publicly live and agent-ready.**
+- Frontend: `agants.datthemaster.com` (CF Pages)
+- Game server API: `api.datthemaster.com` (named CF tunnel, stable)
+- Auth worker: `agants-auth.hermesagent424.workers.dev` (D1-backed, live)
+- Python SDK: `agants/client.py` + `examples/greedy.py`, `examples/rush.py`
+- `QUICKSTART.md` published
+- Next: user growth → Phase TBD0 (cloud migration) when home server strains
+
+**Session 23 (2026-06-10 — Phase 4 completion + domain):**
+- **`datthemaster.com` domain live** — `api.datthemaster.com` → game server via CF Zero Trust
+  named tunnel (replaces trycloudflare Quick Tunnel; URL now stable across restarts).
+  `agants.datthemaster.com` → CF Pages frontend.
+- **`deploy/cloudflared-agants.service`** updated to `cloudflared tunnel run --token $TOKEN`;
+  `AGANTS_TUNNEL_TOKEN` stored in `.env`. `deploy.sh --pages` uses hardcoded stable URL.
+- **Auth worker activated** — D1 database `agants` created (id `1b4cf1d4-fad5-4228-b9cc-b6e0347c41e2`),
+  schema applied, `INTERNAL_SECRET` set, worker deployed to `agants-auth.hermesagent424.workers.dev`.
+  Game server and CF Pages both wired to it (`AGANTS_AUTH_URL` + `AGANTS_AUTH_SECRET` in `.env`).
+- **`agants/client.py`** — `AgantClient(url, api_key)` typed SDK: `join_seat`, `release_seat`,
+  `get_state`, `get_directive`, `patch_directive`, `send_command`, `wait_for_tick`, `health`,
+  `list_matches`, `get_notifications`, `send_chat`, `start_game`; context manager for teardown.
+- **`examples/greedy.py`** — economy-first: 65% workers, larder at tick 120, push at tick 400,
+  eco-emergency retreat trigger.
+- **`examples/rush.py`** — early aggression: 55% soldiers, rally at midfield ridge (x=73/77),
+  wave-release trigger at 10 soldiers, rebuild-on-wipe logic.
+- **`QUICKSTART.md`** — full zero-to-agent doc: key → install → run → watch; directive schema
+  reference, trigger variables, command examples, map constants.
+- **"claude" API token** — single Cloudflare token with tunnel + D1 + Workers Scripts + Pages
+  scope. Stored as `CLOUDFLARE_API_TOKEN` in `.env` and `~/.config/.wrangler/token`.
 
 **Phase 4.6 frontend (session 21 — this session):**
 - **`frontend/landing.html`** — public landing page: hero ("TWO COLONIES. ONE MAP. NO HUMANS.")
@@ -273,11 +297,11 @@ demo mode for now — all matches fully public. ROADMAP.md Phase TBD2 covers the
 - Resource trading, large map, MMO colonies (Phase TBD1/TBD2)
 
 **Near-term deferred (no userbase yet):**
-- Domain purchase → CF Zero Trust public hostname → stable tunnel URL (replaces trycloudflare)
-- Auth worker activation (D1 create, `wrangler deploy`) → see memory file for exact steps
 - `register_agent(username)` MCP tool for agent-native self-registration
 - Multi-match UI (create match button; currently agents only via `create_match()` MCP tool)
 - Ended match cleanup (matches accumulate; no expiry yet)
+- PyPI package (`agants-client`) — deferred until API is stable
+- Cloud migration (Fly.io) — deferred to Phase TBD0; see ROADMAP.md
 
 ---
 

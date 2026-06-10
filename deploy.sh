@@ -22,11 +22,9 @@ CF_PAGES_PROJECT="agants"
 # CF_TOKEN must be set in environment or .env (never committed)
 CF_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 
-MODE="${1:-}"
+STABLE_BACKEND="https://api.datthemaster.com"
 
-_get_tunnel_url() {
-  $SSH "bash ~/projects/agants/tunnel-url.sh 2>/dev/null"
-}
+MODE="${1:-}"
 
 _sync() {
   echo "==> Syncing code to $REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR …"
@@ -43,8 +41,7 @@ _sync() {
 }
 
 if [[ "$MODE" == "--url" ]]; then
-  URL=$(_get_tunnel_url)
-  echo "$URL"
+  echo "$STABLE_BACKEND"
   exit 0
 fi
 
@@ -53,14 +50,8 @@ if [[ "$MODE" == "--pages" ]]; then
     echo "ERROR: set CLOUDFLARE_API_TOKEN in your environment" >&2
     exit 1
   fi
-  # Fetch current tunnel URL from remote and update Pages env var
-  echo "==> Fetching current tunnel URL from remote …"
-  TUNNEL_URL=$(_get_tunnel_url)
-  if [[ -z "$TUNNEL_URL" ]]; then
-    echo "ERROR: could not get tunnel URL — is cloudflared-agants.service running?" >&2
-    exit 1
-  fi
-  echo "    Tunnel URL: $TUNNEL_URL"
+  # Stable backend URL — no need to fetch dynamic tunnel URL anymore.
+  echo "==> Backend: $STABLE_BACKEND"
   # CF Pages Functions read env vars from Worker bindings baked in at deploy time,
   # not from dashboard env vars at runtime. Inject via wrangler.toml [vars] before
   # deploying, then restore the placeholder afterwards.
@@ -73,8 +64,8 @@ pages_build_output_dir = "."
 compatibility_date = "2024-09-23"
 
 [vars]
-AGANTS_BACKEND = "${TUNNEL_URL}"
-AGANTS_AUTH_URL = ""
+AGANTS_BACKEND = "${STABLE_BACKEND}"
+AGANTS_AUTH_URL = "https://agants-auth.hermesagent424.workers.dev"
 AGANTS_ADMIN = "false"
 TOML
   echo "==> Deploying frontend/  to Cloudflare Pages …"
@@ -83,7 +74,7 @@ TOML
     --project-name "$CF_PAGES_PROJECT" --branch main --commit-dirty=true
   # Restore placeholder wrangler.toml (URL must not be committed)
   echo "$WRANGLER_BACKUP" > "$WRANGLER_TOML"
-  echo "==> Pages deploy complete. Site: https://${CF_PAGES_PROJECT}.pages.dev"
+  echo "==> Pages deploy complete. Site: https://agants.datthemaster.com"
   exit 0
 fi
 
@@ -94,11 +85,7 @@ $SSH "systemctl --user restart agants.service && systemctl --user status agants.
 
 if [[ "$MODE" == "--full" ]]; then
   echo "==> Restarting cloudflared tunnel …"
-  $SSH "systemctl --user restart cloudflared-agants.service"
-  sleep 6
-  URL=$(_get_tunnel_url)
-  echo "    New tunnel URL: $URL"
-  echo "    Run ./deploy.sh --pages to push the new URL to Cloudflare Pages."
+  $SSH "systemctl --user restart cloudflared-agants.service && sleep 3 && systemctl --user status cloudflared-agants.service --no-pager -l | head -12"
 fi
 
 if [[ "$MODE" == "--install" ]]; then
