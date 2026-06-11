@@ -1046,25 +1046,175 @@ function onInit(d) {
   terrainBuf.width = MW * TS; terrainBuf.height = MH * TS;
   const tc = terrainBuf.getContext("2d");
   const worldW = MW * TS;
-  const img = tc.createImageData(worldW, MH * TS);
+  const worldH = MH * TS;
+  const img = tc.createImageData(worldW, worldH);
   const px = img.data;
+
+  function hash2(x, y) {
+    let n = (x | 0) * 1619 + (y | 0) * 31337;
+    n = (n ^ (n >> 13)) * 1234567891;
+    return ((n ^ (n >> 17)) & 0x7fffffff) / 0x7fffffff;
+  }
+  function noise2(x, y) {
+    const xi = Math.floor(x), yi = Math.floor(y);
+    const fx = x - xi, fy = y - yi;
+    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    const a = hash2(xi, yi), b = hash2(xi + 1, yi);
+    const c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1);
+    return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+  }
+  function tileAt(tx, ty) {
+    if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return -1;
+    return terrain[ty * MW + tx];
+  }
+
   for (let y = 0; y < MH; y++) {
     for (let x = 0; x < MW; x++) {
       const t = terrain[y * MW + x];
-      const c = TCOL[t] || [0, 0, 0];
+      const nU = tileAt(x, y - 1), nD = tileAt(x, y + 1);
+      const nL = tileAt(x - 1, y), nR = tileAt(x + 1, y);
+      const hardEdge = (n) => n !== -1 && n !== t && (t === 2 || t === 3 || n === 2 || n === 3);
+      const eU = hardEdge(nU), eD = hardEdge(nD), eL = hardEdge(nL), eR = hardEdge(nR);
+
       for (let py = 0; py < TS; py++) {
         for (let ppx = 0; ppx < TS; ppx++) {
-          const i = ((y * TS + py) * worldW + (x * TS + ppx)) * 4;
-          const v = (Math.random() - 0.5) * 12;
-          px[i]   = Math.max(0, Math.min(255, c[0] + v));
-          px[i+1] = Math.max(0, Math.min(255, c[1] + v));
-          px[i+2] = Math.max(0, Math.min(255, c[2] + v));
-          px[i+3] = 255;
+          const wx = x * TS + ppx, wy = y * TS + py;
+          const i = (wy * worldW + wx) * 4;
+          let r, g, b;
+          const fine = hash2(wx, wy);
+
+          if (t === 0) {
+            const clump = noise2(wx / 13, wy / 13);
+            const mid   = noise2(wx / 5,  wy / 5);
+            const v = clump * 0.6 + mid * 0.25 + fine * 0.15;
+            r = 80 + v * 35 + (fine - 0.5) * 10;
+            g = 55 + v * 30 + (fine - 0.5) * 8;
+            b = 35 + v * 28 + (fine - 0.5) * 7;
+          } else if (t === 1) {
+            const dapple = noise2(wx / 9, wy / 9);
+            const blade  = noise2(wx / 3.5, wy / 3.5);
+            const v = dapple * 0.55 + blade * 0.3 + fine * 0.15;
+            r = 55 + v * 38;
+            g = 100 + v * 40;
+            b = 30 + v * 28;
+            if (hash2(wx * 7 + 3, wy * 7 + 5) > 0.985) { r -= 22; g -= 28; b -= 12; }
+          } else if (t === 2) {
+            const depth = noise2(wx / 24, wy / 24);
+            const lap   = noise2(wx / 8,  wy / 5);
+            r = 20 + depth * 22 + lap * 5;
+            g = 50 + depth * 26 + lap * 6;
+            b = 95 + depth * 30 + lap * 7;
+          } else if (t === 3) {
+            const crag = noise2(wx / 7, wy / 7);
+            const v = crag * 0.7 + fine * 0.3;
+            let base = 65 + v * 22;
+            const facet = ((TS - 1 - ppx) + (TS - 1 - py)) / (2 * (TS - 1));
+            base += (facet - 0.5) * 24;
+            if (facet > 0.55 && hash2(wx * 13 + 1, wy * 13 + 9) > 0.965) base += 55;
+            if (hash2(wx * 17 + 4, wy * 17 + 2) > 0.975) base -= 30;
+            r = base; g = base; b = base + 2;
+          } else if (t === 4) {
+            const n = noise2(wx / 10, wy / 10);
+            r = 50 + n * 18 + (fine - 0.5) * 5;
+            g = 35 + n * 14 + (fine - 0.5) * 4;
+            b = 20 + n * 13 + (fine - 0.5) * 4;
+          } else {
+            const c = TCOL[t] || [0, 0, 0];
+            r = c[0]; g = c[1]; b = c[2];
+          }
+
+          let edge = 1.0;
+          if ((eU && py === 0) || (eD && py === TS - 1) ||
+              (eL && ppx === 0) || (eR && ppx === TS - 1)) edge = 0.62;
+          else if ((eU && py === 1) || (eD && py === TS - 2) ||
+                   (eL && ppx === 1) || (eR && ppx === TS - 2)) edge = 0.84;
+
+          px[i]     = Math.max(0, Math.min(255, r * edge));
+          px[i + 1] = Math.max(0, Math.min(255, g * edge));
+          px[i + 2] = Math.max(0, Math.min(255, b * edge));
+          px[i + 3] = 255;
         }
       }
     }
   }
   tc.putImageData(img, 0, 0);
+
+  for (let y = 0; y < MH; y++) {
+    for (let x = 0; x < MW; x++) {
+      const t = terrain[y * MW + x];
+      const tx = x * TS, ty = y * TS;
+
+      if (t === 0) {
+        if (hash2(x * 3 + 11, y * 3 + 7) > 0.84) {
+          const ox  = 1.5 + hash2(x * 5 + 2,  y * 5 + 9)  * (TS - 3);
+          const oy  = 1.5 + hash2(x * 5 + 8,  y * 5 + 3)  * (TS - 3);
+          const rad = 1   + hash2(x * 9 + 1,  y * 9 + 6)  * 1.4;
+          const tone = hash2(x * 7 + 4, y * 7 + 1);
+          const sh = tone > 0.5 ? 118 + tone * 24 : 58 + tone * 20;
+          tc.fillStyle = "rgb(" + (sh|0) + "," + ((sh*0.78)|0) + "," + ((sh*0.62)|0) + ")";
+          tc.beginPath(); tc.arc(tx + ox, ty + oy, rad, 0, Math.PI * 2); tc.fill();
+          tc.fillStyle = "rgba(190,165,140,0.45)";
+          tc.beginPath(); tc.arc(tx + ox - rad*0.3, ty + oy - rad*0.3, rad*0.4, 0, Math.PI*2); tc.fill();
+        }
+        if (hash2(x * 13 + 5, y * 13 + 2) > 0.94) {
+          const cx  = 1 + hash2(x * 4 + 6, y * 4 + 4) * (TS - 5);
+          const cy  = 1 + hash2(x * 4 + 9, y * 4 + 8) * (TS - 3);
+          const len = 3 + hash2(x * 6 + 3, y * 6 + 7) * 1.5;
+          const diag = hash2(x * 8 + 2, y * 8 + 5) > 0.5 ? 1 : 0;
+          tc.strokeStyle = "rgba(40,28,18,0.55)"; tc.lineWidth = 1;
+          tc.beginPath(); tc.moveTo(tx + cx, ty + cy); tc.lineTo(tx + cx + len, ty + cy + diag * len * 0.6); tc.stroke();
+        }
+      } else if (t === 1) {
+        if (hash2(x * 3 + 17, y * 3 + 13) > 0.8) {
+          const ox  = 1.5 + hash2(x * 5 + 12, y * 5 + 1)  * (TS - 4);
+          const oy  = 1.5 + hash2(x * 5 + 7,  y * 5 + 14) * (TS - 4);
+          const rad = 1.4 + hash2(x * 9 + 8,  y * 9 + 3)  * 1.4;
+          tc.fillStyle = "rgba(130,180,70,0.35)";
+          tc.beginPath(); tc.arc(tx + ox, ty + oy, rad, 0, Math.PI * 2); tc.fill();
+        }
+        if (hash2(x * 11 + 3, y * 11 + 19) > 0.88) {
+          const ox = 1 + hash2(x * 6 + 15, y * 6 + 2)  * (TS - 3);
+          const oy = 2 + hash2(x * 6 + 4,  y * 6 + 11) * (TS - 5);
+          tc.strokeStyle = "rgba(35,70,20,0.6)"; tc.lineWidth = 1;
+          tc.beginPath();
+          tc.moveTo(tx + ox + 0.5, ty + oy + 2.5); tc.lineTo(tx + ox + 0.5, ty + oy);
+          tc.moveTo(tx + ox + 2.5, ty + oy + 2.5); tc.lineTo(tx + ox + 2.5, ty + oy + 0.5);
+          tc.stroke();
+        }
+      } else if (t === 2) {
+        tc.strokeStyle = "rgba(110,160,205,0.16)"; tc.lineWidth = 1;
+        const phase = (hash2(0, y) * 4) | 0;
+        for (let ry = phase; ry < TS; ry += 4) {
+          const wy2 = ty + ry + 0.5;
+          tc.beginPath();
+          tc.moveTo(tx, wy2 + Math.sin(tx * 0.45 + y * 2.1) * 0.7);
+          for (let sx = 2; sx <= TS; sx += 2)
+            tc.lineTo(tx + sx, wy2 + Math.sin((tx + sx) * 0.45 + y * 2.1) * 0.7);
+          tc.stroke();
+        }
+        if (hash2(x * 7 + 21, y * 7 + 6) > 0.93) {
+          const ox = 1 + hash2(x * 4 + 18, y * 4 + 5)  * (TS - 3);
+          const oy = 1 + hash2(x * 4 + 1,  y * 4 + 16) * (TS - 3);
+          tc.fillStyle = "rgba(150,200,235,0.28)"; tc.fillRect(tx + ox, ty + oy, 2, 1);
+        }
+      } else if (t === 3) {
+        if (hash2(x * 13 + 9, y * 13 + 14) > 0.9) {
+          const ox  = 1 + hash2(x * 5 + 22, y * 5 + 6)  * (TS - 5);
+          const oy  = 1 + hash2(x * 5 + 3,  y * 5 + 20) * (TS - 5);
+          const len = 3 + hash2(x * 7 + 10, y * 7 + 8)  * 2;
+          tc.strokeStyle = "rgba(35,35,38,0.6)"; tc.lineWidth = 1;
+          tc.beginPath(); tc.moveTo(tx + ox, ty + oy); tc.lineTo(tx + ox + len*0.7, ty + oy + len*0.7); tc.stroke();
+        }
+      } else if (t === 4) {
+        if (hash2(x * 9 + 27, y * 9 + 4) > 0.86) {
+          const ox = 2 + hash2(x * 6 + 13, y * 6 + 9)  * (TS - 4);
+          const oy = 2 + hash2(x * 6 + 5,  y * 6 + 17) * (TS - 4);
+          tc.strokeStyle = "rgba(30,20,12,0.35)"; tc.lineWidth = 1;
+          tc.beginPath(); tc.arc(tx + ox, ty + oy, 1.6, 0, Math.PI * (0.8 + hash2(x, y))); tc.stroke();
+        }
+      }
+    }
+  }
 
   terrBuf = document.createElement("canvas");
   terrBuf.width = MW; terrBuf.height = MH;
@@ -1074,6 +1224,7 @@ function onInit(d) {
   fogBuf.width = MW; fogBuf.height = MH;
   fogCtx = fogBuf.getContext("2d");
 
+  initAntCache();
   requestAnimationFrame(render);
 }
 
@@ -1242,7 +1393,7 @@ function onTick(d) {
   for (const [id, ant] of antMap) {
     if (!nextIds.has(id)) {
       const sz = BASE_SZ[ant.type] * TS / 8 * (TIER_SCALE[ant.tier] || 1);
-      dyingAnts.push({ x: ant.x, y: ant.y, col: CCOL[ant.col], type: ant.type, sz, dieStart: now });
+      dyingAnts.push({ x: ant.x, y: ant.y, col: CCOL[ant.col], colIdx: ant.col, type: ant.type, tier: ant.tier, sz, dieStart: now });
       antMap.delete(id);
     }
   }
@@ -1251,34 +1402,162 @@ function onTick(d) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Ant shapes  (local space: facing +x, centered 0,0)
+// Ant shapes  (local space: facing +x, centered 0,0) — cached to offscreen canvases
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function drawWorkerShape(sz) {
-  X.beginPath();
-  X.ellipse(sz*0.08, 0, sz*0.88, sz*0.50, 0, 0, Math.PI*2);
-  X.fill();
-  X.strokeStyle = "rgba(0,0,0,0.3)"; X.lineWidth = 0.5; X.stroke();
-  X.beginPath(); X.arc(sz*0.82, 0, sz*0.32, 0, Math.PI*2); X.fill();
+const TIER_SCALE = [1.0, 1.25, 1.5, 1.8];
+const BASE_SZ    = [2.8, 3.8, 2.6, 6.0];   // worker, soldier, scout, queen
+
+const CACHE_SIZE = 80, CACHE_HALF = CACHE_SIZE / 2;
+let antCache = {};
+
+function _tint(r, g, b, f)  { return `rgb(${Math.round(r+(255-r)*f)},${Math.round(g+(255-g)*f)},${Math.round(b+(255-b)*f)})`; }
+function _shade(r, g, b, f) { return `rgb(${Math.round(r*f)},${Math.round(g*f)},${Math.round(b*f)})`; }
+
+function _drawLegs(ctx, sz, len, width, color, attachX) {
+  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = "round";
+  const tilts = [0.55, 0.05, -0.55];
+  for (const s of [-1, 1]) {
+    for (let i = 0; i < 3; i++) {
+      const x0 = attachX + (1 - i) * sz * 0.22;
+      const y0 = s * sz * 0.14;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.quadraticCurveTo(x0 + tilts[i]*len*0.45, s*(sz*0.14 + len*0.6),
+                           x0 + tilts[i]*len,      s*(sz*0.14 + len));
+      ctx.stroke();
+    }
+  }
 }
 
-function drawScoutShape(sz) {
-  X.beginPath();
-  X.moveTo(sz*1.3, 0);
-  X.quadraticCurveTo(sz*0.4, -sz*0.42, -sz*0.95, 0);
-  X.quadraticCurveTo(sz*0.4,  sz*0.42, sz*1.3, 0);
-  X.fill();
-  X.strokeStyle = "rgba(255,255,255,0.18)"; X.lineWidth = 0.4; X.stroke();
+function _drawAntennae(ctx, headX, headR, len, width, color, sweep) {
+  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = "round";
+  const tips = [];
+  for (const s of [-1, 1]) {
+    const x0 = headX + headR*0.5, y0 = s*headR*0.5;
+    const cx = x0 + len*0.6,      cy = s*(headR*0.5 + len*0.3);
+    const x1 = x0 + len*sweep,    y1 = s*(headR*0.5 + len*0.8);
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(cx, cy, x1, y1); ctx.stroke();
+    const t = 0.8, u = 1 - t;
+    tips.push({ x: x1, y: y1, px: u*u*x0 + 2*u*t*cx + t*t*x1, py: u*u*y0 + 2*u*t*cy + t*t*y1 });
+  }
+  return tips;
 }
 
-function drawSoldierShape(sz) {
-  X.beginPath();
-  X.moveTo(sz*1.15, 0);
-  X.lineTo(-sz*0.65, -sz*0.85);
-  X.lineTo(-sz*0.30,  0);
-  X.lineTo(-sz*0.65,  sz*0.85);
-  X.closePath(); X.fill();
-  X.strokeStyle = "rgba(255,255,255,0.22)"; X.lineWidth = 0.5; X.stroke();
+function _drawMandibles(ctx, headX, headR, len, width, color, curve) {
+  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = "round";
+  for (const s of [-1, 1]) {
+    const x0 = headX + headR*0.85, y0 = s*headR*0.55;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    if (curve) {
+      ctx.quadraticCurveTo(x0 + len*0.55, s*(headR*0.55 + len*curve),
+                           x0 + len, s*headR*0.15);
+    } else {
+      ctx.lineTo(x0 + len, s*headR*0.35);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawWorkerShape(ctx, sz, r, g, b, tier) {
+  const body = `rgb(${r},${g},${b})`, dark = _shade(r,g,b,0.7), bright = _tint(r,g,b,0.75);
+  _drawLegs(ctx, sz, sz*0.5, Math.max(0.7, sz*0.16), dark, sz*0.15);
+  _drawAntennae(ctx, sz*0.72, sz*0.27, sz*0.55, Math.max(0.5, sz*0.1), dark, 0.6);
+  if (tier >= 2)
+    _drawMandibles(ctx, sz*0.72, sz*0.27, sz*(tier >= 3 ? 0.5 : 0.32), Math.max(0.6, sz*0.12), bright, 0);
+  ctx.fillStyle = body; ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.ellipse(-sz*0.48, 0, sz*0.56, sz*0.4,  0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse( sz*0.18, 0, sz*0.3,  sz*0.22, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(sz*0.72, 0, sz*0.27, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+  if (tier >= 2) {
+    const gl = ctx.createRadialGradient(0, 0, 0, 0, 0, sz*0.9);
+    gl.addColorStop(0, "rgba(80,220,80,0.28)"); gl.addColorStop(1, "rgba(80,220,80,0)");
+    ctx.fillStyle = gl;
+    ctx.beginPath(); ctx.arc(0, 0, sz*0.9, 0, Math.PI*2); ctx.fill();
+  }
+  if (tier >= 3) {
+    ctx.strokeStyle = "rgba(80,220,80,0.9)"; ctx.lineWidth = Math.max(0.7, sz*0.13); ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(-sz*0.75, 0); ctx.lineTo(sz*0.4, 0); ctx.stroke();
+  }
+  if (tier >= 1) {
+    ctx.strokeStyle = "rgba(80,220,80,0.9)"; ctx.lineWidth = Math.max(0.6, sz*0.12); ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(sz*0.02, -sz*0.16); ctx.lineTo(sz*0.3, 0); ctx.lineTo(sz*0.02, sz*0.16);
+    ctx.stroke();
+  }
+}
+
+function drawSoldierShape(ctx, sz, r, g, b, tier) {
+  const body = `rgb(${r},${g},${b})`, dark = _shade(r,g,b,0.65), bright = _tint(r,g,b,0.7);
+  _drawLegs(ctx, sz, sz*0.42, Math.max(0.9, sz*0.22), dark, sz*0.12);
+  _drawAntennae(ctx, sz*0.78, sz*0.32, sz*0.22, Math.max(0.7, sz*0.14), dark, 0.5);
+  const mw = Math.max(0.8, sz * (0.13 + tier*0.025));
+  if      (tier === 0) _drawMandibles(ctx, sz*0.78, sz*0.32, sz*0.22, mw, dark, 0);
+  else if (tier === 1) _drawMandibles(ctx, sz*0.78, sz*0.32, sz*0.34, mw, dark, 0);
+  else if (tier === 2) _drawMandibles(ctx, sz*0.78, sz*0.32, sz*0.6,  mw, bright, 0.55);
+  else                 _drawMandibles(ctx, sz*0.78, sz*0.32, sz*0.95, mw, bright, 0.85);
+  ctx.fillStyle = body; ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.ellipse(-sz*0.55, 0, sz*0.58, sz*0.48, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo( sz*0.42, -sz*0.3); ctx.lineTo( sz*0.42,  sz*0.3);
+  ctx.lineTo(-sz*0.2,   sz*0.38); ctx.lineTo(-sz*0.2,  -sz*0.38);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  const hx = sz*0.78, hw = sz*0.26, hh = sz*0.32;
+  ctx.beginPath();
+  ctx.moveTo(hx + hw, -hh*0.75); ctx.lineTo(hx + hw, hh*0.75);
+  ctx.quadraticCurveTo(hx - hw*0.3,  hh*1.15, hx - hw*1.4, 0);
+  ctx.quadraticCurveTo(hx - hw*0.3, -hh*1.15, hx + hw, -hh*0.75);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  if (tier >= 2) {
+    ctx.fillStyle = bright;
+    const n = tier >= 3 ? 3 : 2, tip = tier >= 3 ? 0.68 : 0.58;
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < n; i++) {
+        const bx = sz*0.28 - i*sz*0.26;
+        ctx.beginPath();
+        ctx.moveTo(bx - sz*0.1, s*sz*0.32); ctx.lineTo(bx + sz*0.1, s*sz*0.32);
+        ctx.lineTo(bx, s*sz*tip); ctx.closePath(); ctx.fill();
+      }
+    }
+  }
+  if (tier >= 1) {
+    ctx.strokeStyle = "rgba(20,20,20,0.85)"; ctx.lineWidth = Math.max(0.6, sz*0.1); ctx.lineCap = "round";
+    for (const dx of [0.05, 0.25]) {
+      ctx.beginPath(); ctx.arc(sz*(dx - 0.55), 0, sz*0.62, -0.55, 0.55); ctx.stroke();
+    }
+  }
+}
+
+function drawScoutShape(ctx, sz, r, g, b, tier) {
+  const body = `rgb(${r},${g},${b})`, dark = _shade(r,g,b,0.72);
+  if (tier >= 3) {
+    ctx.strokeStyle = `rgba(${r},${g},${b},0.55)`; ctx.lineWidth = Math.max(0.6, sz*0.1); ctx.lineCap = "round";
+    for (const [dx, dy] of [[-1.35, -0.18], [-1.5, 0], [-1.35, 0.18]]) {
+      ctx.beginPath(); ctx.moveTo(sz*dx, sz*dy); ctx.lineTo(sz*(dx - 0.45), sz*dy); ctx.stroke();
+    }
+  }
+  _drawLegs(ctx, sz, sz*0.85, Math.max(0.5, sz*0.09), dark, sz*0.12);
+  const aLen = sz * (tier >= 1 ? 1.35 : 1.2);
+  const tips = _drawAntennae(ctx, sz*0.8, sz*0.2, aLen, Math.max(0.45, sz*0.07),
+                             tier >= 3 ? "rgba(255,255,255,0.85)" : dark, -0.3);
+  if (tier === 2) {
+    ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.lineWidth = Math.max(0.5, sz*0.08); ctx.lineCap = "round";
+    for (const t of tips) { ctx.beginPath(); ctx.moveTo(t.px, t.py); ctx.lineTo(t.x, t.y); ctx.stroke(); }
+  }
+  ctx.fillStyle = body; ctx.strokeStyle = "rgba(0,0,0,0.3)"; ctx.lineWidth = 0.45;
+  ctx.beginPath(); ctx.ellipse(-sz*0.55, 0, sz*0.68, sz*(tier >= 2 ? 0.23 : 0.27), 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse( sz*0.18, 0, sz*0.26, sz*0.15, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(sz*1.0, 0);
+  ctx.quadraticCurveTo(sz*0.85, -sz*0.22, sz*0.55, -sz*0.12);
+  ctx.quadraticCurveTo(sz*0.48, 0, sz*0.55, sz*0.12);
+  ctx.quadraticCurveTo(sz*0.85, sz*0.22, sz*1.0, 0);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  if (tier >= 1) {
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.beginPath(); ctx.arc(sz*0.18, 0, Math.max(0.6, sz*0.12), 0, Math.PI*2); ctx.fill();
+  }
 }
 
 function drawQueenShape(sz, r, g, b, now) {
@@ -1288,55 +1567,101 @@ function drawQueenShape(sz, r, g, b, now) {
   grd.addColorStop(1, `rgba(${r},${g},${b},0)`);
   X.fillStyle = grd;
   X.beginPath(); X.arc(0, 0, sz*2.8, 0, Math.PI*2); X.fill();
-  X.fillStyle = `rgb(${r},${g},${b})`;
-  X.beginPath();
-  for (let i = 0; i < 6; i++) {
-    const a = (i/6)*Math.PI*2 - Math.PI/6;
-    i === 0 ? X.moveTo(sz*Math.cos(a), sz*Math.sin(a))
-            : X.lineTo(sz*Math.cos(a), sz*Math.sin(a));
+  X.shadowBlur  = sz * (1.6 + 0.9*pulse);
+  X.shadowColor = `rgba(${r},${g},${b},0.8)`;
+  const body = `rgb(${r},${g},${b})`, dark = _shade(r,g,b,0.7), bright = _tint(r,g,b,0.75);
+  _drawLegs(X, sz, sz*0.6, Math.max(1.0, sz*0.13), dark, sz*0.05);
+  _drawAntennae(X, sz*0.66, sz*0.3, sz*0.5, Math.max(0.8, sz*0.09), dark, 0.55);
+  _drawMandibles(X, sz*0.66, sz*0.3, sz*0.42, Math.max(0.9, sz*0.1), bright, 0.5);
+  X.fillStyle = body; X.strokeStyle = "rgba(255,255,255,0.55)"; X.lineWidth = 0.8;
+  X.beginPath(); X.ellipse(-sz*0.5,  0, sz*0.65, sz*0.52, 0, 0, Math.PI*2); X.fill(); X.stroke();
+  X.beginPath(); X.ellipse( sz*0.14, 0, sz*0.34, sz*0.34, 0, 0, Math.PI*2); X.fill(); X.stroke();
+  X.beginPath(); X.arc(sz*0.66, 0, sz*0.3, 0, Math.PI*2); X.fill(); X.stroke();
+  X.fillStyle = "rgba(255,255,255,0.9)";
+  for (const a of [-0.55, 0, 0.55]) {
+    const bx = sz*0.66 + Math.cos(a)*sz*0.28, by = Math.sin(a)*sz*0.28;
+    const tx = sz*0.66 + Math.cos(a)*sz*0.56, ty = Math.sin(a)*sz*0.56;
+    const ox = Math.cos(a + Math.PI/2)*sz*0.09, oy = Math.sin(a + Math.PI/2)*sz*0.09;
+    X.beginPath(); X.moveTo(bx + ox, by + oy); X.lineTo(bx - ox, by - oy); X.lineTo(tx, ty);
+    X.closePath(); X.fill();
   }
-  X.closePath(); X.fill();
-  X.strokeStyle = "rgba(255,255,255,0.55)"; X.lineWidth = 0.8; X.stroke();
+  X.strokeStyle = "rgba(255,255,255,0.5)"; X.lineWidth = Math.max(0.8, sz*0.08); X.lineCap = "round";
+  X.beginPath(); X.moveTo(-sz*0.85, 0); X.lineTo(sz*0.35, 0); X.stroke();
+  X.shadowBlur = 0;
+}
+
+function initAntCache() {
+  antCache = {};
+  for (let type = 0; type < 3; type++) {
+    for (let col = 0; col < 2; col++) {
+      const [r, g, b] = CCOL[col];
+      for (let tier = 0; tier < 4; tier++) {
+        let cv;
+        if (typeof OffscreenCanvas !== "undefined") {
+          cv = new OffscreenCanvas(CACHE_SIZE, CACHE_SIZE);
+        } else {
+          cv = document.createElement("canvas");
+          cv.width = cv.height = CACHE_SIZE;
+        }
+        const ctx = cv.getContext("2d");
+        ctx.translate(CACHE_HALF, CACHE_HALF);
+        const sz = BASE_SZ[type] * TS / 8 * TIER_SCALE[tier];
+        if (tier >= 2) {
+          ctx.shadowBlur  = sz * (tier === 3 ? 3.2 : 2.0);
+          ctx.shadowColor = `rgba(${r},${g},${b},0.75)`;
+        }
+        if      (type === 0) drawWorkerShape(ctx, sz, r, g, b, tier);
+        else if (type === 1) drawSoldierShape(ctx, sz, r, g, b, tier);
+        else                 drawScoutShape(ctx, sz, r, g, b, tier);
+        antCache[`${type}-${col}-${tier}`] = cv;
+      }
+    }
+  }
 }
 
 function drawAnt(wx, wy, ant, angle, now) {
   const [r, g, b] = CCOL[ant.col];
-  const TIER_SCALE = [1.0, 1.25, 1.5, 1.8];
-  const BASE_SZ    = [2.8, 3.8, 2.6, 6.0];
   const sz = BASE_SZ[ant.type] * TS / 8 * (TIER_SCALE[ant.tier] || 1);
+
+  if (ant.type === 3) {
+    X.save(); X.translate(wx, wy); X.rotate(angle);
+    drawQueenShape(sz, r, g, b, now);
+    X.restore();
+  } else {
+    const cache = antCache[`${ant.type}-${ant.col}-${ant.tier}`];
+    if (cache) {
+      X.save(); X.translate(wx, wy); X.rotate(angle);
+      X.drawImage(cache, -CACHE_HALF, -CACHE_HALF);
+      X.restore();
+    } else {
+      X.fillStyle = `rgb(${r},${g},${b})`;
+      X.beginPath(); X.arc(wx, wy, sz*0.8, 0, Math.PI*2); X.fill();
+    }
+  }
+
+  if (ant.type === 2) {
+    const SCOUT_VR = [8, 12, 16, 22];
+    const vr = (SCOUT_VR[ant.tier] || 8) * TS;
+    X.strokeStyle = `rgba(${r},${g},${b},0.13)`;
+    X.lineWidth = 1;
+    X.beginPath(); X.arc(wx, wy, vr, 0, Math.PI*2); X.stroke();
+  }
 
   if (ant.hp < ant.maxHp && ant.type !== 3) {
     const pct = ant.hp / ant.maxHp;
     X.strokeStyle = `rgba(255,${Math.round(pct*180)},0,0.5)`;
     X.lineWidth = 0.7;
-    X.beginPath(); X.arc(wx, wy, sz+1.8, -Math.PI/2, -Math.PI/2 + Math.PI*2*pct); X.stroke();
+    X.beginPath(); X.arc(wx, wy, sz + 1.8, -Math.PI/2, -Math.PI/2 + Math.PI*2*pct); X.stroke();
   }
-
-  X.save();
-  X.translate(wx, wy);
-  X.rotate(angle);
-
-  if (ant.tier >= 2) {
-    X.shadowBlur  = sz * (ant.tier === 3 ? 5 + 2*Math.sin(now/400 + wx*0.08) : 3.5);
-    X.shadowColor = `rgba(${r},${g},${b},0.75)`;
-  }
-
-  X.fillStyle = `rgb(${r},${g},${b})`;
-  if      (ant.type === 0) drawWorkerShape(sz);
-  else if (ant.type === 1) drawSoldierShape(sz);
-  else if (ant.type === 2) drawScoutShape(sz);
-  else                      drawQueenShape(sz, r, g, b, now);
-
-  X.shadowBlur = 0;
 
   if (ant.carrying) {
+    X.save(); X.translate(wx, wy); X.rotate(angle);
+    X.fillStyle = "rgba(240,200,32,0.35)";
+    X.beginPath(); X.arc(sz*0.75, -sz*0.55, sz*0.5, 0, Math.PI*2); X.fill();
     X.fillStyle = "#f0c820";
-    X.shadowBlur = 3.5; X.shadowColor = "rgba(240,200,32,0.9)";
-    X.beginPath(); X.arc(-sz*0.3, -sz*0.9, sz*0.32, 0, Math.PI*2); X.fill();
-    X.shadowBlur = 0;
+    X.beginPath(); X.arc(sz*0.75, -sz*0.55, sz*0.3, 0, Math.PI*2); X.fill();
+    X.restore();
   }
-
-  X.restore();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1689,11 +2014,14 @@ function render() {
     X.globalAlpha = (1-t) * 0.7;
     X.translate(d.x*TS+TS/2, d.y*TS+TS/2);
     X.scale(1-t*0.6, 1-t*0.6);
-    X.fillStyle = `rgb(${r},${g},${b})`;
-    if      (d.type===0) drawWorkerShape(d.sz);
-    else if (d.type===1) drawSoldierShape(d.sz);
-    else if (d.type===2) drawScoutShape(d.sz);
-    else                  drawQueenShape(d.sz,r,g,b,now);
+    if (d.type === 3) {
+      X.fillStyle = `rgb(${r},${g},${b})`;
+      drawQueenShape(d.sz, r, g, b, now);
+    } else {
+      const dc = antCache[`${d.type}-${d.colIdx}-${d.tier}`];
+      if (dc) X.drawImage(dc, -CACHE_HALF, -CACHE_HALF);
+      else { X.fillStyle = `rgb(${r},${g},${b})`; X.beginPath(); X.arc(0, 0, d.sz*0.8, 0, Math.PI*2); X.fill(); }
+    }
     X.restore();
     X.globalAlpha = 1;
   }

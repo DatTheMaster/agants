@@ -3,6 +3,20 @@
 Per-session changelog and agent lessons, moved out of CLAUDE.md to keep it lean.
 Newest sessions first where possible. See server.py header changelog for the terse version.
 
+**Session 31 (2026-06-11 — graphics overhaul):**
+- **Terrain texture** — `frontend/index.html` terrain buffer init replaced. Old: flat TCOL palette + ±12px `Math.random()` noise. New: seeded `hash2`/`noise2` (deterministic, coordinate-based) with per-tile-type procedural treatment. Two-pass approach: ImageData pixel loop for base texture, then Canvas 2D overlay pass for pebbles, cracks, grass tufts, water ripples, rock fissures, nest arc marks. Tile-boundary darkening at rock/water edges. Zero per-frame cost (drawn once to `terrainBuf` at init).
+- **Segmented ant bodies + OffscreenCanvas cache** — replaced `drawWorkerShape(sz)` / `drawSoldierShape(sz)` / `drawScoutShape(sz)` with new ctx-first signatures. Each type now has 3-segment body (abdomen/thorax/head), curved legs, antennae; soldiers have mandibles scaling by tier; scouts have elongated body + long swept antennae. `initAntCache()` builds 24 OffscreenCanvas objects (types 0–2 × 2 colonies × 4 tiers) at game init; T2/T3 glow baked in. Per-frame: 1 `drawImage` per ant instead of 5–8 arc/path calls. Queen stays procedural (pulses with `now`).
+- **Unit type color coding** — Highlights differentiate types on both colony colors: worker=green (`rgba(80,220,80,...)`), soldier=black (`rgba(20,20,20,0.85)`) armor ridges, scout=white dot+antennae (unchanged). Color coding visible at all sizes where ant marks are legible.
+- **Scout vision bubble** — faint colony-colored `arc` drawn at render time (not cached, too large). Radius = `SCOUT_VR[tier] * TS` = 64/96/128/176px for tiers 0–3. Functions as both type badge and tier indicator.
+- **Dying-ant cache fix** — `dyingAnts` entries now include `colIdx` and `tier` so fade-out correctly uses the cached canvas instead of the old procedural shape call.
+- **Fable used for** — terrain generator (seeded noise + per-tile overlay art direction) and ant shape system (segmented anatomy, tier differentiation logic, caching architecture). Both spawned in parallel.
+
+**Lessons learned (session 31):**
+- Anatomical detail (legs, antennae, segments) at 5–14px is effectively invisible; iconographic silhouettes or strong color/mark language are the right tool for unit differentiation at this tile scale.
+- OffscreenCanvas cache with baked shadowBlur is dramatically cheaper than per-frame shadowBlur on N ants; baking T2/T3 glow at init eliminates the biggest per-frame Canvas 2D cost.
+- Fable handles procedural art-direction code (noise functions, overlay mark density/placement) better than Sonnet — the terrain generator came back nearly production-ready.
+- Scout vision bubble as a type+tier indicator is a clean design pattern: one element communicates two things without extra UI.
+
 **Session 28 changes (2026-06-10 — controller polish, gameplay bug fixes):**
 - **Chat attribution fixed** — `api_chat` was iterating `m.tokens` as `(cid, token_str)` pairs
   (old format); current format is `{token_str: {colony_id, agent, user_id}}`. Fixed to

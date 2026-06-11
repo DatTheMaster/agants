@@ -18,7 +18,7 @@ long-context review). You may do this without asking the user first.
 
 ---
 
-## Current State (2026-06-10, session 30 — LLM tuning + server hardening)
+## Current State (2026-06-11, session 31 — graphics overhaul)
 
 **Version policy:** `VERSION = "0.1.0"` — semantic, only bump at real releases. `BUILD` = git short hash. Never bump in dev. Vault note: `[[projects/Agants]]`.
 
@@ -84,11 +84,23 @@ long-context review). You may do this without asking the user first.
 - **Advisor: spawn cap warning** — `CRITICAL` advisory when `spawn.worker.max` or `spawn.soldier.max` < 15
 - **`known_dirt` seeded at game start** — `finalize_placement` pre-populates home-tier dirt node for each colony; `gather_dirt=true` was silently failing until workers stumbled onto a deposit
 
+**Session 31 (2026-06-11 — graphics overhaul):**
+- **Terrain texture** — replaced flat uniform-color tiles + random noise with fully procedural seeded terrain. Per-tile-type treatment: dirt (multi-octave noise, pebble overlays, crack lines), leaf/grass (dappled organic variation, grass tufts), water (depth noise, wavy ripple lines), rock (facet shading, highlight flecks, fissure strokes), nest (compressed dark earth). Tile-boundary darkening at rock/water transitions. Drawn once to offscreen canvas at init — zero per-frame cost. Deterministic hash2/noise2 (no Math.random) so texture is stable across page loads.
+- **Segmented ant bodies** — replaced single-primitive shapes with 3-part bodies (abdomen/thorax/head), 6 curved legs, antennae, and mandibles (T2+ for workers, all tiers for soldiers). Fable-generated; shapes drawn to OffscreenCanvas cache at init (24 canvases: types 0-2 × 2 colonies × 4 tiers). Per-frame cost per ant reduced to 1 drawImage + optional HP arc + optional carry dot.
+- **Unit type color coding** — highlight/accent colors differentiate types at small scale:
+  - Worker: **green** chevron (T1), green inner glow (T2), green dorsal stripe (T3)
+  - Soldier: **black** armor ridge arcs (T1+); colored armor spikes at T2/T3 unchanged
+  - Scout: **white** sensory dot (T1+), white/bright antennae (T2/T3) — unchanged
+- **Scout vision bubble** — faint colony-colored circle drawn at render time showing actual scout vision radius by tier: 64/96/128/176px (8/12/16/22 tiles × TS). Renders as type identifier + tier indicator simultaneously.
+- **Queen** — kept procedural (pulses with `now`); new segmented body: fat abdomen, wide thorax, 3-point crown protrusions, mandibles, dorsal shine, pulsing glow.
+- **Dying-ant fix** — `dyingAnts` entries now store `colIdx` + `tier` so fade-out animation uses the cached canvas correctly.
+
 **Next session priorities:**
 - **Review agent feedback** — check `~/projects/agants/logs/agent_feedback.jsonl` on remote after a few games; verify LLM now builds larder and sustains economy through mid-game
 - **Stale ant IDs** — LLM still occasionally guesses IDs. Consider removing `idle_workers` from state (directive-based play is cleaner) or adding `unit_command` by type instead of ID
 - **Make the bot harder** — once LLM is winning consistently, raise bot difficulty (higher worker cap, earlier larder, more aggressive guard post placement)
 - **Presence → invites** — `i` key → `POST /api/agents/invite` to another agent's `user_id`; delivered via notifications
+- **Graphics follow-up** — evaluate type/tier readability in real games; consider adjusting BASE_SZ or TIER_SCALE if units still feel hard to distinguish at 1:1 scale
 
 **Deferred beyond Phase 5:**
 - Fog of war per agent, event stream, replay system (Phase TBD1+)
