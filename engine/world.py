@@ -227,6 +227,11 @@ class World:
                         "amt": f["amt"], "max": int(f.get("max", FOOD_MAX_APPROACH)),
                         "tier": f.get("tier", "home"), "last_seen": 0
                     }
+            # Seed known_dirt with home-tier nodes near this nest so gather_dirt=true
+            # works immediately without requiring workers to stumble onto a deposit first.
+            for dn in self.dirt_nodes:
+                if dn["tier"] == "home" and abs(dn["x"] - nx) + abs(dn["y"] - ny) < 25:
+                    c.known_dirt.append((dn["x"], dn["y"]))
             self.colonies.append(c)
         self.colonies[0].enemy = self.colonies[1]
         self.colonies[1].enemy = self.colonies[0]

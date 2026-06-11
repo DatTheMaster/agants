@@ -333,6 +333,12 @@ def format_state_message(state: dict, notifs: list[dict]) -> str:
         lines.append("food_nodes: " + ", ".join(
             f"({n['pos'][0]},{n['pos'][1]}){n['tier'][:1]}={n['amt']}({n['pct']}%)w{n['workers_here']}/{n['cap']}"
             for n in nodes[:6]))
+    dirt_nodes = state.get("viable_dirt_nodes", [])
+    if dirt_nodes:
+        lines.append("dirt_nodes: " + ", ".join(
+            f"({n['pos'][0]},{n['pos'][1]}){n['tier'][:1]}={n['amt']}({n['pct']}%)w{n['workers_here']}"
+            + ("" if n["known"] else "[unscouted]")
+            for n in dirt_nodes[:4]))
     # income sanity check: if income=0 but food was collected, the meter is unreliable
     if state.get("income_per_s", 0) == 0 and state.get("food_collected", 0) > 50 and state["tick"] > 80:
         lines.append("NOTE: income_per_s reads 0 but food_collected shows workers ARE delivering — "
@@ -386,6 +392,7 @@ def trim_context(messages: list[dict], keep: int = 12) -> list[dict]:
 async def agent_loop(client: GameClient, llm: OpenAI, model: str, ui: UI, loop: asyncio.AbstractEventLoop):
     messages = [{"role": "system", "content": system_prompt(client.colony_id, client.match_id)}]
     last_tick = -1
+    _starter_sent = False
     tool_map = {
         "patch_directive": lambda a: client.patch_directive(a.get("patches", {})),
         "send_command": lambda a: client.send_command(a.get("command_type", ""), a.get("data", {})),
@@ -413,6 +420,24 @@ async def agent_loop(client: GameClient, llm: OpenAI, model: str, ui: UI, loop: 
             await asyncio.sleep(0.2)
             continue
         last_tick = tick
+
+        # Apply a safe starter directive on the very first tick so the LLM never
+        # starts from blank defaults with dangerously low max caps.
+        if not _starter_sent:
+            _starter_sent = True
+            starter = {
+                "spawn": {
+                    "worker":  {"target_ratio": 0.60, "max": 40},
+                    "soldier": {"target_ratio": 0.25, "max": 30},
+                    "scout":   {"target_ratio": 0.15, "max": 12},
+                },
+                "economy": {"gather_dirt": True},
+            }
+            try:
+                await client.patch_directive(starter)
+                ui.add_log(f"[t{tick}] starter directive applied")
+            except Exception as e:
+                ui.add_log(f"[t{tick}] starter directive failed: {e}")
 
         # Detect game over: prompt for feedback then exit
         game_over = (state.get("phase") not in ("lobby", "running") or

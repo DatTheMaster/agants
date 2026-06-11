@@ -1878,7 +1878,10 @@ class Server:
             while m._pending_strategies:
                 cid, strat = m._pending_strategies.popleft()
                 if m.world.colonies[cid].alive:
-                    m.world.colonies[cid].set_strategy(strat)
+                    try:
+                        m.world.colonies[cid].set_strategy(strat)
+                    except Exception as e:
+                        print(f"[tick_loop] bad strategy colony {cid}: {e!r} strat={strat!r}")
             # Bot decisions (tick-based, still safe here)
             if phase == "running" and m.world.winner is None:
                 if m.world.tick - bot_last_tick >= LLM_INTERVAL:
@@ -2577,6 +2580,12 @@ class Server:
             if _staged < _release_at:
                 advisor.append(f"RALLY: {_staged}/{_release_at} soldiers at ({_rx},{_ry}) — "
                                f"release triggers at {_release_at}; {_release_at - _staged} more needed")
+        # Warn when spawn max caps are so low they hard-ceiling the colony
+        for _unit in ("worker", "soldier"):
+            _max = c.directive["spawn"].get(_unit, {}).get("max", 999)
+            if isinstance(_max, (int, float)) and _max < 15:
+                advisor.append(f"CRITICAL: spawn.{_unit}.max={int(_max)} — this hard-caps you to {int(_max)} {_unit}s forever; "
+                               f"patch spawn.{_unit}.max to at least 25 immediately")
         # Warn about incomplete structures with workers assigned but far from nest
         for st in w.structures:
             if st["colony"] != cid or st.get("active", True): continue
@@ -2665,6 +2674,17 @@ class Server:
                  for k, v in c.food_intel.items() if v["amt"] > 0],
                 key=lambda n: n["dist"]
             )[:10],
+            "viable_dirt_nodes": sorted(
+                [{"pos": [dn["x"], dn["y"]], "amt": int(dn["amt"]), "max": int(dn["max"]),
+                  "pct": round(dn["amt"] / max(dn["max"], 1) * 100),
+                  "tier": dn["tier"],
+                  "dist": abs(dn["x"] - c.nx) + abs(dn["y"] - c.ny),
+                  "known": (dn["x"], dn["y"]) in c.known_dirt,
+                  "workers_here": sum(1 for a in c.ants if a.type == A_WORKER
+                                      and abs(a.x - dn["x"]) + abs(a.y - dn["y"]) <= 5)}
+                 for dn in w.dirt_nodes],
+                key=lambda n: n["dist"]
+            )[:5],
             "units": [
                 {"id": a.id, "type": ["worker","soldier","scout","queen"][a.type],
                  "x": a.x, "y": a.y, "hp": int(a.hp), "max_hp": a.max_hp,
@@ -2799,9 +2819,15 @@ class Server:
         except Exception:
             return await self._api_cors(web.json_response({"error": "bad json"}, status=400))
         if "directive" in body:
-            m._pending_strategies.append((cid, {"directive": body["directive"]}))
+            d = body["directive"]
+            if not isinstance(d, dict):
+                return await self._api_cors(web.json_response({"error": "directive must be an object"}, status=400))
+            m._pending_strategies.append((cid, {"directive": d}))
         elif "patches" in body:
-            m._pending_strategies.append((cid, {"directive": body["patches"]}))
+            d = body["patches"]
+            if not isinstance(d, dict):
+                return await self._api_cors(web.json_response({"error": "patches must be an object"}, status=400))
+            m._pending_strategies.append((cid, {"directive": d}))
         else:
             m._pending_strategies.append((cid, {"directive": body}))
         return await self._api_cors(web.json_response({"ok": True}))
@@ -3035,6 +3061,8 @@ class Server:
         In tech-demo mode everyone can chat; auth only gates the colony attribution.
         """
         m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
         try:
             body = await req.json()
         except Exception:
