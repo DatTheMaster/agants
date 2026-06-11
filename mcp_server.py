@@ -329,6 +329,27 @@ def get_battle_summary(colony_id: int) -> dict:
 
 
 @mcp.tool()
+def get_match_status(colony_id: int) -> dict:
+    """Global match snapshot — who's winning, resource state, and food runway.
+
+    Use this for a quick bird's-eye read without the per-unit noise of get_state:
+    - leading: "RED" | "BLUE" | "tied" + lead_margin (score gap)
+    - Per colony: score, army_value, food, income_per_s, larder_income,
+      queen_hp, queen_hp_pct, territory_tiles, territory_pct, counts
+    - food_nodes: remaining + capacity + fill % for home / approach / frontline tiers
+    - food_depletion: eta_ticks until home+approach nodes run dry at current income
+
+    Score formula (same as end-game adjudication):
+      food_collected + army_value + treasury
+      army_value = workers×5 + soldiers×20 + scouts×8
+
+    Returns both colonies regardless of which colony_id you command.
+    colony_id is only used for match routing / auth.
+    """
+    return _get(_match_path(colony_id, "/match_status"))
+
+
+@mcp.tool()
 def get_notifications(colony_id: int, peek: bool = False) -> dict:
     """Return pending notifications for a colony.
 
@@ -447,6 +468,15 @@ def patch_directive(colony_id: int, patches: dict) -> dict:
         {"military.rally_point": [75, 50], "military.rally_release_at": 20}
 
     Triggers replace the entire triggers array when provided.
+
+    RETREAT vs AUTO_ATTACK interaction:
+    - military.retreat: true pulls non-fighting soldiers home to a defensive perimeter
+      (radius 6 around nest). Soldiers ALREADY in combat (in_siege) keep fighting —
+      retreat does NOT break an active siege.
+    - retreat takes priority over auto_attack for idle/patrolling soldiers. Setting
+      retreat=true effectively disables auto_attack for non-sieged units.
+    - To fully stop an attack: set retreat=true AND clear attack_target/rally_point.
+      Sieged soldiers will finish their current engagement, then retreat on the next tick.
     """
     return _post(_match_path(colony_id, f"/directive/{colony_id}"), {"patches": patches}, headers=_auth(colony_id))
 
@@ -514,6 +544,11 @@ def build_structure(colony_id: int, structure_type: str, x: int, y: int) -> dict
     If rejected with "insufficient dirt": workers only pick up dirt opportunistically
     when passing near deposits — set economy.gather_dirt=true in the directive to
     prioritize dirt collection, and check dirt_per_s in get_state to confirm it flows.
+
+    PLACEMENT CONSTRAINTS:
+        larder: must be ≥20 tiles from your nest (server rejects closer placements with 400).
+        guard_post: safe zone is ≤35 tiles from nest. Workers building further out are highly
+          vulnerable — guard posts at 55+ tiles routinely get their builders killed mid-construction.
     """
     return _post(_match_path(colony_id, f"/command/{colony_id}"), {
         "type": "build",
@@ -576,6 +611,14 @@ def command_unit(colony_id: int, ant_id: int, command: str,
             command_unit(0, 155, "hold", x=49, y=50)
         Scout a specific patrol route:
             command_unit(0, 203, "patrol", waypoints=[[14,50],[45,20],[75,50],[45,80],[14,50]])
+
+    RALLY INTERACTION: unit_override (from command_unit) takes priority over rally_point.
+    A soldier with an override follows its override command regardless of rally_point.
+    To stage soldiers at a rally AND retain individual overrides, clear overrides first:
+        command_type(0, "soldier", "clear") then patch rally_point.
+    To release from rally without an attack target: set rally_point=null.
+    To check rally fill: get_battle_summary()["military_summary"] includes rally_staged,
+        rally_release_at, and rally_point when a rally is active.
     """
     body = {"type": "unit_command", "ant_id": ant_id, "command": command}
     if x is not None: body["x"] = x

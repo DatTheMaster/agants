@@ -20,15 +20,15 @@ def update_bot_strategy(world, colony_id):
     income   = c.income_per_s
 
     if (food < 150 and workers < 20) or (income < 5 and food < 100):
-        roles, cap, defense = {"worker": 0.65, "scout": 0.15, "soldier": 0.20}, 60, "defensive"
+        roles, cap, defense = {"worker": 0.65, "scout": 0.15, "soldier": 0.20}, 70, "defensive"
     elif food > 1800 and workers >= 40:
-        roles, cap, defense = {"worker": 0.25, "scout": 0.10, "soldier": 0.65}, 45, "aggressive"
+        roles, cap, defense = {"worker": 0.25, "scout": 0.10, "soldier": 0.65}, 55, "aggressive"
     elif food > 1000 and workers >= 30:
-        roles, cap, defense = {"worker": 0.35, "scout": 0.12, "soldier": 0.53}, 45, "aggressive"
+        roles, cap, defense = {"worker": 0.35, "scout": 0.12, "soldier": 0.53}, 55, "aggressive"
     elif food > 500 and workers >= 20:
-        roles, cap, defense = {"worker": 0.45, "scout": 0.15, "soldier": 0.40}, 50, "balanced"
+        roles, cap, defense = {"worker": 0.45, "scout": 0.15, "soldier": 0.40}, 60, "balanced"
     else:
-        roles, cap, defense = {"worker": 0.55, "scout": 0.20, "soldier": 0.25}, 55, "balanced"
+        roles, cap, defense = {"worker": 0.55, "scout": 0.20, "soldier": 0.25}, 65, "balanced"
 
     # Rally to mass, then release as a wave — avoids 1-by-1 trickle deaths
     rally_update = {}
@@ -81,16 +81,16 @@ def update_bot_strategy(world, colony_id):
                 entry = {"type": "watchtower", "x": wx, "y": wy}
                 if entry not in c.structure_queue:
                     c.structure_queue.append(entry)
-        elif own_gp < GUARD_POST_MAX and dirt >= GUARD_POST_COST and workers >= 15:
-            bx = int(c.nx + (c.enemy.nx - c.nx) * 0.33)
-            by = int(c.ny + (c.enemy.ny - c.ny) * 0.33)
+        elif own_gp < GUARD_POST_MAX and dirt >= GUARD_POST_COST and workers >= 10:
+            bx = int(c.nx + (c.enemy.nx - c.nx) * 0.38)
+            by = int(c.ny + (c.enemy.ny - c.ny) * 0.38)
             gx, gy = _bot_find_passable(bx, by, spread=4)
             if gx is not None and [gx, gy] not in c.build_queue:
                 c.build_queue.append([gx, gy])
 
-        # Larder for late-game food sustain — build near nest when approach nodes depleting
+        # Larder for late-game food sustain — build near nest before approach nodes deplete
         own_lr = sum(1 for st in world.structures if st["colony"] == c.id and st.get("type") == "larder")
-        if own_lr < LARDER_MAX and dirt >= LARDER_COST and world.tick > 300:
+        if own_lr < LARDER_MAX and dirt >= LARDER_COST and world.tick > 200:
             lx, ly = _bot_find_passable(c.nx + 5, c.ny, spread=4)
             if lx is not None:
                 entry = {"type": "larder", "x": lx, "y": ly}

@@ -602,6 +602,9 @@ class World:
                     effect = UPGRADE_EFFECTS[unit_type][cur_tier]
                     c.push_event(f"★ {unit_type.upper()} T{new_tier} {label}: {effect}")
                     c.push_notification("upgrade_complete", {"unit": unit_type, "tier": new_tier, "label": label, "effect": effect}, tick=self.tick)
+                    ur = c.directive["economy"].get("upgrade_reserve", {})
+                    if unit_type in ur:
+                        del ur[unit_type]
 
         for f in self.foods:
             if f["amt"] < f["max"]:
@@ -794,17 +797,32 @@ class World:
                         self._move_to(ant, c.nx, c.ny, 0)
                     self._dep(ant.x, ant.y, 0, 0.9)
             else:
+                dist_to_target = abs(ant.x - fx) + abs(ant.y - fy)
+                # When commanded to gather at a dirt target, don't divert to food
+                # while inside the arrival zone — dirt check should fire first.
+                targeting_dirt = (ov and ov.get("cmd") == "gather"
+                                  and dist_to_target <= 4)
                 f = self._food_nearby(ant.x, ant.y, 3)
-                if f and f["amt"] > 10:
+                if f and f["amt"] > 10 and not targeting_dirt:
                     f["amt"] -= FOOD_PICK
                     if f["amt"] <= 0: self._deplete_food(f)
                     ant.carrying = True
                     ant.carrying_type = "food"
                     ant.state = S_RETURNING
                     self._dep(ant.x, ant.y, 0, 1.0)
-                elif abs(ant.x - fx) + abs(ant.y - fy) <= 4:
-                    ant.recruit_target = None
-                    ant.state = S_IDLE
+                elif dist_to_target <= 4:
+                    dn = self._dirt_nearby(ant.x, ant.y, 4)  # radius matches arrival threshold
+                    if dn and c.dirt < DIRT_CAP:
+                        dn["amt"] -= DIRT_PICK
+                        ant.carrying = True
+                        ant.carrying_type = "dirt"
+                        ant.state = S_RETURNING
+                        if (dn["x"], dn["y"]) not in c.known_dirt:
+                            c.known_dirt.append((dn["x"], dn["y"]))
+                            if len(c.known_dirt) > 12: c.known_dirt.pop(0)
+                    else:
+                        ant.recruit_target = None
+                        ant.state = S_IDLE
                 elif abs(ant.x - fx) + abs(ant.y - fy) > 50:
                     ant.recruit_target = None
                     ant.state = S_IDLE

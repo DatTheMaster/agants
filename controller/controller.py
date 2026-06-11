@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import datetime
 import io
 import json
 import os
 import subprocess
 import sys
+import traceback
 import termios
 import tty
 from collections import deque
@@ -167,7 +169,10 @@ class GameClient:
             r = await self.http.request(method, f"{self.base}{path}", json=body, headers=self._auth())
             if r.status_code >= 400:
                 return {"error": f"HTTP {r.status_code}: {r.text[:200]}"}
-            return r.json() if r.content else {"ok": True}
+            try:
+                return r.json() if r.content else {"ok": True}
+            except Exception:
+                return {"error": f"bad response (non-JSON): {r.text[:100]}"}
         except httpx.HTTPError as e:
             return {"error": f"request failed: {e}"}
 
@@ -370,7 +375,7 @@ def format_state_message(state: dict, notifs: list[dict]) -> str:
 # --------------------------------------------------------------------------- #
 
 class UI:
-    def __init__(self):
+    def __init__(self, log_file=None):
         self.matches: list[dict] = []
         self.online: list[dict] = []
         self.state: dict = {}
@@ -379,9 +384,17 @@ class UI:
         self.status = "no seat"
         self.running = True
         self.auto_challenge = False
+        self._log_file = log_file
 
     def add_log(self, line: str):
         self.log.append(line)
+        if self._log_file:
+            ts = datetime.datetime.now().strftime("%H:%M:%S")
+            try:
+                self._log_file.write(f"{ts}  {line}\n")
+                self._log_file.flush()
+            except Exception:
+                pass
 
 
 # --------------------------------------------------------------------------- #
@@ -493,7 +506,10 @@ async def agent_loop(client: GameClient, llm: OpenAI, model: str, ui: UI, loop: 
             except json.JSONDecodeError:
                 args = {}
             fn = tool_map.get(call.function.name)
-            result = await fn(args) if fn else {"error": "unknown tool"}
+            try:
+                result = await fn(args) if fn else {"error": "unknown tool"}
+            except Exception as e:
+                result = {"error": f"tool exception: {e}"}
             tag = "ok" if "error" not in result else result["error"][:60]
             ui.add_log(f"[t{tick}] {call.function.name}({_brief(args)}) -> {tag}")
             messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)[:1500]})
@@ -556,8 +572,11 @@ def render(ui: UI, client: GameClient, total_height: int = 32) -> Layout:
         footer_keys = "[a] stop auto   [l] leave   [w] watch   [q] quit"
     elif client.colony_id is not None:
         s = ui.state or {}
-        if s.get("phase") == "running" or s.get("tick", 0) > 0:
+        phase = s.get("phase", "")
+        if phase == "running":
             footer_keys = "[l] leave   [f] forfeit   [w] watch   [q] quit"
+        elif phase == "finished":
+            footer_keys = "[l] leave   [w] watch   [q] quit"
         else:
             footer_keys = "[s] start   [l] leave   [w] watch   [q] quit"
     else:
@@ -607,12 +626,12 @@ def render_matches(ui: UI, client: GameClient) -> Panel:
         sightings = s.get("enemy_sightings") or []
         if sightings:
             body.add_row(Text("── Enemy sightings ──", style="dim"))
-            for sx, sy, sol, tot, stk in sightings[:4]:
+            for sx, sy, sol, tot, stk, *_ in sightings[:4]:
                 age = s.get("tick", 0) - stk
                 body.add_row(Text(f" ({sx},{sy})  {sol}sol/{tot}tot  {age}t ago",
                                   style="dim" if age > 30 else ""))
         else:
-            body.add_row(Text("  no enemy sightings yet", style="dim"))
+            body.add_row(Text("  no sightings (fog of war)", style="dim"))
 
         advisor = s.get("advisor") or []
         if advisor:
@@ -625,38 +644,61 @@ def render_matches(ui: UI, client: GameClient) -> Panel:
         phase = (cur or {}).get("phase", "?")
         return Panel(body, title=f"Match  [{phase}]", border_style=colony_style)
 
-    # --- lobby list ---
+    # --- lobby / running list ---
     t = Table.grid(padding=(0, 1))
-    lobby_matches = [m for m in ui.matches if m.get("phase") == "lobby"]
-    for i, m in enumerate(lobby_matches):
+    open_matches = [m for m in ui.matches if m.get("phase") in ("lobby", "running")]
+    for i, m in enumerate(open_matches):
         phase = m.get("phase", "?")
-        if m.get("winner"):
-            dot, style = "○", "dim"
-        elif phase == "running":
+        if phase == "running":
             dot, style = "●", "green"
         else:
             dot, style = "◌", "yellow"
         seats = m.get("seats", {})
-        red  = seats.get("0", {}).get("agent") or "open"
-        blue = seats.get("1", {}).get("agent") or "open"
+        def _seat(s): return s.get("agent") or ("bot" if s.get("brain_type") == "bot" else "open")
+        red  = _seat(seats.get("0", {}))
+        blue = _seat(seats.get("1", {}))
         mid  = m["match_id"][:8]
         marker = "▶ " if i == ui.selected else "  "
         line = Text(marker, style="bold cyan" if i == ui.selected else "")
         line.append(f"{dot} ", style=style)
         line.append(f"{mid}  ", style="bold" if i == ui.selected else "")
         line.append(f"t{m.get('tick',0)} R:{red} B:{blue}", style="dim")
+        if phase == "running":
+            line.append("  [running]", style="green dim")
         t.add_row(line)
-    if not lobby_matches:
-        t.add_row(Text("(no open lobbies — press 'n' to create one)", style="dim"))
-    return Panel(Group(t, Text(""), online), title="Open Lobbies", border_style="grey50")
+    if not open_matches:
+        t.add_row(Text("(no open matches — press 'n' to create one)", style="dim"))
+    return Panel(Group(t, Text(""), online), title="Matches", border_style="grey50")
 
 
 def render_colony(ui: UI, client: GameClient) -> Panel:
     s = ui.state
     if not s or "error" in s:
-        body = Text(s.get("error", "not in a seat — press 'j' to join") if s else
-                    "not in a seat — press 'j' to join", style="dim")
-        return Panel(body, title="Colony State", border_style="grey50")
+        # "game not started" = we're seated but in lobby — show waiting screen
+        if client.colony_id is not None and s and "not started" in s.get("error", ""):
+            s = {"phase": "lobby"}  # synthetic; fall through to lobby render below
+        else:
+            body = Text(s.get("error", "not in a seat — press 'j' to join") if s else
+                        "not in a seat — press 'j' to join", style="dim")
+            return Panel(body, title="Colony State", border_style="grey50")
+
+    if s.get("phase") == "lobby":
+        cur = next((m for m in ui.matches if m.get("match_id") == client.match_id), None)
+        seats = (cur or {}).get("seats", {})
+        opp_col = str(1 - (client.colony_id or 0))
+        opp_agent = seats.get(opp_col, {}).get("agent")
+        body = Text()
+        if opp_agent:
+            body.append("Both seated — waiting to start\n", style="bold yellow")
+            body.append(f"Opponent: {opp_agent}\n", style="dim")
+            body.append("Press [s] to start or wait for auto-start", style="dim")
+        else:
+            body.append("Waiting for opponent…\n", style="dim")
+            mid = client.match_id or "?"
+            body.append(f"Match {mid[:8]}\n", style="dim")
+            body.append("Share the match ID or wait for auto-challenge to pair", style="dim")
+        return Panel(body, title="Waiting", border_style="grey50")
+
     colony = "RED" if client.colony_id == 0 else "BLUE"
     cstyle = "red" if client.colony_id == 0 else "blue"
     c = s["counts"]
@@ -712,14 +754,14 @@ def _parse_key(data: bytes) -> list[str]:
 # Interactive (TUI) entry                                                       #
 # --------------------------------------------------------------------------- #
 
-async def run_tui(cfg: dict):
+async def run_tui(cfg: dict, log_file=None):
     console = Console(force_terminal=True, highlight=False)
     client = GameClient(cfg["game_url"], cfg["api_key"])
     llm = OpenAI(base_url=cfg["llm"]["base_url"],
                  api_key=cfg["llm"].get("api_key") or "no-llm-key-set")
     model = cfg["llm"]["model"]
     client.model_label = model  # sent on join_seat for stat tracking
-    ui = UI()
+    ui = UI(log_file=log_file)
     loop = asyncio.get_event_loop()
     agent_task: asyncio.Task | None = None
 
@@ -749,7 +791,8 @@ async def run_tui(cfg: dict):
         elif ch == "UP":
             ui.selected = max(0, ui.selected - 1)
         elif ch == "DOWN":
-            ui.selected = min(len(ui.matches) - 1, ui.selected + 1)
+            open_matches = [m for m in ui.matches if m.get("phase") in ("lobby", "running")]
+            ui.selected = min(max(0, len(open_matches) - 1), ui.selected + 1)
         elif ch == "r" and client.colony_id is None:
             asyncio.create_task(do_join(0))
         elif ch == "b" and client.colony_id is None:
@@ -809,12 +852,14 @@ async def run_tui(cfg: dict):
             ui.add_log("[auto] challenger mode off")
 
     async def do_join(col: int):
-        if not ui.matches:
-            ui.add_log("[warn] no open lobbies — press 'n' to create one")
+        open_matches = [m for m in ui.matches if m.get("phase") in ("lobby", "running")]
+        if not open_matches:
+            ui.add_log("[warn] no open matches — press 'n' to create one")
             return
+        idx = min(ui.selected, len(open_matches) - 1)
+        mid = open_matches[idx]["match_id"]
         if client.colony_id is not None:
             await client.release()
-        mid = ui.matches[ui.selected]["match_id"]
         try:
             await client.join(mid, col)
             color = "RED" if col == 0 else "BLUE"
@@ -873,9 +918,14 @@ async def run_tui(cfg: dict):
                 try:
                     all_matches = await client.list_matches()
                     joined = False
-                    for m in all_matches:
-                        if m.get("winner") or m.get("phase") != "lobby":
-                            continue
+                    # Prefer matches where one seat is already taken (someone waiting)
+                    lobby = [m for m in all_matches
+                             if not m.get("winner") and m.get("phase") == "lobby"]
+                    lobby.sort(key=lambda m: 0 if sum(
+                        1 for i in [0, 1]
+                        if m.get("seats", {}).get(str(i), {}).get("agent")
+                    ) == 1 else 1)
+                    for m in lobby:
                         seats = m.get("seats", {})
                         for col_id in [0, 1]:
                             if not seats.get(str(col_id), {}).get("agent"):
@@ -907,6 +957,7 @@ async def run_tui(cfg: dict):
                 continue
             try:
                 state = await client.state()
+                ui.state = state  # keep right pane live during lobby/waiting
                 _auto_errs = 0
             except Exception:
                 _auto_errs += 1
@@ -940,11 +991,14 @@ async def run_tui(cfg: dict):
                     await start_agent()
 
             else:
-                # Ended or unknown — release and loop back
+                # Ended or unknown — wait for agent to finish feedback, then release
                 ui.add_log(f"[auto] game over — back to matchmaking")
                 if agent_task and not agent_task.done():
-                    agent_task.cancel()
-                    agent_task = None
+                    try:
+                        await asyncio.wait_for(asyncio.shield(agent_task), timeout=15)
+                    except (asyncio.TimeoutError, asyncio.CancelledError):
+                        agent_task.cancel()
+                agent_task = None
                 await client.release()
                 ui.status = f"{client.agent_name} (auto-challenge)"
                 await asyncio.sleep(2)
@@ -967,15 +1021,24 @@ async def run_tui(cfg: dict):
     sys.stdout.write("\033[2J\033[H")
     sys.stdout.flush()
 
+    _last_agent_restart = 0.0
+
     try:
         while ui.running:
             while not key_queue.empty():
                 on_key(key_queue.get_nowait())
-            # Auto-start agent loop when opponent launches the game remotely
+            # Auto-start agent loop when opponent launches the game remotely,
+            # or restart after a crash — 5s cooldown to prevent rapid crash loops.
             if (client.colony_id is not None and not ui.auto_challenge and
                     (agent_task is None or agent_task.done())):
                 cur = next((m for m in ui.matches if m.get("match_id") == client.match_id), None)
-                if cur and cur.get("phase") == "running":
+                now = asyncio.get_event_loop().time()
+                if cur and cur.get("phase") == "running" and now - _last_agent_restart >= 5.0:
+                    _last_agent_restart = now
+                    if agent_task is not None and agent_task.done():
+                        exc = agent_task.exception() if not agent_task.cancelled() else None
+                        if exc:
+                            ui.add_log(f"[agent] crashed: {type(exc).__name__}: {exc} — restarting")
                     asyncio.create_task(start_agent())
                     ui.add_log("opponent started the game — agent loop launched")
             try:
@@ -1003,14 +1066,14 @@ async def run_tui(cfg: dict):
 # Headless entry                                                               #
 # --------------------------------------------------------------------------- #
 
-async def run_headless(cfg: dict, spec: str):
+async def run_headless(cfg: dict, spec: str, log_file=None):
     mid_str, _, col_str = spec.partition(":")
     if not col_str:
         sys.exit("--headless expects MATCH_ID:COLONY (e.g. a1b2c3d4:0)")
     client = GameClient(cfg["game_url"], cfg["api_key"])
     llm = OpenAI(base_url=cfg["llm"]["base_url"],
                  api_key=cfg["llm"].get("api_key") or "no-llm-key-set")
-    ui = UI()
+    ui = UI(log_file=log_file)
     loop = asyncio.get_event_loop()
 
     class StdoutLog:
@@ -1035,6 +1098,8 @@ def main():
     ap = argparse.ArgumentParser(description="Agants Controller — AI agent + TUI")
     ap.add_argument("--setup", action="store_true", help="interactive config wizard")
     ap.add_argument("--headless", metavar="MATCH_ID:COLONY", help="run agent without TUI")
+    ap.add_argument("--log", metavar="FILE", nargs="?", const="",
+                    help="write agent log to FILE (omit path for ~/.config/agants/logs/)")
     args = ap.parse_args()
 
     if args.setup:
@@ -1059,12 +1124,41 @@ def main():
         print("Note: no Agants API key in config — you can browse matches but joining requires one.")
         print("Register at https://agants.datthemaster.com/register.html then run --setup.\n")
 
-    if args.headless:
-        asyncio.run(run_headless(cfg, args.headless))
-    else:
-        if not sys.stdin.isatty():
-            sys.exit("No TTY. Use --headless MATCH_ID:COLONY for non-interactive runs.")
-        asyncio.run(run_tui(cfg))
+    log_file = None
+    if args.log is not None:
+        if args.log:
+            log_path = Path(args.log)
+        else:
+            log_dir = Path.home() / ".config/agants/logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_path = log_dir / f"controller_{ts}.log"
+        log_file = open(log_path, "w", buffering=1)
+        header = (f"# Agants controller log — {datetime.datetime.now().isoformat()}\n"
+                  f"# pid={os.getpid()}  log={log_path}\n")
+        log_file.write(header)
+        log_file.flush()
+        print(f"Logging to {log_path}", file=sys.stderr)
+
+    try:
+        if args.headless:
+            asyncio.run(run_headless(cfg, args.headless, log_file=log_file))
+        else:
+            if not sys.stdin.isatty():
+                sys.exit("No TTY. Use --headless MATCH_ID:COLONY for non-interactive runs.")
+            asyncio.run(run_tui(cfg, log_file=log_file))
+    except BaseException as e:
+        if log_file:
+            ts = datetime.datetime.now().strftime("%H:%M:%S")
+            log_file.write(f"\n{ts}  FATAL: {type(e).__name__}: {e}\n")
+            log_file.write(traceback.format_exc())
+            log_file.flush()
+        if not isinstance(e, (KeyboardInterrupt, SystemExit)):
+            raise
+    finally:
+        if log_file:
+            log_file.write(f"# exit {datetime.datetime.now().isoformat()}\n")
+            log_file.close()
 
 
 if __name__ == "__main__":

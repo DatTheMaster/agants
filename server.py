@@ -202,6 +202,16 @@ except Exception:
 #           mechanism as "then") when the condition is False, so a trigger can undo its own
 #           patches (e.g. clear military.retreat) instead of latching forever
 
+# 2.16 — Session 35 bug-fix sweep:
+#         dirt gather bug fixed: workers arriving at a dirt recruit_target now check
+#           for dirt within 2 tiles before going idle (was: arrived → cleared target → idle loop);
+#         upgrade_reserve auto-cleared: when an upgrade purchase completes, the corresponding
+#           entry in economy.upgrade_reserve is removed so food is no longer unnecessarily locked;
+#         match persistence improved: _load_saved_matches now cleans up orphaned .tmp files;
+#           initial save fires immediately at game start (not after 60 ticks) so early-restart
+#           crashes no longer lose the match; match_brains/finished_seats round-trip through save;
+#         build_structure docstring: larder ≥20 tile minimum + guard_post ≤35 tile safety note added
+
 # ── Brain config ────────────────────────────────────────────────────────────────
 # Each colony is independently "bot" (heuristic) or "llm" (OpenAI-compatible API).
 # Stored as module globals; updated live via the dashboard ⚙.
@@ -1573,11 +1583,13 @@ class Match:
 
     def to_dict(self):
         return {
-            "match_id":   self.match_id,
-            "tps":        self.tps,
-            "created_at": self.created_at,
-            "tokens":     self.tokens,
-            "world":      self.world.to_dict(),
+            "match_id":      self.match_id,
+            "tps":           self.tps,
+            "created_at":    self.created_at,
+            "tokens":        self.tokens,
+            "match_brains":  self.match_brains,
+            "finished_seats": self.finished_seats,
+            "world":         self.world.to_dict(),
         }
 
     @classmethod
@@ -1604,6 +1616,8 @@ class Match:
             max_workers=1, thread_name_prefix=f"sim-{m.match_id[:4]}"
         )
         m._tick_times = deque(maxlen=20)
+        m.match_brains   = d.get("match_brains")
+        m.finished_seats = d.get("finished_seats", {})
         return m
 
 
@@ -1692,6 +1706,15 @@ class Server:
 
     def _load_saved_matches(self) -> list:
         """Load in-progress matches from disk. Returns list of Match objects."""
+        # Clean up orphaned .tmp files (crashed mid-write with no committed .json alongside)
+        for fname in os.listdir(self.SAVE_DIR):
+            if fname.endswith(".json.tmp"):
+                json_path = os.path.join(self.SAVE_DIR, fname[:-4])
+                if not os.path.exists(json_path):
+                    try:
+                        os.remove(os.path.join(self.SAVE_DIR, fname))
+                    except OSError:
+                        pass
         loaded = []
         for fname in os.listdir(self.SAVE_DIR):
             if not fname.endswith(".json"):
@@ -1852,6 +1875,7 @@ class Server:
         world.finalize_placement(red_pos, blue_pos)
         world.logger = RunLogger(world)
         world.logger.log_placement(red_pos, "fixed spawn", blue_pos, "fixed spawn")
+        self._save_match(m)  # initial save so a crash in tick 1–59 doesn't lose the match
         m._placement_food    = []
         m._placement_updates = []
 
@@ -1893,11 +1917,16 @@ class Server:
                     bot_last_tick = m.world.tick
                     for cid in (0, 1):
                         btype = _brain_for_match(m, cid)["type"]
-                        # Unclaimed MCP seats fall back to the bot brain so an absent
-                        # agent doesn't leave the colony running on bare defaults;
-                        # the bot steps aside the moment an agent joins the seat.
-                        if btype == "bot" or (btype == "mcp"
-                                              and m.world.mcp_seats.get(cid) is None):
+                        # Unclaimed MCP seats fall back to the bot; also fire bot for
+                        # occupied seats whose agent has gone silent (presence stale).
+                        seat_agent = m.world.mcp_seats.get(cid)
+                        if seat_agent is not None:
+                            cur_tok = next((t for t, e in m.tokens.items() if e["colony_id"] == cid), None)
+                            p = self._presence.get(cur_tok) if cur_tok else None
+                            seat_stale = p is None or (time.time() - p["last_seen"]) > self.PRESENCE_TIMEOUT_S
+                        else:
+                            seat_stale = False
+                        if btype == "bot" or (btype == "mcp" and (seat_agent is None or seat_stale)):
                             update_bot_strategy(m.world, cid)
             # Run step() in a thread so the event loop stays responsive during heavy ticks
             m._step_in_progress = True
@@ -2453,7 +2482,15 @@ class Server:
         if m.world.winner is not None:
             return await self._api_cors(web.json_response({"error": "match has ended"}, status=410))
         if m.world.mcp_seats.get(cid) is not None:
-            return await self._api_cors(web.json_response({"error": "seat occupied", "agent": m.world.mcp_seats[cid]}, status=409))
+            # Allow reclaim if: (a) current occupant's presence is stale, or (b) same user reconnecting
+            cur_token = next((t for t, e in m.tokens.items() if e["colony_id"] == cid), None)
+            p = self._presence.get(cur_token) if cur_token else None
+            seat_stale = p is None or (time.time() - p["last_seen"]) > self.PRESENCE_TIMEOUT_S
+            same_user  = (user_id is not None and cur_token is not None
+                          and m.tokens.get(cur_token, {}).get("user_id") == user_id)
+            if not seat_stale and not same_user:
+                return await self._api_cors(web.json_response(
+                    {"error": "seat occupied", "agent": m.world.mcp_seats[cid]}, status=409))
         m.world.mcp_seats[cid] = agent
         key = "red_brain" if cid == 0 else "blue_brain"
         _save_config({key: {"type": "mcp", "agent": agent}})
@@ -2709,6 +2746,20 @@ class Server:
                 "wounded": sum(1 for a in c.ants if a.type == A_SOLDIER and a.hp < a.max_hp * 0.5),
                 "avg_hp_pct": round(sum(a.hp / a.max_hp for a in c.ants if a.type == A_SOLDIER) / counts[1] * 100) if counts[1] else 0,
                 "building": sum(1 for a in c.ants if a.unit_override and a.unit_override.get("cmd") == "build"),
+                **({
+                    "rally_point": c.directive["military"]["rally_point"],
+                    "rally_staged": sum(
+                        1 for a in c.ants if a.type == A_SOLDIER
+                        and abs(a.x - (c.directive["military"]["rally_point"][0][0]
+                                       if isinstance(c.directive["military"]["rally_point"][0], (list, tuple))
+                                       else c.directive["military"]["rally_point"][0]))
+                           + abs(a.y - (c.directive["military"]["rally_point"][0][1]
+                                        if isinstance(c.directive["military"]["rally_point"][0], (list, tuple))
+                                        else c.directive["military"]["rally_point"][1])) <= 4
+                    ),
+                    "rally_release_at": c.directive["military"]["rally_release_at"],
+                    "rally_mode": c.directive["military"].get("rally_mode", "normal"),
+                } if c.directive["military"]["rally_point"] else {}),
             },
             "viable_food_nodes": sorted(
                 [{"pos": list(k), "amt": v["amt"], "max": v["max"],
@@ -2737,6 +2788,7 @@ class Server:
                 {"id": a.id, "type": ["worker","soldier","scout","queen"][a.type],
                  "x": a.x, "y": a.y, "hp": int(a.hp), "max_hp": a.max_hp,
                  "age": a.age, "lifespan": a.lifespan, "carrying": a.carrying,
+                 "carrying_type": getattr(a, "carrying_type", "food"),
                  "state": ["idle","foraging","returning","exploring","fighting","patrolling","recruited","building"][a.state] if a.state < 8 else "idle",
                  "override": a.unit_override,
                  **({"recruit_target": list(a.recruit_target)} if a.type == A_WORKER and a.recruit_target else {})}
@@ -2776,6 +2828,115 @@ class Server:
             "events": s["events"][:5],
         }
         return await self._api_cors(web.json_response(summary))
+
+    async def api_match_status(self, req):
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
+        w = m.world
+        if not w.colonies:
+            return await self._api_cors(web.json_response({"error": "game not started"}))
+
+        _val    = {A_WORKER: 5, A_SOLDIER: 20, A_SCOUT: 8}
+        labels  = ["RED", "BLUE"]
+        ter     = w.territory
+        ter_counts = [0, 0]
+        for t in ter:
+            if   t == 1: ter_counts[0] += 1
+            elif t == 2: ter_counts[1] += 1
+
+        tier_caps   = {"home": FOOD_MAX_HOME, "approach": FOOD_MAX_APPROACH}
+        tier_counts = {"home": 0, "approach": 0, "frontline": 0}
+        tier_rem    = {"home": 0, "approach": 0, "frontline": 0}
+        tier_cap    = {"home": 0, "approach": 0, "frontline": 0}
+        for f in w.foods:
+            tier = f.get("tier", "home")
+            tier_counts[tier] = tier_counts.get(tier, 0) + 1
+            tier_rem[tier]    = tier_rem.get(tier, 0)    + int(f["amt"])
+            if tier in tier_caps:
+                tier_cap[tier] += tier_caps[tier]
+
+        food_nodes = {}
+        for tier in ("home", "approach", "frontline"):
+            rem = tier_rem.get(tier, 0)
+            cap = tier_cap.get(tier, 0)
+            food_nodes[tier] = {
+                "remaining":  rem,
+                "cap":        cap if cap > 0 else None,
+                "pct":        round(rem / cap * 100) if cap > 0 else None,
+                "node_count": tier_counts.get(tier, 0),
+            }
+
+        combined_income = 0.0
+        combined_larder = 0.0
+        colony_data = []
+        for c in w.colonies:
+            counts_arr = [sum(1 for a in c.ants if a.type == t) for t in range(4)]
+            army_val   = sum(_val.get(a.type, 0) for a in c.ants if a.type != A_QUEEN)
+            score      = c.food_collected + army_val + max(0, int(c.food))
+            queen      = next((a for a in c.ants if a.type == A_QUEEN), None)
+            queen_hp   = int(queen.hp) if queen else 0
+            larder_inc = LARDER_INCOME * sum(1 for st in w.structures
+                                             if st["colony"] == c.id and st.get("type") == "larder")
+            combined_income += c.income_per_s
+            combined_larder += larder_inc
+            colony_data.append({
+                "id":             c.id,
+                "label":          labels[c.id],
+                "score":          score,
+                "army_value":     army_val,
+                "food":           int(c.food),
+                "food_collected": c.food_collected,
+                "income_per_s":   round(c.income_per_s, 1),
+                "larder_income":  larder_inc,
+                "queen_hp":       queen_hp,
+                "queen_hp_pct":   round(queen_hp / QUEEN_HP * 100) if queen_hp else 0,
+                "queen_alive":    c.alive,
+                "territory_tiles": ter_counts[c.id],
+                "territory_pct":   round(ter_counts[c.id] / (MAP_W * MAP_H) * 100, 1),
+                "counts": {
+                    "workers":  counts_arr[A_WORKER],
+                    "soldiers": counts_arr[A_SOLDIER],
+                    "scouts":   counts_arr[A_SCOUT],
+                    "queen":    counts_arr[A_QUEEN],
+                },
+            })
+
+        scores = [cd["score"] for cd in colony_data]
+        if   scores[0] > scores[1]: leading, lead_margin = "RED",  scores[0] - scores[1]
+        elif scores[1] > scores[0]: leading, lead_margin = "BLUE", scores[1] - scores[0]
+        else:                        leading, lead_margin = "tied", 0
+
+        non_fl_rem     = tier_rem.get("home", 0) + tier_rem.get("approach", 0)
+        worker_income  = max(0.0, combined_income - combined_larder)
+        if worker_income > 0 and TPS > 0:
+            eta_s      = non_fl_rem / worker_income
+            eta_ticks  = round(eta_s * TPS)
+        else:
+            eta_s      = None
+            eta_ticks  = None
+
+        depletion = {
+            "home_approach_remaining": non_fl_rem,
+            "combined_income_per_s":   round(combined_income, 1),
+            "worker_income_per_s":     round(worker_income, 1),
+            "eta_s":    round(eta_s)   if eta_s    is not None else None,
+            "eta_ticks": eta_ticks,
+            "note": (f"~{eta_ticks}t until home+approach food exhausted at {worker_income:.0f}♦/s combined"
+                     if eta_ticks else "income too low to estimate"),
+        }
+
+        return await self._api_cors(web.json_response({
+            "tick":     w.tick,
+            "phase":    w.phase,
+            "elapsed_s": round(time.time() - w.start_time, 1) if w.start_time else 0,
+            "winner":   w.winner,
+            "colonies": colony_data,
+            "leading":  leading,
+            "lead_margin": lead_margin,
+            "food_nodes":  food_nodes,
+            "food_depletion": depletion,
+        }))
 
     async def api_notifications(self, req):
         m = self._get_match_or_default(req)
@@ -3471,6 +3632,8 @@ class Server:
         app.router.add_post("/api/control",                      self.api_control)
         app.router.add_get("/api/state/{colony_id}",             self.api_state)
         app.router.add_get("/api/battle_summary/{colony_id}",   self.api_battle_summary)
+        app.router.add_get("/api/match_status",                  self.api_match_status)
+        app.router.add_post("/api/forfeit",                      self.api_forfeit)
         app.router.add_get("/api/notifications/{colony_id}",     self.api_notifications)
         app.router.add_get("/api/intel_map/{colony_id}",         self.api_intel_map)
         app.router.add_get("/api/directive/{colony_id}",         self.api_directive)
@@ -3487,6 +3650,7 @@ class Server:
         app.router.add_post("/api/matches/{match_id}/forfeit",                      self.api_forfeit)
         app.router.add_get("/api/matches/{match_id}/state/{colony_id}",             self.api_state)
         app.router.add_get("/api/matches/{match_id}/battle_summary/{colony_id}",   self.api_battle_summary)
+        app.router.add_get("/api/matches/{match_id}/match_status",                  self.api_match_status)
         app.router.add_get("/api/matches/{match_id}/notifications/{colony_id}",     self.api_notifications)
         app.router.add_get("/api/matches/{match_id}/intel_map/{colony_id}",         self.api_intel_map)
         app.router.add_get("/api/matches/{match_id}/directive/{colony_id}",         self.api_directive)
