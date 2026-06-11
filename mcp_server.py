@@ -233,6 +233,22 @@ def release_seat(colony_id: int) -> dict:
 
 
 @mcp.tool()
+def forfeit_match(colony_id: int) -> dict:
+    """Forfeit the match, immediately conceding victory to the opponent.
+
+    Requires a seat token (must have joined a seat via join_seat first).
+    Ends the match right away — no queen death required.
+
+    Args:
+        colony_id: Your colony (0=RED, 1=BLUE) — must match your held seat.
+
+    Returns:
+        {"ok": True, "forfeited": colony_id, "winner": opponent_id}
+    """
+    return _post(_match_path(colony_id, "/forfeit"), headers=_auth(colony_id))
+
+
+@mcp.tool()
 def game_control(action: str) -> dict:
     """Send a game control command.
 
@@ -292,8 +308,33 @@ def get_state(colony_id: int) -> dict:
 
 
 @mcp.tool()
-def get_notifications(colony_id: int) -> dict:
-    """Consume and return all pending notifications for a colony (clears the tray on read).
+def get_battle_summary(colony_id: int) -> dict:
+    """Compact real-time battle snapshot — use this during active combat instead of get_state.
+
+    Returns only the fields that matter tick-to-tick:
+    - tick, phase
+    - food, dirt, income_per_s, food_in_transit
+    - counts: {workers, soldiers, scouts, queen}
+    - queen_hp, queen_alive
+    - combat: soldiers_in_siege, enemy_queen_hp, queen_dps_actual, ttk_s, siege_hint
+    - military_summary: {total_soldiers, fighting, patrolling, idle, healthy, wounded, avg_hp_pct}
+    - enemy_sightings: up to 3 most recent (cx, cy, soldiers, total, tick)
+    - advisor: up to 3 current hints
+    - events: last 5 game events
+
+    Omits: units list, food_intel, directive, trigger_log, structures, viable_food/dirt nodes.
+    Call this every decision cycle during battle; use get_state for strategy and setup phases.
+    """
+    return _get(_match_path(colony_id, f"/battle_summary/{colony_id}"))
+
+
+@mcp.tool()
+def get_notifications(colony_id: int, peek: bool = False) -> dict:
+    """Return pending notifications for a colony.
+
+    peek=False (default): consume — clears the tray after reading. Use for normal polling.
+    peek=True: non-destructive read — tray is NOT cleared. Use when you need to check
+      without losing notifications (e.g., between decisions during a battle).
 
     Notification types:
     - structure_complete: {type, x, y} — a building finished
@@ -306,10 +347,13 @@ def get_notifications(colony_id: int) -> dict:
     - priority_food_cleared: {x, y, reason} — your economy.priority_food node depleted
       and was auto-cleared; workers have resumed spreading on their own
 
-    Call this regularly (e.g., every few seconds) to catch high-priority alerts.
-    Notifications disappear once read — if you miss them, check events via get_events.
+    Response includes "consumed": true/false so you know whether the tray was cleared.
     """
-    return _get(_match_path(colony_id, f"/notifications/{colony_id}"))
+    params = {"peek": "1"} if peek else {}
+    path = _match_path(colony_id, f"/notifications/{colony_id}")
+    if params:
+        path = path + "?" + "&".join(f"{k}={v}" for k, v in params.items())
+    return _get(path)
 
 
 @mcp.tool()
@@ -376,6 +420,12 @@ def patch_directive(colony_id: int, patches: dict) -> dict:
     Args:
         colony_id: 0 for RED, 1 for BLUE
         patches: dict of changes to apply. Can use nested format or dot-notation paths.
+
+    NOTE — spawn ratio changes affect new queue entries only. Ants already in the
+    spawn queue will still emerge. If you need immediate effect (e.g. switching from
+    workers to soldiers), call cancel_spawn("worker") first to clear queued workers and
+    refund their reserved food, then patch the ratios. Workers also spawn faster (3 ticks)
+    than soldiers (5 ticks) so equal ratios produce more workers per unit time.
 
     Examples:
         {"military": {"stance": "aggressive", "auto_attack": true}}
@@ -633,6 +683,27 @@ def cancel_spawn(colony_id: int, unit_type: str = "all") -> dict:
     if unit_type not in valid:
         return {"error": f"unit_type must be one of: {sorted(valid)}"}
     return _post(_match_path(colony_id, f"/command/{colony_id}"), {"type": "cancel_spawn", "unit_type": unit_type}, headers=_auth(colony_id))
+
+
+@mcp.tool()
+def redistribute_workers(colony_id: int) -> dict:
+    """Release all worker food-node assignments, forcing workers to re-spread across nodes.
+
+    Use this when workers are clustered on depleted or suboptimal nodes and income
+    has stalled. On the next tick each worker picks a new target based on current
+    saturation levels and proximity — they spread naturally without needing direction.
+
+    Does NOT cancel the spawn queue or affect unit overrides (use cancel_spawn and
+    command_type("worker", "clear") for those).
+
+    Args:
+        colony_id: 0 for RED, 1 for BLUE
+
+    Returns:
+        {"ok": True}
+    """
+    return _post(_match_path(colony_id, f"/command/{colony_id}"),
+                 {"type": "redistribute_workers"}, headers=_auth(colony_id))
 
 
 @mcp.tool()

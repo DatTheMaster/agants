@@ -567,6 +567,10 @@ class Colony:
                     if t == t_int:
                         self.food += cost
                 self.spawn_queue = [e for e in self.spawn_queue if e[0] != t_int]
+        if s.get("redistribute_workers"):
+            for ant in self.ants:
+                if ant.type == A_WORKER:
+                    ant.recruit_target = None
 
     def _apply_legacy_strategy(self, s):
         d = self.directive

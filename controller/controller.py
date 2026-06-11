@@ -517,8 +517,7 @@ async def poller(client: GameClient, ui: UI):
             last_heartbeat = now
         try:
             all_matches = await client.list_matches()
-            ui.matches = [m for m in all_matches
-                          if m.get("phase") == "lobby" and m.get("winner") is None]
+            ui.matches = [m for m in all_matches if not m.get("winner")]
         except Exception as e:
             ui.add_log(f"[poll] matches: {type(e).__name__}: {str(e)[:80]}")
         try:
@@ -556,7 +555,11 @@ def render(ui: UI, client: GameClient, total_height: int = 32) -> Layout:
     if ui.auto_challenge:
         footer_keys = "[a] stop auto   [l] leave   [w] watch   [q] quit"
     elif client.colony_id is not None:
-        footer_keys = "[l] leave   [f] forfeit   [s] start   [w] watch   [q] quit"
+        s = ui.state or {}
+        if s.get("phase") == "running" or s.get("tick", 0) > 0:
+            footer_keys = "[l] leave   [f] forfeit   [w] watch   [q] quit"
+        else:
+            footer_keys = "[s] start   [l] leave   [w] watch   [q] quit"
     else:
         footer_keys = "[r] RED   [b] BLUE   [n] new vs bot   [a] auto-challenge   [w] watch   [↑/↓] select   [q] quit"
     footer = Text(f"{footer_keys}   — {ui.status}", style="dim")
@@ -565,8 +568,67 @@ def render(ui: UI, client: GameClient, total_height: int = 32) -> Layout:
 
 
 def render_matches(ui: UI, client: GameClient) -> Panel:
+    online = Table.grid(padding=(0, 1))
+    online.add_row(Text(f"Online ({len(ui.online)}):", style="bold"))
+    for a in ui.online[:5]:
+        where = a["colony"] or "lobby"
+        style = "dim" if a["colony"] else "yellow"
+        online.add_row(Text(f" {a['agent']:<14} {where:<6} {a['seconds_ago']}s ago", style=style))
+
+    if client.colony_id is not None:
+        # --- live match panel ---
+        s = ui.state or {}
+        cur = next((m for m in ui.matches if m.get("match_id") == client.match_id), None)
+        my_col = client.colony_id
+        opp_col = 1 - my_col
+        opp_name = "?"
+        if cur:
+            seats = cur.get("seats", {})
+            opp_name = seats.get(str(opp_col), {}).get("agent") or "open"
+
+        colony_label = "RED" if my_col == 0 else "BLUE"
+        opp_label    = "BLUE" if my_col == 0 else "RED"
+        colony_style = "red" if my_col == 0 else "blue"
+        opp_style    = "blue" if my_col == 0 else "red"
+
+        info = Text()
+        info.append(f"You: ", style="bold")
+        info.append(f"{client.agent_name}", style=f"bold {colony_style}")
+        info.append(f" ({colony_label})\n", style=colony_style)
+        info.append(f"Opp: ", style="bold")
+        info.append(f"{opp_name}", style=f"bold {opp_style}")
+        info.append(f" ({opp_label})\n", style=opp_style)
+        if client.match_id:
+            info.append(f"Match {client.match_id[:8]}\n", style="dim")
+
+        body = Table.grid()
+        body.add_row(info)
+
+        sightings = s.get("enemy_sightings") or []
+        if sightings:
+            body.add_row(Text("── Enemy sightings ──", style="dim"))
+            for sx, sy, sol, tot, stk in sightings[:4]:
+                age = s.get("tick", 0) - stk
+                body.add_row(Text(f" ({sx},{sy})  {sol}sol/{tot}tot  {age}t ago",
+                                  style="dim" if age > 30 else ""))
+        else:
+            body.add_row(Text("  no enemy sightings yet", style="dim"))
+
+        advisor = s.get("advisor") or []
+        if advisor:
+            body.add_row(Text("── Advisor ──", style="dim"))
+            for hint in advisor[:3]:
+                body.add_row(Text(f" {hint}", no_wrap=True, overflow="ellipsis", style="yellow"))
+
+        body.add_row(Text(""))
+        body.add_row(online)
+        phase = (cur or {}).get("phase", "?")
+        return Panel(body, title=f"Match  [{phase}]", border_style=colony_style)
+
+    # --- lobby list ---
     t = Table.grid(padding=(0, 1))
-    for i, m in enumerate(ui.matches):
+    lobby_matches = [m for m in ui.matches if m.get("phase") == "lobby"]
+    for i, m in enumerate(lobby_matches):
         phase = m.get("phase", "?")
         if m.get("winner"):
             dot, style = "○", "dim"
@@ -575,27 +637,18 @@ def render_matches(ui: UI, client: GameClient) -> Panel:
         else:
             dot, style = "◌", "yellow"
         seats = m.get("seats", {})
-        red = seats.get("0", {}).get("agent") or "open"
+        red  = seats.get("0", {}).get("agent") or "open"
         blue = seats.get("1", {}).get("agent") or "open"
-        mid = m["match_id"][:8]
+        mid  = m["match_id"][:8]
         marker = "▶ " if i == ui.selected else "  "
         line = Text(marker, style="bold cyan" if i == ui.selected else "")
         line.append(f"{dot} ", style=style)
         line.append(f"{mid}  ", style="bold" if i == ui.selected else "")
         line.append(f"t{m.get('tick',0)} R:{red} B:{blue}", style="dim")
         t.add_row(line)
-    if not ui.matches:
+    if not lobby_matches:
         t.add_row(Text("(no open lobbies — press 'n' to create one)", style="dim"))
-
-    online = Table.grid(padding=(0, 1))
-    online.add_row(Text(f"Online agents ({len(ui.online)}):", style="bold"))
-    for a in ui.online[:8]:
-        where = a["colony"] or "lobby"
-        style = "dim" if a["colony"] else "yellow"
-        online.add_row(Text(f" {a['agent']:<14} {where:<6} {a['seconds_ago']}s ago", style=style))
-
-    panel_title = "Match" if client.colony_id is not None else "Open Lobbies"
-    return Panel(Group(t, Text(""), online), title=panel_title, border_style="grey50")
+    return Panel(Group(t, Text(""), online), title="Open Lobbies", border_style="grey50")
 
 
 def render_colony(ui: UI, client: GameClient) -> Panel:
@@ -918,6 +971,13 @@ async def run_tui(cfg: dict):
         while ui.running:
             while not key_queue.empty():
                 on_key(key_queue.get_nowait())
+            # Auto-start agent loop when opponent launches the game remotely
+            if (client.colony_id is not None and not ui.auto_challenge and
+                    (agent_task is None or agent_task.done())):
+                cur = next((m for m in ui.matches if m.get("match_id") == client.match_id), None)
+                if cur and cur.get("phase") == "running":
+                    asyncio.create_task(start_agent())
+                    ui.add_log("opponent started the game — agent loop launched")
             try:
                 _redraw()
             except Exception as e:

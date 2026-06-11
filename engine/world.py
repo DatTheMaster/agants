@@ -546,18 +546,34 @@ class World:
                     reserve_floor = sp.get("reserve_food", 150) + sum(
                         c.directive["economy"].get("upgrade_reserve", {}).values())
 
-                    r = random.random()
-                    if total_sh == 0:
-                        t = None
-                    elif worker_capped:
-                        non_w = sshare + solshare
-                        t = A_SCOUT if (r < sshare / max(non_w, 0.01)) else A_SOLDIER
-                    elif r < wshare:
-                        t = A_WORKER
-                    elif r < wshare + sshare:
-                        t = A_SCOUT
-                    else:
-                        t = A_SOLDIER
+                    # Enforce spawn.{type}.min counts: if any type is below its
+                    # minimum (ants + queued), prioritize it regardless of ratios.
+                    _TYPE_KEYS = [(A_WORKER, "worker"), (A_SCOUT, "scout"), (A_SOLDIER, "soldier")]
+                    _PAUSED = {A_WORKER: w_paused, A_SCOUT: sc_paused, A_SOLDIER: sol_paused}
+                    t = None
+                    for _tc, _tk in _TYPE_KEYS:
+                        if _PAUSED[_tc]: continue
+                        _min = sp[_tk].get("min", 0)
+                        if not _min: continue
+                        _cur = sum(1 for a in c.ants if a.type == _tc)
+                        _queued = sum(1 for qt, _, _ in c.spawn_queue if qt == _tc)
+                        if _cur + _queued < _min:
+                            t = _tc
+                            break
+
+                    if t is None:
+                        r = random.random()
+                        if total_sh == 0:
+                            t = None
+                        elif worker_capped:
+                            non_w = sshare + solshare
+                            t = A_SCOUT if (r < sshare / max(non_w, 0.01)) else A_SOLDIER
+                        elif r < wshare:
+                            t = A_WORKER
+                        elif r < wshare + sshare:
+                            t = A_SCOUT
+                        else:
+                            t = A_SOLDIER
 
                     if t is not None:
                         cost = c.SPAWN_COST[t]
@@ -617,7 +633,8 @@ class World:
                 outcome = ("draw" if self.winner == "draw"
                            else "victory" if self.winner == c.id else "defeat")
                 c.push_notification("game_over", {"winner": self.winner, "outcome": outcome,
-                                                  "reason": "queen_death"}, tick=self.tick)
+                                                  "reason": "queen_death",
+                                                  "feedback_prompt": "Game over! Call submit_feedback with your observations — bugs, balance issues, missing tools, or anything that made decisions harder."}, tick=self.tick)
 
         if self.winner is None and self.start_time:
             elapsed = time.time() - self.start_time
@@ -635,6 +652,11 @@ class World:
                 sc_str = f"RED {scores[0]} vs BLUE {scores[1]}"
                 for c in self.colonies:
                     c.push_event(f"STALEMATE — {winner_name} wins by score ({sc_str})")
+                    outcome = ("draw" if self.winner == "draw"
+                               else "victory" if self.winner == c.id else "defeat")
+                    c.push_notification("game_over", {"winner": self.winner, "outcome": outcome,
+                                                      "reason": "stalemate", "scores": scores,
+                                                      "feedback_prompt": "Game over! Call submit_feedback with your observations — bugs, balance issues, missing tools, or anything that made decisions harder."}, tick=self.tick)
                 if self.logger: self.logger.finish(self.winner)
 
     # ── Ant Behavior ──
@@ -1414,7 +1436,7 @@ class World:
         # A* first step: routes around wall lines (re-planned every tick so
         # destroyed walls are picked up immediately). Falls back to greedy if
         # no path is found or the node budget is exceeded.
-        step = self._astar_step(ant.x, ant.y, tx, ty)
+        step = self._astar_step(ant.x, ant.y, tx, ty, max_nodes=600)
         if step is not None:
             nx, ny = step
             if self._try_move(ant, nx, ny):

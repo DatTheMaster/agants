@@ -1567,6 +1567,7 @@ class Match:
         )
         self._tick_times: deque = deque(maxlen=20)  # monotonic timestamps of recent steps
         self.match_brains: dict[int, str] | None = None  # per-match brain type overrides
+        self.finished_seats: dict = {}  # snapshot of mcp_seats at game end
 
     # ── Serialization ──────────────────────────────────────────────────────────
 
@@ -1911,6 +1912,8 @@ class Server:
                 await self._broadcast(json.dumps(state), m=m)
             # Autosave every SAVE_INTERVAL ticks; save+record on game over
             if m.world.winner is not None and tick > 0:
+                m.finished_seats = {k: v for k, v in m.world.mcp_seats.items()}
+                m.world.phase = "finished"
                 self._save_result(m)
                 self._delete_save(m)
                 m._sim_executor.shutdown(wait=False)
@@ -2326,12 +2329,40 @@ class Server:
             seats[str(k)] = {"agent": agent, "brain_type": brain.get("type", "bot")}
         return await self._api_cors(web.json_response({"seats": seats}))
 
+    async def api_match_history(self, req):
+        """Return completed match records from the last 24 hours (survives restarts)."""
+        cutoff = time.time() - 86400
+        records = []
+        try:
+            fnames = os.listdir(self.RESULTS_DIR)
+        except FileNotFoundError:
+            fnames = []
+        for fname in fnames:
+            if not fname.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(self.RESULTS_DIR, fname)) as f:
+                    rec = json.load(f)
+                if rec.get("ended_at", 0) >= cutoff:
+                    rec["phase"] = "finished"
+                    rec["tick"] = rec.get("ticks", 0)
+                    rec["seats"] = {
+                        "0": {"agent": rec.get("red_agent"), "brain_type": "mcp"},
+                        "1": {"agent": rec.get("blue_agent"), "brain_type": "mcp"},
+                    }
+                    records.append(rec)
+            except Exception:
+                pass
+        records.sort(key=lambda r: r.get("ended_at", 0), reverse=True)
+        return await self._api_cors(web.json_response({"matches": records}))
+
     async def api_matches(self, req):
         """Match discovery endpoint — lists all games with seat availability."""
         result = []
         for m in self.matches.values():
             seats = {}
-            for k, agent in m.world.mcp_seats.items():
+            seat_src = m.finished_seats if m.world.winner is not None else m.world.mcp_seats
+            for k, agent in seat_src.items():
                 brain = RED_BRAIN if k == 0 else BLUE_BRAIN
                 seats[str(k)] = {"agent": agent, "brain_type": brain.get("type", "bot")}
             result.append({
@@ -2419,6 +2450,8 @@ class Server:
         if not agent:
             return await self._api_cors(web.json_response(
                 {"error": "agent_name is required"}, status=400))
+        if m.world.winner is not None:
+            return await self._api_cors(web.json_response({"error": "match has ended"}, status=410))
         if m.world.mcp_seats.get(cid) is not None:
             return await self._api_cors(web.json_response({"error": "seat occupied", "agent": m.world.mcp_seats[cid]}, status=409))
         m.world.mcp_seats[cid] = agent
@@ -2721,6 +2754,29 @@ class Server:
         self._touch_presence_from_req(req, m)
         return await self._api_cors(web.json_response(self._build_colony_state(cid, m)))
 
+    async def api_battle_summary(self, req):
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
+        cid = int(req.match_info["colony_id"])
+        if cid not in (0, 1):
+            return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
+        self._touch_presence_from_req(req, m)
+        s = self._build_colony_state(cid, m)
+        summary = {
+            "tick": s["tick"], "phase": s["phase"],
+            "food": s["food"], "dirt": s["dirt"],
+            "income_per_s": s["income_per_s"], "food_in_transit": s["food_in_transit"],
+            "counts": s["counts"],
+            "queen_hp": s["queen_hp"], "queen_alive": s["queen_alive"],
+            "combat": s["combat"],
+            "military_summary": s["military_summary"],
+            "enemy_sightings": s["enemy_sightings"][:3],
+            "advisor": s["advisor"][:3],
+            "events": s["events"][:5],
+        }
+        return await self._api_cors(web.json_response(summary))
+
     async def api_notifications(self, req):
         m = self._get_match_or_default(req)
         if m is None:
@@ -2731,8 +2787,10 @@ class Server:
         self._touch_presence_from_req(req, m)
         if not m.world.colonies:
             return await self._api_cors(web.json_response({"notifications": []}))
-        notifs = m.world.colonies[cid].pop_notifications()
-        return await self._api_cors(web.json_response({"notifications": notifs, "count": len(notifs)}))
+        peek = req.rel_url.query.get("peek") in ("1", "true")
+        colony = m.world.colonies[cid]
+        notifs = list(colony.notifications) if peek else colony.pop_notifications()
+        return await self._api_cors(web.json_response({"notifications": notifs, "count": len(notifs), "consumed": not peek}))
 
     async def api_intel_map(self, req):
         m = self._get_match_or_default(req)
@@ -3024,6 +3082,9 @@ class Server:
             results = [self._apply_unit_command(cid, c, m) for c in cmds]
             errors = [r for r in results if "error" in r]
             return await self._api_cors(web.json_response({"ok": len(results) - len(errors), "errors": errors}))
+        elif cmd_type == "redistribute_workers":
+            m._pending_strategies.append((cid, {"redistribute_workers": True}))
+            return await self._api_cors(web.json_response({"ok": True}))
         else:
             return await self._api_cors(web.json_response({"error": f"unknown command '{cmd_type}'"}, status=400))
         return await self._api_cors(web.json_response({"ok": True}))
@@ -3139,8 +3200,9 @@ class Server:
         m = self.matches.get(match_id)
         if m is None:
             return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
+        seat_src = m.finished_seats if m.world.winner is not None else m.world.mcp_seats
         seats = {str(k): {"agent": v, "brain_type": _brain_for_match(m, k).get("type", "bot")}
-                 for k, v in m.world.mcp_seats.items()}
+                 for k, v in seat_src.items()}
         return await self._api_cors(web.json_response({
             "match_id":   m.match_id,
             "ws_url":     PUBLIC_URL.replace("https://", "wss://").replace("http://", "ws://") + f"/ws/{m.match_id}",
@@ -3396,6 +3458,7 @@ class Server:
         app.router.add_get("/api/agents/online",     self.api_agents_online)
         app.router.add_post("/api/agents/heartbeat", self.api_heartbeat)
         # REST API — match management
+        app.router.add_get( "/api/history",               self.api_match_history)
         app.router.add_get( "/api/matches",              self.api_matches)
         app.router.add_post("/api/matches",              self.api_create_match)
         app.router.add_get(   "/api/matches/{match_id}",   self.api_get_match)
@@ -3407,6 +3470,7 @@ class Server:
         app.router.add_delete("/api/seat/{colony_id}",           self.api_release_seat)
         app.router.add_post("/api/control",                      self.api_control)
         app.router.add_get("/api/state/{colony_id}",             self.api_state)
+        app.router.add_get("/api/battle_summary/{colony_id}",   self.api_battle_summary)
         app.router.add_get("/api/notifications/{colony_id}",     self.api_notifications)
         app.router.add_get("/api/intel_map/{colony_id}",         self.api_intel_map)
         app.router.add_get("/api/directive/{colony_id}",         self.api_directive)
@@ -3422,6 +3486,7 @@ class Server:
         app.router.add_post("/api/matches/{match_id}/control",                      self.api_control)
         app.router.add_post("/api/matches/{match_id}/forfeit",                      self.api_forfeit)
         app.router.add_get("/api/matches/{match_id}/state/{colony_id}",             self.api_state)
+        app.router.add_get("/api/matches/{match_id}/battle_summary/{colony_id}",   self.api_battle_summary)
         app.router.add_get("/api/matches/{match_id}/notifications/{colony_id}",     self.api_notifications)
         app.router.add_get("/api/matches/{match_id}/intel_map/{colony_id}",         self.api_intel_map)
         app.router.add_get("/api/matches/{match_id}/directive/{colony_id}",         self.api_directive)

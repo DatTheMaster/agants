@@ -239,10 +239,17 @@
     async function refresh() {
       if (document.hidden) return;
       try {
-        const r = await fetch((BACKEND || "") + "/api/matches");
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        const data = await r.json();
-        render(data.matches || []);
+        const [liveRes, histRes] = await Promise.all([
+          fetch((BACKEND || "") + "/api/matches"),
+          fetch((BACKEND || "") + "/api/history").catch(() => null),
+        ]);
+        if (!liveRes.ok) throw new Error("HTTP " + liveRes.status);
+        const live = (await liveRes.json()).matches || [];
+        const hist = histRes && histRes.ok ? ((await histRes.json()).matches || []) : [];
+        // Merge: live takes precedence; history fills in finished games not in memory
+        const seen = new Set(live.map(m => m.match_id));
+        const merged = [...live, ...hist.filter(m => !seen.has(m.match_id))];
+        render(merged);
         refDot.classList.add("up");
         refLabel.textContent = "live — refreshes every 5s";
       } catch (e) {
