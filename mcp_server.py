@@ -2,11 +2,13 @@
 Agants MCP Server
 
 Exposes MCP tools for AI agents to control a colony in a running Agants game.
-Run alongside server.py (which must be running on localhost:8083).
 
 Usage:
   python3 mcp_server.py               # stdio transport (for Claude Code / claude CLI)
-  python3 mcp_server.py --port 8084   # HTTP+SSE transport
+  python3 mcp_server.py --port 8084   # HTTP+SSE transport (remote agents)
+  python3 mcp_server.py --game-url http://localhost:8083  # local dev override
+
+Game server URL resolves as: --game-url > AGANTS_GAME_URL env var > https://api.datthemaster.com
 
 Seat discovery: agents can call list_seats() to see open seats, then join_seat() to claim one.
 Two separate agents can each claim a different colony (RED=0, BLUE=1).
@@ -19,7 +21,8 @@ import argparse
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-BASE_URL = "http://localhost:8083/api"
+_DEFAULT_GAME_URL = os.environ.get("AGANTS_GAME_URL", "https://api.datthemaster.com").rstrip("/")
+BASE_URL = f"{_DEFAULT_GAME_URL}/api"
 AUTH_URL = os.environ.get("AGANTS_AUTH_URL", "").rstrip("/")
 
 # Tokens and match_id stored after join_seat — keyed by colony_id.
@@ -731,8 +734,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Agants MCP Server")
     parser.add_argument("--port", type=int, default=None,
                         help="Run HTTP+SSE transport on this port (default: stdio)")
-    parser.add_argument("--game-url", default="http://localhost:8083",
-                        help="Game server base URL (default: http://localhost:8083)")
+    parser.add_argument("--game-url", default=_DEFAULT_GAME_URL,
+                        help=f"Game server base URL (default: {_DEFAULT_GAME_URL})")
     args = parser.parse_args()
 
     BASE_URL = f"{args.game_url}/api"
