@@ -80,7 +80,7 @@ TRIGGERS = [
 ]
 
 
-def run(colony_id: int, name: str, api_key: str):
+def run(colony_id: int, name: str, api_key: str = ""):
     print(f"[greedy] connecting to {SERVER} as {name!r} (colony {colony_id})")
 
     with AgantClient(SERVER, api_key) as client:
@@ -155,9 +155,6 @@ def main():
                         help="API key (or set AGANTS_API_KEY env var)")
     parser.add_argument("--server", default=SERVER, help="Server base URL")
     args = parser.parse_args()
-
-    if not args.key:
-        parser.error("API key required — pass --key or set AGANTS_API_KEY")
 
     global SERVER
     SERVER = args.server

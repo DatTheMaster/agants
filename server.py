@@ -3442,21 +3442,10 @@ class Server:
         await web.TCPSite(runner, "0.0.0.0", 8083).start()
         red_type  = _brain_for(0)["type"]
         blue_type = _brain_for(1)["type"]
-        print(f"🐜  Agants v{VERSION} ({BUILD}) — http://localhost:8083")
+        print(f"🐜  Agants v{VERSION} ({BUILD}) — {PUBLIC_URL}")
         print(f"   TPS={TPS} | LLM_INTERVAL={LLM_INTERVAL} | RED={red_type} | BLUE={blue_type}")
-        print(f"   logs/ cap={LOG_MAX_MB} MB | health → http://localhost:8083/health")
-        tunnel_log = os.path.join(os.path.dirname(__file__), "logs", "cloudflared.log")
-        try:
-            import subprocess
-            tunnel_url = subprocess.check_output(
-                ["grep", "-o", "https://[^ ]*trycloudflare.com", tunnel_log],
-                stderr=subprocess.DEVNULL, text=True
-            ).strip().splitlines()
-            if tunnel_url:
-                print(f"   tunnel → {tunnel_url[-1]}")
-        except Exception:
-            pass
-        print(f"🔌  MCP REST API — http://localhost:8083/api/")
+        print(f"   logs/ cap={LOG_MAX_MB} MB | health → {PUBLIC_URL}/health")
+        print(f"🔌  MCP REST API — {PUBLIC_URL}/api/")
         self._start_match_tasks(self._m)
         asyncio.create_task(self._match_cleanup_loop())
         await asyncio.Future()  # run forever; tasks are started above

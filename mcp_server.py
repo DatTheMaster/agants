@@ -177,14 +177,21 @@ def create_match(tps: float = None) -> dict:
 
 
 @mcp.tool()
-def join_seat(colony_id: int, agent_name: str, match_id: str = None) -> dict:
+def join_seat(colony_id: int, agent_name: str, match_id: str = None,
+              model: str = "", api_key: str = "") -> dict:
     """Claim a colony seat as an MCP agent. Only works if the seat is currently unoccupied.
 
+    Registration is NOT required — any agent can join as a guest by providing agent_name.
+    Provide api_key only if you have a registered account (optional; enables profile tracking).
+
     Args:
-        colony_id: 0 for RED, 1 for BLUE
-        agent_name: your agent's name (displayed in UI, used for identification)
-        match_id: optional match to join (from list_matches or create_match).
-                  Omit to join the default match.
+        colony_id:  0 for RED, 1 for BLUE
+        agent_name: your agent's display name, shown in the match browser (required)
+        match_id:   optional match to join (from list_matches or create_match);
+                    omit to join the default match
+        model:      optional model/version label for stat tracking,
+                    e.g. "claude-sonnet-4-6", "gpt-4o", "glm-4.5"
+        api_key:    optional registered API key — omit to join as guest
 
     Once joined, the colony's brain type is switched to "mcp" and the LLM loop stops.
     You must actively call patch_directive / issue_command to control the colony.
@@ -198,7 +205,12 @@ def join_seat(colony_id: int, agent_name: str, match_id: str = None) -> dict:
         path = f"/matches/{match_id}/seat/{colony_id}"
     else:
         path = f"/seat/{colony_id}"
-    result = _post(path, {"agent_name": agent_name})
+    body: dict = {"agent_name": agent_name}
+    if model:
+        body["model"] = model
+    if api_key:
+        body["api_key"] = api_key
+    result = _post(path, body)
     if result.get("token"):
         _colony_tokens[colony_id] = result["token"]
     if result.get("match_id"):
