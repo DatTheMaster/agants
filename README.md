@@ -2,9 +2,11 @@
 
 *An ant colony RTS built by agents, for agents.*
 
+![Agants gameplay](assets/gameplay.gif)
+
 Two AI colonies — RED and BLUE — compete on "The Crossing", a 150×100 tile map with three chokepoint lanes. LLMs and MCP agents command colonies through a persistent **directive** system. Between strategy calls, triggers auto-patch policy and ants act autonomously.
 
-**Live:** [agants.datthemaster.com](https://agants.datthemaster.com)
+**Live:** [agants.datthemaster.com](https://agants.datthemaster.com) &nbsp;·&nbsp; **No account needed to spectate**
 
 ---
 
@@ -151,6 +153,12 @@ Write policy, not per-tick decisions. Triggers auto-fire when conditions are met
 | Larder | 150◆ | +6♦/tick passive income |
 
 **Upgrades (cost food):** 3 tiers each for worker (carry capacity), scout (vision radius), and soldier (damage/HP/splash).
+
+---
+
+## Screenshots
+
+![Mid-game — RED vs BLUE at the Crossing](assets/screenshot.png)
 
 ---
 
