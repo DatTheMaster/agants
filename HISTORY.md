@@ -64,6 +64,60 @@ Newest sessions first where possible. See server.py header changelog for the ter
   Any code that iterates `m.tokens.items()` and compares values as token strings will silently
   fail (always miss). Always use `m.tokens.get(token)` for lookups.
 
+**Session 23 changes (2026-06-10 — Phase 4 completion + domain):**
+- **`datthemaster.com` domain live** — `api.datthemaster.com` → game server via CF Zero Trust named tunnel (stable across restarts). `agants.datthemaster.com` → CF Pages frontend.
+- **`cloudflared-agants.service`** updated to `cloudflared tunnel run --token $TOKEN`; `AGANTS_TUNNEL_TOKEN` in `.env`. `deploy.sh --pages` uses hardcoded stable URL.
+- **Auth worker activated** — D1 database `agants` (id `1b4cf1d4-fad5-4228-b9cc-b6e0347c41e2`), schema applied, `INTERNAL_SECRET` set, deployed to `agants-auth.hermesagent424.workers.dev`. Game server + CF Pages wired via `AGANTS_AUTH_URL` + `AGANTS_AUTH_SECRET` in `.env`.
+- **`agants/client.py`** — `AgantClient(url, api_key)` typed SDK: `join_seat`, `release_seat`, `get_state`, `get_directive`, `patch_directive`, `send_command`, `wait_for_tick`, `health`, `list_matches`, `get_notifications`, `send_chat`, `start_game`; context manager for teardown.
+- **`examples/greedy.py`** — economy-first: 65% workers, larder at tick 120, push at tick 400.
+- **`examples/rush.py`** — early aggression: 55% soldiers, rally at midfield, wave-release trigger.
+- **`QUICKSTART.md`** — full zero-to-agent doc: key → install → run → watch.
+- **"claude" CF API token** — tunnel + D1 + Workers Scripts + Pages scope. Stored as `CLOUDFLARE_API_TOKEN` in `.env` and `~/.config/.wrangler/token`.
+
+**Sessions 14–21 changes (archived from CLAUDE.md):**
+
+*Session 21 (Phase 4.6 — frontend redesign):*
+- `frontend/landing.html` — public landing page with ant-trail animation, live stats, live minimap canvas (WebSocket, 4px/tile). Design: IBM Plex Mono, warm near-black, hairline borders, colony red/blue + amber accents.
+- `frontend/register.html` redesigned ("credential issuance") — Enter-to-submit, decrypt-style key reveal. Fixed latent bug: `style.display=""` against `display:none` rule.
+- `frontend/me.html` redesigned ("service record") — W/L/D scoreboard, win-rate bar, key toggle.
+- `frontend/matches.html` — match registry with status dots, seat names, brain tags, 5s refresh.
+- Server: `/api/matches` includes `winner`; `/health` wrapped in `_api_cors`.
+
+*Session 20 (Phase 4.4–4.5 — health endpoint + auth worker):*
+- `GET /health` — `{status, version, uptime_s, active_matches, connected_clients, memory_mb, matches[...]}`. `Match._tick_times` deque drives `tps_actual`.
+- Log rotation: `Server._rotate_logs()` at startup; keeps `logs/` under `LOG_MAX_MB` (default 50).
+- `auth-worker/` — CF Workers + D1: `POST /register`, `GET /me`, `POST /validate`, `POST /hide-record`, `POST /match`. `/validate` + `/match` gated by `X-Internal-Secret`.
+- Auth fully optional — `AGANTS_AUTH_URL` unset = open-access.
+
+*Session 19 (Phase 4.2 — systemd + cloudflared deployment):*
+- `agants.service` / `cloudflared-agants.service` — systemd user units; logs to `logs/server.log`.
+- `deploy.sh` modes: default (sync+restart), `--full`, `--install`, `--pages`, `--url`.
+- `frontend/functions/_middleware.js` — CF Pages Function injecting `AGANTS_BACKEND`/`AGANTS_ADMIN` from env vars at request time.
+
+*Session 18 (Phase 4.1 — frontend directory + chat):*
+- `frontend/` directory; `server.py` serves from there. `config.js`: `AGANTS_BACKEND` + `AGANTS_ADMIN`.
+- `wrangler.toml` + `package.json` — CF Pages deploy target. `wss://` auto-detection.
+- Event Log → Chat: `#chat-section`, `POST /api/chat`, `send_chat()` MCP tool.
+- Settings gear hidden for public (`window.AGANTS_ADMIN`). Unit collision avoidance (`_ant_pos` set).
+
+*Session 17 (Phase 3.5 — RECALL + alerts):*
+- RECALL: `military.retreat=true` soldiers walk home → radius-6 perimeter (8 slots by `ant.id % 8`).
+- `check_alerts()`: evaluates `alerts[]` each tick; `sampling=True` = edge-triggered, `False` = level (30t rate).
+- `_build_ns()` shared namespace builder for both `eval_triggers` and `check_alerts`.
+
+*Sessions 15–16 (Phase 3.1–3.4 — engine split + multi-match architecture):*
+- `server.py` wired to `engine/` (constants/colony/world); duplicate code removed (5100→2600 lines).
+- `Match` class: per-match state container (`world`, `clients`, `tokens`, `_pending_strategies`, etc.). `Server.matches: dict[str, Match]`. Backward compat via properties forwarding to `self._m`.
+- Per-match `tick_loop(m)` + `llm_loop_for(m, cid)` + `_sim_executor`; `Match.tps` per-match tick rate.
+- `POST /api/matches` creates new matches; match-scoped REST routes + `GET /ws/{match_id}`.
+- Bearer token auth: `POST /api/seat/{id}` issues UUID token; write endpoints gated by `Authorization: Bearer`; revoked on `release_seat` / reset / re-join.
+
+*Session 14 (v0.1.0 — public release):*
+- Project renamed to "Agants"; `VERSION = "0.1.0"` semantic.
+- engine/ split: `constants.py`, `colony.py` (Ant/DirectiveEngine/Colony), `world.py` (World/Predator/gen_terrain), `__init__.py`.
+- `bot.py` — `update_bot_strategy(world, colony_id)` extracted.
+- `README.md` rewritten public-facing; `ROADMAP.md` from TRANSITION.md + MMO_PLAN.md; `DEVELOPMENT.md`, `CONTRIBUTING.md`, `.env.example` created.
+
 **Session 22 changes (2026-06-10 — rename sweep + CF Pages deployment + routing):**
 - **Rename sweep complete** — all remaining "swarm-wars" refs removed from service units,
   hermes config (`~/.hermes/config.yaml` key renamed), tunnel-url.sh, deploy.sh, docs.
