@@ -44,7 +44,7 @@ def load_config() -> dict | None:
 def setup_wizard() -> None:
     print("Agants Controller setup\n")
     game_url = input("Game server URL [https://api.datthemaster.com]: ").strip() or "https://api.datthemaster.com"
-    api_key = input("Agants API key (from agants.datthemaster.com/register.html): ").strip()
+    api_key = input("Agants API key (optional — leave blank to join as guest): ").strip()
     base_url = input("LLM base URL [https://api.openai.com/v1]: ").strip() or "https://api.openai.com/v1"
     llm_key = input("LLM API key: ").strip()
     model = input("Model [gpt-4o]: ").strip() or "gpt-4o"
@@ -63,7 +63,7 @@ def setup_wizard() -> None:
 # --------------------------------------------------------------------------- #
 
 class GameClient:
-    def __init__(self, base: str, api_key: str):
+    def __init__(self, base: str, api_key: str = ""):
         self.base = base.rstrip("/")
         self.api_key = api_key
         self.http = httpx.AsyncClient(timeout=15.0)
@@ -122,7 +122,12 @@ class GameClient:
     async def join(self, match_id: str | None, colony_id: int, name: str = "agent") -> dict:
         self.match_id = match_id
         path = self._mpath(f"/seat/{colony_id}")
-        r = await self.http.post(f"{self.base}{path}", json={"agent_name": name, "api_key": self.api_key})
+        body: dict = {"agent_name": name}
+        if self.api_key:
+            body["api_key"] = self.api_key
+        if hasattr(self, "model_label") and self.model_label:
+            body["model"] = self.model_label
+        r = await self.http.post(f"{self.base}{path}", json=body)
         r.raise_for_status()
         data = r.json()
         self.token = data["token"]
@@ -660,6 +665,7 @@ async def run_tui(cfg: dict):
     llm = OpenAI(base_url=cfg["llm"]["base_url"],
                  api_key=cfg["llm"].get("api_key") or "no-llm-key-set")
     model = cfg["llm"]["model"]
+    client.model_label = model  # sent on join_seat for stat tracking
     ui = UI()
     loop = asyncio.get_event_loop()
     agent_task: asyncio.Task | None = None

@@ -2401,19 +2401,24 @@ class Server:
             body = await req.json()
         except Exception:
             body = {}
-        agent = body.get("agent_name", f"MCP-{cid}")
-        # Auth: if AGANTS_AUTH_URL is set, api_key is required
+        agent = body.get("agent_name") or body.get("name") or ""
+        model = body.get("model", "")  # optional — stored for stat tracking
+        # Auth: if AGANTS_AUTH_URL is set AND api_key is provided, validate it.
+        # Guests may omit api_key entirely — registration is optional.
         user_id = None
         api_key = body.get("api_key", "")
-        if AGANTS_AUTH_URL:
+        if AGANTS_AUTH_URL and api_key:
             user = await self._validate_api_key(api_key)
             if not user:
                 return await self._api_cors(web.json_response(
-                    {"error": "invalid or missing api_key — register at /register"}, status=401))
+                    {"error": "invalid api_key — check key or omit to join as guest"}, status=401))
             user_id = user["id"]
             agent   = user.get("username", agent)  # prefer registered name
         elif api_key:
             user_id = api_key[:8]  # stable key for dedup even without auth
+        if not agent:
+            return await self._api_cors(web.json_response(
+                {"error": "agent_name is required"}, status=400))
         if m.world.mcp_seats.get(cid) is not None:
             return await self._api_cors(web.json_response({"error": "seat occupied", "agent": m.world.mcp_seats[cid]}, status=409))
         m.world.mcp_seats[cid] = agent
@@ -2421,11 +2426,11 @@ class Server:
         _save_config({key: {"type": "mcp", "agent": agent}})
         self._revoke_colony_token(cid, m)
         token = str(uuid.uuid4())
-        m.tokens[token] = {"colony_id": cid, "agent": agent, "user_id": user_id}
+        m.tokens[token] = {"colony_id": cid, "agent": agent, "user_id": user_id, "model": model}
         self._touch_presence(token, m, cid)
-        await self._broadcast(json.dumps({"type": "seat_joined", "colony_id": cid, "agent": agent}), m=m)
+        await self._broadcast(json.dumps({"type": "seat_joined", "colony_id": cid, "agent": agent, "model": model}), m=m)
         return await self._api_cors(web.json_response({
-            "ok": True, "colony_id": cid, "agent": agent,
+            "ok": True, "colony_id": cid, "agent": agent, "model": model,
             "token": token, "match_id": m.match_id,
         }))
 

@@ -3,14 +3,18 @@ Agants Python client — thin wrapper around the Agants REST API.
 
 Requires: pip install requests
 
-Quickstart:
+Quickstart (guest — no registration needed):
     from agants import AgantClient
 
-    with AgantClient("https://api.datthemaster.com", api_key="your-key") as client:
+    with AgantClient("https://api.datthemaster.com") as client:
         client.join_seat(0, name="my-agent")
         client.patch_directive({"spawn": {"worker": {"target_ratio": 0.6}}})
         state = client.wait_for_tick(50)
         print(state["tick"], state["colony"]["food"])
+
+With a registered account (tracks win/loss history):
+    with AgantClient("https://api.datthemaster.com", api_key="your-key") as client:
+        ...
 """
 
 from __future__ import annotations
@@ -46,7 +50,7 @@ class AgantClient:
     def __init__(
         self,
         url: str,
-        api_key: str,
+        api_key: str = "",
         *,
         match_id: str | None = None,
         timeout: float = 10.0,
@@ -102,18 +106,24 @@ class AgantClient:
     # Seat management                                                      #
     # ------------------------------------------------------------------ #
 
-    def join_seat(self, colony_id: int, name: str) -> dict:
+    def join_seat(self, colony_id: int, name: str, *, model: str = "") -> dict:
         """
         Claim a colony seat.  Must be called before any write operation.
 
         Args:
             colony_id: 0 = RED, 1 = BLUE
-            name:      Display name shown in the match browser.
+            name:      Display name shown in the match browser (required).
+            model:     Optional model/agent type label, e.g. "claude-sonnet-4-6".
 
         Returns the seat response dict; also stores the bearer token internally.
         """
         path = self._match_path(f"/seat/{colony_id}")
-        result = self._post(path, json={"name": name, "api_key": self._api_key})
+        body: dict = {"agent_name": name}
+        if model:
+            body["model"] = model
+        if self._api_key:
+            body["api_key"] = self._api_key
+        result = self._post(path, json=body)
         self._token = result["token"]
         self._colony_id = colony_id
         if "match_id" in result:
