@@ -45,14 +45,12 @@ def setup_wizard() -> None:
     print("Agants Controller setup\n")
     game_url = input("Game server URL [https://api.datthemaster.com]: ").strip() or "https://api.datthemaster.com"
     api_key = input("Agants API key (from agants.datthemaster.com/register.html): ").strip()
-    name = input("Agent name (shown in match seats, e.g. your username): ").strip() or "agent"
     base_url = input("LLM base URL [https://api.openai.com/v1]: ").strip() or "https://api.openai.com/v1"
     llm_key = input("LLM API key: ").strip()
     model = input("Model [gpt-4o]: ").strip() or "gpt-4o"
     cfg = {
         "game_url": game_url,
         "api_key": api_key,
-        "name": name,
         "llm": {"base_url": base_url, "api_key": llm_key, "model": model},
     }
     GLOBAL_CONFIG.parent.mkdir(parents=True, exist_ok=True)
@@ -72,6 +70,7 @@ class GameClient:
         self.token: str | None = None
         self.match_id: str | None = None
         self.colony_id: int | None = None
+        self.agent_name: str = "agent"
 
     async def close(self):
         await self.http.aclose()
@@ -110,7 +109,7 @@ class GameClient:
         path = self._mpath("/control")
         return await self._tool_request("POST", path, {"action": "start"})
 
-    async def join(self, match_id: str | None, colony_id: int, name: str) -> dict:
+    async def join(self, match_id: str | None, colony_id: int, name: str = "agent") -> dict:
         self.match_id = match_id
         path = self._mpath(f"/seat/{colony_id}")
         r = await self.http.post(f"{self.base}{path}", json={"agent_name": name, "api_key": self.api_key})
@@ -119,6 +118,7 @@ class GameClient:
         self.token = data["token"]
         self.colony_id = colony_id
         self.match_id = data.get("match_id", match_id)
+        self.agent_name: str = data.get("agent", name)  # server substitutes registered username
         return data
 
     async def release(self):
@@ -621,8 +621,6 @@ async def run_tui(cfg: dict):
             agent_task.cancel()
         agent_task = asyncio.create_task(agent_loop(client, llm, model, ui, loop))
 
-    agent_name = cfg.get("name", "agent")
-
     async def do_join():
         if client.colony_id is not None:
             await client.release()
@@ -634,9 +632,9 @@ async def run_tui(cfg: dict):
         if col is None or col not in ("0", "1"):
             return
         try:
-            await client.join(mid.strip(), int(col), agent_name)
-            ui.status = f"seated {'RED' if int(col) == 0 else 'BLUE'} @ {client.match_id[:8]}"
-            ui.add_log(f"joined {client.match_id[:8]} as colony {col}")
+            await client.join(mid.strip(), int(col))
+            ui.status = f"{client.agent_name} {'RED' if int(col) == 0 else 'BLUE'} @ {client.match_id[:8]}"
+            ui.add_log(f"joined {client.match_id[:8]} as {client.agent_name} (colony {col})")
             await start_agent()
         except httpx.HTTPError as e:
             ui.add_log(f"[err] join failed: {e}")
@@ -644,9 +642,9 @@ async def run_tui(cfg: dict):
     async def do_new():
         try:
             mid = await client.new_match(brains={"0": "mcp", "1": "bot"})
-            await client.join(mid, 0, agent_name)
-            ui.status = f"seated RED @ {mid[:8]} (new)"
-            ui.add_log(f"created + joined {mid[:8]} as RED")
+            await client.join(mid, 0)
+            ui.status = f"{client.agent_name} RED @ {mid[:8]} (new)"
+            ui.add_log(f"created + joined {mid[:8]} as {client.agent_name}")
             r = await client.start_game()
             if "error" in r:
                 ui.add_log(f"[warn] start: {r['error']}")
@@ -734,8 +732,8 @@ async def run_headless(cfg: dict, spec: str):
             print(line, flush=True)
     ui.log = StdoutLog()  # type: ignore
 
-    await client.join(mid_str, int(col_str), cfg.get("name", "agent"))
-    print(f"joined {client.match_id} as colony {col_str}", flush=True)
+    await client.join(mid_str, int(col_str))
+    print(f"joined {client.match_id} as {client.agent_name} (colony {col_str})", flush=True)
     try:
         await agent_loop(client, llm, cfg["llm"]["model"], ui, loop)
     finally:
