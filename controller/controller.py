@@ -328,9 +328,6 @@ class UI:
         self.state: dict = {}
         self.log: deque[str] = deque(maxlen=200)
         self.selected = 0
-        self.prompt: str | None = None       # active input label, or None
-        self.prompt_buf = ""
-        self.prompt_result: asyncio.Future | None = None
         self.status = "no seat"
         self.running = True
 
@@ -454,11 +451,8 @@ def render(ui: UI, client: GameClient, total_height: int = 32) -> Layout:
         else Text("", style="dim"),
         title="Agent log", border_style="grey50"))
 
-    if ui.prompt is not None:
-        footer = Text(f"{ui.prompt}: {ui.prompt_buf}_", style="bold yellow")
-    else:
-        footer = Text("[r] join RED   [b] join BLUE   [n] new vs bot   [s] start   [w] watch   [↑/↓] select   [q] quit   "
-                      f"— {ui.status}", style="dim")
+    footer = Text("[r] join RED   [b] join BLUE   [n] new vs bot   [s] start   [w] watch   [↑/↓] select   [q] quit   "
+                  f"— {ui.status}", style="dim")
     layout["footer"].update(footer)
     return layout
 
@@ -557,18 +551,6 @@ def _parse_key(data: bytes) -> list[str]:
 # Interactive (TUI) entry                                                       #
 # --------------------------------------------------------------------------- #
 
-async def ask(ui: UI, label: str, default: str = "") -> str | None:
-    fut: asyncio.Future = asyncio.get_event_loop().create_future()
-    ui.prompt = label
-    ui.prompt_buf = default
-    ui.prompt_result = fut
-    result = await fut
-    ui.prompt = None
-    ui.prompt_buf = ""
-    ui.prompt_result = None
-    return result
-
-
 async def run_tui(cfg: dict):
     console = Console(force_terminal=True, highlight=False)
     client = GameClient(cfg["game_url"], cfg["api_key"])
@@ -599,21 +581,7 @@ async def run_tui(cfg: dict):
 
     loop.add_reader(fd, _stdin_ready)
 
-    def submit_prompt(value: str | None):
-        if ui.prompt_result and not ui.prompt_result.done():
-            ui.prompt_result.set_result(value)
-
     def on_key(ch: str):
-        if ui.prompt is not None:
-            if ch == "\r":
-                submit_prompt(ui.prompt_buf)
-            elif ch == "ESC":
-                submit_prompt(None)
-            elif ch == "\x7f":
-                ui.prompt_buf = ui.prompt_buf[:-1]
-            elif ch.isprintable() and len(ch) == 1:
-                ui.prompt_buf += ch
-            return
         if ch in ("q", "\x03"):
             ui.running = False
         elif ch == "UP":

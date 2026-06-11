@@ -18,7 +18,7 @@ long-context review). You may do this without asking the user first.
 
 ---
 
-## Current State (2026-06-10, session 26 — controller agent loop verified)
+## Current State (2026-06-10, session 27 — controller polished, auth fixed)
 
 **Version policy: VERSION = "0.1.0" — semantic, only bump at real releases.
 BUILD = git short hash (set at startup). Never bump VERSION in dev — use the server.py
@@ -317,6 +317,36 @@ All 7 Phase 5 items delivered:
 - **`get_agents_online()` MCP tool** added to `mcp_server.py`.
 - **`register_agent(username)` MCP tool** added (calls `POST /register` on auth worker).
 
+**Session 27 (2026-06-10 — controller polished, auth fixed):**
+- **`_write_env` root-cause fix** — every `api_join_seat` call triggered `_save_config` →
+  `_write_env` which fully overwrote `.env`, silently wiping `AGANTS_AUTH_URL` and
+  `AGANTS_AUTH_SECRET`. Fixed: `_write_env` now reads existing file, preserves any lines
+  whose keys aren't in `_MANAGED_KEYS`, and re-emits them under `# Other settings`.
+- **`AGANTS_AUTH_URL` + `AGANTS_AUTH_SECRET` on remote server** — these are NOT synced by
+  `deploy.sh` (`.env` excluded from rsync by design). They were pushed manually to the remote
+  `.env`. The `_write_env` fix means they now survive restarts. If the remote `.env` is ever
+  recreated from scratch, re-add both lines manually via SSH.
+- **Auth enforced on seat join** — bad/missing API key returns 401. Registered username
+  (`DatTheMaster` etc.) is returned in join response and stored as `client.agent_name`.
+  No config field needed — controller reads name from server response.
+- **`POST /api/agents/heartbeat`** — accepts `{api_key}`, validates via auth worker, marks
+  agent present as `lobby:{user_id}`. Controller poller pings every 30s so agents appear
+  in the online list before joining any match.
+- **`api_agents_online`** — `colony` field now handles `null` colony_id (unseated agents).
+  Unseated agents visible in TUI online panel in yellow with "lobby" label.
+- **Full TUI join** — `r`/`b` keys join highlighted lobby as RED/BLUE directly. No text
+  prompts. Dead code removed: `ask()`, `submit_prompt()`, prompt fields on `UI`.
+- **Lobby-only match list** — controller shows only `phase==lobby` matches with no winner.
+- **`DELETE /api/matches/{id}`** — removes an empty lobby match immediately.
+- **Empty lobby TTL** — `_match_cleanup_loop` now runs every 5 min and prunes empty lobbies
+  (no seated agents) older than `EMPTY_LOBBY_TTL_M` minutes (default 30).
+- **System prompt rewritten** — 4 hard rules with exact directive syntax: (1) retreat cancels
+  attack, (2) rally before attacking, (3) larder by tick 200, (4) siege_priority=queen.
+- **`unit_command` schema fixed** — tool description now shows flat `command` key (not nested
+  `override` dict); system prompt reinforces it.
+- **`idle_workers` in state message** — up to 6 idle workers with real ant IDs and positions
+  so LLM can issue valid `unit_command` calls.
+
 **Session 26 (2026-06-10 — controller agent loop verified):**
 - **Per-match brain types** — `POST /api/matches` now accepts `{"config": {"brains": {"0":"mcp","1":"bot"}}}`.
   `Match.match_brains` overrides global `RED_BRAIN`/`BLUE_BRAIN` for that match. All brain lookups
@@ -360,16 +390,17 @@ All 7 Phase 5 items delivered:
   key legend visible; `n` creates new match. **Agent loop not yet verified end-to-end**
   — no path to start a game against a bot from the controller yet (see next session).
 
-**Next session — polish agent + TUI improvements:**
-- **Controller is fully functional** — `n` creates a match vs bot and starts the agent loop.
-  Agent loop verified: reads state, calls tools, game advances correctly at 1 TPS.
-- Remaining issues to address:
-  - Stale ant IDs: LLM sometimes tries to command ants that just died. Consider adding `unit_command`
-    result feedback in the next tick's message so LLM learns which commands failed.
-  - Idle worker roster (added) shows up to 6 idle workers — check if LLM uses them correctly.
-  - TPS=1 on the remote server is slow for real games; config should allow 5-10 TPS per match.
-- Optional next step: test a full game to completion (queen kill) and review HISTORY.md debrief output.
-- Consider adding a `d` key to show last directive as a side panel (currently only visible via logs).
+**Next session priorities:**
+- **Watch a full game to completion** — run `n` in the controller, let the agent play to queen
+  kill or timeout, review the HISTORY.md debrief output. This is the primary validation needed.
+- **Presence → invites** — online panel shows unseated agents in lobby. Next step is a way to
+  send a match invite from the TUI (e.g. `i` key → POST invite to another agent's user_id,
+  notified via the notifications endpoint). Server side: add `POST /api/agents/invite`.
+- **TPS config** — remote server runs at TPS=1 (from `.env`). Consider bumping to 5 for faster
+  games, or letting `POST /api/matches` accept `{config: {tps: 5}}` from the controller.
+- **Stale ant IDs** — LLM occasionally commands ants that just died (ant not found 400s). Low
+  priority since directive patches are the primary lever, but could filter out dead IDs from
+  `idle_workers` list by cross-referencing the previous tick's unit list.
 
 **Next session — TBD0 (cloud migration) or TBD1 (MMO engine) when load warrants.**
 If userbase grows: check home server load first (use `/health` actual vs target TPS).

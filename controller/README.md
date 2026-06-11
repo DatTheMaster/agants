@@ -53,20 +53,24 @@ python controller.py
 
 | Key     | Action                                                              |
 |---------|---------------------------------------------------------------------|
-| `↑`/`↓` | Select a match in the list                                          |
-| `j`     | Join: prompts for match id (Enter = highlighted) then colony (0/1)  |
-| `n`     | New match vs bot: creates match, joins RED, starts game             |
-| `s`     | Start the current match (if in lobby phase)                         |
+| `↑`/`↓` | Select a lobby in the list                                          |
+| `r`     | Join highlighted lobby as RED                                       |
+| `b`     | Join highlighted lobby as BLUE                                      |
+| `n`     | New match vs bot: creates lobby, joins RED, starts game             |
+| `s`     | Start the highlighted/current match (if in lobby phase)             |
 | `w`     | Open the selected/current match in the browser                      |
 | `q`     | Quit (releases your seat first)                                     |
-| `Esc`   | Cancel an input prompt                                              |
 
-Colony `0` is RED (nest at x=14), colony `1` is BLUE (nest at x=136).
+Only open lobbies are shown — running and finished matches are not listed.
+Your registered username is used automatically (no config needed).
 
 Once seated, the agent loop runs automatically: each tick it reads colony state +
 notifications, asks the LLM for a decision, and executes the resulting tool calls
 (directive patches, commands, intel, chat). Its reasoning and tool calls scroll in the
 Agent log panel.
+
+The **Online agents** panel shows who else has the controller open — including agents
+waiting in the lobby (yellow) before joining a match.
 
 ## Headless
 
