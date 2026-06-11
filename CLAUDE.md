@@ -18,7 +18,7 @@ long-context review). You may do this without asking the user first.
 
 ---
 
-## Current State (2026-06-10, session 27 — controller polished, auth fixed)
+## Current State (2026-06-10, session 28 — controller complete, sim bugs fixed)
 
 **Version policy: VERSION = "0.1.0" — semantic, only bump at real releases.
 BUILD = git short hash (set at startup). Never bump VERSION in dev — use the server.py
@@ -317,6 +317,33 @@ All 7 Phase 5 items delivered:
 - **`get_agents_online()` MCP tool** added to `mcp_server.py`.
 - **`register_agent(username)` MCP tool** added (calls `POST /register` on auth worker).
 
+**Session 28 (2026-06-10 — controller complete, sim bug fixes):**
+- **`income_per_s` always 0 (root cause)** — `RunLogger` was never instantiated since the
+  session-16 multi-match refactor. `RunLogger.tick()` updates `income_per_s` every 10 ticks
+  and writes `logs/run_*.log`; without it the metric was 0 forever. Fixed: `RunLogger` now
+  created in `_run_placement_phase`; `logger.tick()` called from `tick_loop` after each step.
+  Also restores run log files and LLM debrief logging (both silently broken since session 16).
+- **Worker delivery radius widened** — delivery check was Chebyshev ≤ 2; all returning workers
+  converged on the exact nest center. At TPS=1 with 50+ workers, RED nest at x=14 created a
+  bidirectional traffic jam that caused workers to orbit the nest without delivering. Changed to
+  Manhattan ≤ 5 across all four delivery paths (worker recruit_target, worker no-target,
+  build-override, scout). Workers now deliver before reaching the congested center.
+- **Controller fully wired**: `[n]` creates+joins only (no auto-start); `[s]` starts + launches
+  agent loop; `[l]` leave; `[f]` forfeit; `[a]` auto-challenge mode; context-aware footer.
+- **Auto-challenge mode** — permanent challenger: finds/creates match, waits for real opponent,
+  auto-starts when both seated, loops after game over. Runs indefinitely until `q`.
+- **`submit_feedback` LLM tool** — controller exposes it; `agent_loop` calls it on game over.
+- **Game-over feedback hook** — detects `phase != running` or `alive=False`, makes one final
+  LLM call asking for `submit_feedback`, then exits cleanly.
+- **Chat attribution fixed** — `api_chat` was using old `{cid: token}` iteration; current
+  format is `{token: {dict}}`. Fixed to `m.tokens.get(token)`.
+- **Chat wall-clock timestamps** — HH:MM:SS instead of in-game elapsed "00:00" format.
+- **Larder min-distance** — build handler rejects larder within 20 Manhattan tiles of own nest.
+- **Pause/End buttons** gated to `window.AGANTS_ADMIN`; public spectators can't pause games.
+- **`/api/matches/{id}/forfeit`** endpoint added; requires Bearer token scoped to the colony.
+- **TPS from config** — `~/.config/agants/config.json` `"tps": N` used for `[n]` and auto-challenge.
+- **server.py v2.15** (delivery radius + RunLogger).
+
 **Session 27 (2026-06-10 — controller polished, auth fixed):**
 - **`_write_env` root-cause fix** — every `api_join_seat` call triggered `_save_config` →
   `_write_env` which fully overwrote `.env`, silently wiping `AGANTS_AUTH_URL` and
@@ -391,16 +418,15 @@ All 7 Phase 5 items delivered:
   — no path to start a game against a bot from the controller yet (see next session).
 
 **Next session priorities:**
-- **Watch a full game to completion** — run `n` in the controller, let the agent play to queen
-  kill or timeout, review the HISTORY.md debrief output. This is the primary validation needed.
-- **Presence → invites** — online panel shows unseated agents in lobby. Next step is a way to
-  send a match invite from the TUI (e.g. `i` key → POST invite to another agent's user_id,
-  notified via the notifications endpoint). Server side: add `POST /api/agents/invite`.
-- **TPS config** — remote server runs at TPS=1 (from `.env`). Consider bumping to 5 for faster
-  games, or letting `POST /api/matches` accept `{config: {tps: 5}}` from the controller.
-- **Stale ant IDs** — LLM occasionally commands ants that just died (ant not found 400s). Low
-  priority since directive patches are the primary lever, but could filter out dead IDs from
-  `idle_workers` list by cross-referencing the previous tick's unit list.
+- **Watch a full auto-challenge game to completion** — `[a]` in the controller, let a full
+  game run, verify the game-over feedback hook fires, review `logs/agent_feedback.jsonl` and
+  the new `logs/run_*.log` (restored this session). This is the primary validation needed.
+- **Presence → invites** — online panel shows unseated agents in lobby. Next: `i` key → POST
+  invite to another agent's user_id via `POST /api/agents/invite`; delivered via notifications.
+- **Forfeit tool for `mcp_server.py`** — server endpoint exists (`POST /api/matches/{id}/forfeit`),
+  controller has `[f]`; add the MCP tool if MCP agents need it.
+- **Stale ant IDs** — LLM occasionally commands dead ants (404s); low priority; could filter
+  `idle_workers` list against tick-fresh unit IDs if it becomes noisy.
 
 **Next session — TBD0 (cloud migration) or TBD1 (MMO engine) when load warrants.**
 If userbase grows: check home server load first (use `/health` actual vs target TPS).

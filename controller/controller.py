@@ -104,11 +104,13 @@ class GameClient:
         except httpx.HTTPError:
             pass
 
-    async def new_match(self, brains: dict | None = None) -> str:
-        body: dict = {}
+    async def new_match(self, brains: dict | None = None, tps: float | None = None) -> str:
+        cfg: dict = {}
         if brains:
-            body["config"] = {"brains": brains}
-        r = await self.http.post(f"{self.base}/api/matches", json=body)
+            cfg["brains"] = brains
+        if tps is not None:
+            cfg["tps"] = tps
+        r = await self.http.post(f"{self.base}/api/matches", json={"config": cfg} if cfg else {})
         r.raise_for_status()
         return r.json()["match_id"]
 
@@ -173,7 +175,15 @@ class GameClient:
         return await self._tool_request("GET", self._mpath(f"/intel_map/{self.colony_id}"))
 
     async def send_chat(self, message: str) -> dict:
-        return await self._tool_request("POST", "/api/chat", {"message": message})
+        return await self._tool_request("POST", self._mpath("/chat"), {"message": message})
+
+    async def submit_feedback(self, feedback: str, category: str = "general") -> dict:
+        return await self._tool_request("POST", "/api/feedback",
+                                        {"feedback": feedback, "category": category,
+                                         "colony_id": self.colony_id})
+
+    async def forfeit(self) -> dict:
+        return await self._tool_request("POST", self._mpath("/forfeit"), {})
 
 
 # --------------------------------------------------------------------------- #
@@ -213,6 +223,18 @@ TOOLS = [
         "description": "Broadcast a short taunt or message to the public game chat.",
         "parameters": {"type": "object", "properties": {
             "message": {"type": "string"}}, "required": ["message"]}}},
+    {"type": "function", "function": {
+        "name": "submit_feedback",
+        "description": "Log feedback about game state quality, missing data, or anything that made your "
+                       "decision-making harder. This is stored server-side for developer review. "
+                       "Call once per game with your overall observations.",
+        "parameters": {"type": "object", "properties": {
+            "feedback": {"type": "string",
+                         "description": "Specific observations: what data was unclear, missing, or misleading. "
+                                        "Include tick numbers, field names, and what you needed but couldn't find."},
+            "category": {"type": "string", "enum": ["missing_data", "bad_data", "ux", "general"],
+                         "description": "Feedback category (default: general)"}},
+        "required": ["feedback"]}}},
 ]
 
 
@@ -271,7 +293,11 @@ TOOLS: patch_directive(patches) sets standing orders. send_command(command_type,
 buy_upgrade/build/convert/cancel_spawn/unit_command. get_intel_map() for a spatial picture.
 send_chat(message) to taunt. Be decisive: usually 1-2 tool calls per tick.
 For unit_command: data is flat — {{\"ant_id\":N,\"command\":\"move_to\",\"x\":X,\"y\":Y}}.
-Do NOT nest command inside an \"override\" dict."""
+Do NOT nest command inside an \"override\" dict.
+
+FEEDBACK: When the game ends (phase=ended, or your colony alive=False), call submit_feedback()
+with what worked, what data was unclear or missing, and what you'd do differently. Be specific —
+include tick numbers and field names. This is stored for developer review."""
 
 
 # --------------------------------------------------------------------------- #
@@ -330,6 +356,7 @@ class UI:
         self.selected = 0
         self.status = "no seat"
         self.running = True
+        self.auto_challenge = False
 
     def add_log(self, line: str):
         self.log.append(line)
@@ -353,6 +380,7 @@ async def agent_loop(client: GameClient, llm: OpenAI, model: str, ui: UI, loop: 
         "send_command": lambda a: client.send_command(a.get("command_type", ""), a.get("data", {})),
         "get_intel_map": lambda a: client.get_intel_map(),
         "send_chat": lambda a: client.send_chat(a.get("message", "")),
+        "submit_feedback": lambda a: client.submit_feedback(a.get("feedback", ""), a.get("category", "general")),
     }
     while ui.running and client.colony_id is not None:
         try:
@@ -368,6 +396,32 @@ async def agent_loop(client: GameClient, llm: OpenAI, model: str, ui: UI, loop: 
             await asyncio.sleep(0.2)
             continue
         last_tick = tick
+
+        # Detect game over: prompt for feedback then exit
+        game_over = (state.get("phase") not in ("lobby", "running") or
+                     state.get("alive") is False)
+        if game_over:
+            ui.add_log(f"[t{tick}] game over — requesting feedback")
+            messages.append({"role": "user", "content":
+                f"GAME OVER at tick {tick}. phase={state.get('phase')} alive={state.get('alive')} "
+                f"Your final state: {format_state_message(state, notifs)}\n"
+                "Call submit_feedback() now with your post-game observations."})
+            try:
+                resp = await loop.run_in_executor(None, lambda: llm.chat.completions.create(
+                    model=model, messages=messages, tools=TOOLS, temperature=0.4))
+                msg = resp.choices[0].message
+                for call in (msg.tool_calls or []):
+                    try:
+                        args = json.loads(call.function.arguments or "{}")
+                    except json.JSONDecodeError:
+                        args = {}
+                    fn = tool_map.get(call.function.name)
+                    if fn:
+                        result = await fn(args)
+                        ui.add_log(f"[t{tick}] {call.function.name}({_brief(args)}) -> {'ok' if 'error' not in result else result['error'][:60]}")
+            except Exception as e:
+                ui.add_log(f"[t{tick}] feedback LLM error: {e}")
+            break
 
         messages[:] = trim_context(messages)
         messages.append({"role": "user", "content": format_state_message(state, notifs)})
@@ -451,8 +505,13 @@ def render(ui: UI, client: GameClient, total_height: int = 32) -> Layout:
         else Text("", style="dim"),
         title="Agent log", border_style="grey50"))
 
-    footer = Text("[r] join RED   [b] join BLUE   [n] new vs bot   [s] start   [w] watch   [↑/↓] select   [q] quit   "
-                  f"— {ui.status}", style="dim")
+    if ui.auto_challenge:
+        footer_keys = "[a] stop auto   [l] leave   [w] watch   [q] quit"
+    elif client.colony_id is not None:
+        footer_keys = "[l] leave   [f] forfeit   [s] start   [w] watch   [q] quit"
+    else:
+        footer_keys = "[r] RED   [b] BLUE   [n] new vs bot   [a] auto-challenge   [w] watch   [↑/↓] select   [q] quit"
+    footer = Text(f"{footer_keys}   — {ui.status}", style="dim")
     layout["footer"].update(footer)
     return layout
 
@@ -487,7 +546,8 @@ def render_matches(ui: UI, client: GameClient) -> Panel:
         style = "dim" if a["colony"] else "yellow"
         online.add_row(Text(f" {a['agent']:<14} {where:<6} {a['seconds_ago']}s ago", style=style))
 
-    return Panel(Group(t, Text(""), online), title="Open Lobbies", border_style="grey50")
+    panel_title = "Match" if client.colony_id is not None else "Open Lobbies"
+    return Panel(Group(t, Text(""), online), title=panel_title, border_style="grey50")
 
 
 def render_colony(ui: UI, client: GameClient) -> Panel:
@@ -588,11 +648,17 @@ async def run_tui(cfg: dict):
             ui.selected = max(0, ui.selected - 1)
         elif ch == "DOWN":
             ui.selected = min(len(ui.matches) - 1, ui.selected + 1)
-        elif ch == "r":
+        elif ch == "r" and client.colony_id is None:
             asyncio.create_task(do_join(0))
-        elif ch == "b":
+        elif ch == "b" and client.colony_id is None:
             asyncio.create_task(do_join(1))
-        elif ch == "n":
+        elif ch == "l" and client.colony_id is not None:
+            asyncio.create_task(do_leave())
+        elif ch == "a":
+            asyncio.create_task(do_toggle_auto())
+        elif ch == "f" and client.colony_id is not None:
+            asyncio.create_task(do_forfeit())
+        elif ch == "n" and not ui.auto_challenge:
             asyncio.create_task(do_new())
         elif ch == "s":
             asyncio.create_task(do_start())
@@ -604,6 +670,40 @@ async def run_tui(cfg: dict):
         if agent_task and not agent_task.done():
             agent_task.cancel()
         agent_task = asyncio.create_task(agent_loop(client, llm, model, ui, loop))
+
+    async def do_leave():
+        nonlocal agent_task
+        if agent_task and not agent_task.done():
+            agent_task.cancel()
+            agent_task = None
+        try:
+            await client.release()
+            ui.status = f"{client.agent_name} (lobby)"
+            ui.add_log("left seat — back in lobby")
+        except Exception as e:
+            ui.add_log(f"[err] leave: {e}")
+
+    async def do_forfeit():
+        try:
+            r = await client.forfeit()
+            if "error" in r:
+                ui.add_log(f"[warn] forfeit: {r['error']}")
+            else:
+                ui.add_log("forfeited — opponent wins")
+        except Exception as e:
+            ui.add_log(f"[err] forfeit: {e}")
+
+    async def do_toggle_auto():
+        nonlocal auto_challenge_task
+        ui.auto_challenge = not ui.auto_challenge
+        if ui.auto_challenge:
+            if auto_challenge_task is None or auto_challenge_task.done():
+                auto_challenge_task = asyncio.create_task(auto_challenge_loop())
+        else:
+            if auto_challenge_task and not auto_challenge_task.done():
+                auto_challenge_task.cancel()
+                auto_challenge_task = None
+            ui.add_log("[auto] challenger mode off")
 
     async def do_join(col: int):
         if not ui.matches:
@@ -623,28 +723,28 @@ async def run_tui(cfg: dict):
 
     async def do_new():
         try:
-            mid = await client.new_match(brains={"0": "mcp", "1": "bot"})
+            tps = cfg.get("tps")
+            mid = await client.new_match(brains={"0": "mcp", "1": "bot"}, tps=tps)
             await client.join(mid, 0)
-            ui.status = f"{client.agent_name} RED @ {mid[:8]} (new)"
-            ui.add_log(f"created + joined {mid[:8]} as {client.agent_name}")
-            r = await client.start_game()
-            if "error" in r:
-                ui.add_log(f"[warn] start: {r['error']}")
-            else:
-                ui.add_log("game starting — placement phase in progress")
-            await start_agent()
+            tps_str = f" @ {tps}TPS" if tps else ""
+            ui.status = f"{client.agent_name} RED @ {mid[:8]}"
+            ui.add_log(f"created + joined {mid[:8]}{tps_str} — press [s] to start vs bot")
         except httpx.HTTPError as e:
             ui.add_log(f"[err] new match: {e}")
 
     async def do_start():
         if client.match_id is None:
-            ui.add_log("[warn] not in a match — press 'j' to join one first")
+            ui.add_log("[warn] not in a match — press 'n' to create one first")
+            return
+        if client.colony_id is None:
+            ui.add_log("[warn] not seated — press 'r' or 'b' to join a seat first")
             return
         r = await client.start_game()
         if "error" in r:
             ui.add_log(f"[warn] start: {r['error']}")
         else:
-            ui.add_log("game starting")
+            ui.add_log("game started")
+            await start_agent()
 
     def do_watch():
         mid = client.match_id or (ui.matches[ui.selected]["match_id"] if ui.matches else None)
@@ -657,6 +757,89 @@ async def run_tui(cfg: dict):
             ui.add_log(f"opening {url}")
         except OSError:
             ui.add_log(f"watch: {url}")
+
+    async def auto_challenge_loop():
+        """Permanent challenger: find/create a match, wait for a human opponent,
+        play when the game starts, then repeat until auto_challenge is turned off."""
+        nonlocal agent_task
+        ui.add_log("[auto] challenger mode active — searching for a match")
+        while ui.running and ui.auto_challenge:
+            # ── Phase 1: Get a seat ───────────────────────────────────────────
+            if client.colony_id is None:
+                try:
+                    all_matches = await client.list_matches()
+                    joined = False
+                    for m in all_matches:
+                        if m.get("winner") or m.get("phase") != "lobby":
+                            continue
+                        seats = m.get("seats", {})
+                        for col_id in [0, 1]:
+                            if not seats.get(str(col_id), {}).get("agent"):
+                                try:
+                                    await client.join(m["match_id"], col_id)
+                                    color = "RED" if col_id == 0 else "BLUE"
+                                    ui.status = f"{client.agent_name} {color} @ {m['match_id'][:8]} (auto)"
+                                    ui.add_log(f"[auto] joined {m['match_id'][:8]} as {color} — waiting for opponent")
+                                    joined = True
+                                    break
+                                except Exception:
+                                    pass
+                        if joined:
+                            break
+                    if not joined:
+                        mid = await client.new_match(brains={"0": "mcp", "1": "mcp"}, tps=cfg.get("tps"))
+                        await client.join(mid, 0)
+                        ui.status = f"{client.agent_name} RED @ {mid[:8]} (waiting...)"
+                        ui.add_log(f"[auto] created {mid[:8]} — waiting for opponent")
+                except Exception as e:
+                    ui.add_log(f"[auto] seat error: {e}")
+                    await asyncio.sleep(5)
+                    continue
+
+            await asyncio.sleep(3)
+
+            # ── Phase 2: Check game state ──────────────────────────────────────
+            if client.colony_id is None:
+                continue
+            try:
+                state = await client.state()
+            except Exception:
+                await asyncio.sleep(3)
+                continue
+
+            phase = state.get("phase", "lobby")
+
+            if phase == "lobby":
+                # Auto-start when both seats are filled
+                try:
+                    r = await client.http.get(
+                        f"{client.base}/api/matches/{client.match_id}",
+                        headers=client._auth())
+                    mdata = r.json()
+                    seats = mdata.get("seats", {})
+                    if all(seats.get(str(i), {}).get("agent") for i in [0, 1]):
+                        await client.start_game()
+                        ui.add_log("[auto] both seated — game started!")
+                except Exception:
+                    pass
+
+            elif phase == "running":
+                if agent_task is None or agent_task.done():
+                    await start_agent()
+
+            else:
+                # Ended or unknown — release and loop back
+                ui.add_log(f"[auto] game over — back to matchmaking")
+                if agent_task and not agent_task.done():
+                    agent_task.cancel()
+                    agent_task = None
+                await client.release()
+                ui.status = f"{client.agent_name} (auto-challenge)"
+                await asyncio.sleep(2)
+
+        ui.add_log("[auto] challenger mode stopped")
+
+    auto_challenge_task: asyncio.Task | None = None
 
     poll_task = asyncio.create_task(poller(client, ui))
 
@@ -691,6 +874,8 @@ async def run_tui(cfg: dict):
         poll_task.cancel()
         if agent_task:
             agent_task.cancel()
+        if auto_challenge_task and not auto_challenge_task.done():
+            auto_challenge_task.cancel()
         await client.release()
         await client.close()
 

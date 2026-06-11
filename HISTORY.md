@@ -3,6 +3,67 @@
 Per-session changelog and agent lessons, moved out of CLAUDE.md to keep it lean.
 Newest sessions first where possible. See server.py header changelog for the terse version.
 
+**Session 28 changes (2026-06-10 — controller polish, gameplay bug fixes):**
+- **Chat attribution fixed** — `api_chat` was iterating `m.tokens` as `(cid, token_str)` pairs
+  (old format); current format is `{token_str: {colony_id, agent, user_id}}`. Fixed to
+  `entry = m.tokens.get(token)`.
+- **Chat match-scoped path** — controller `send_chat` now calls `/api/matches/{id}/chat`;
+  added that route to server.py so non-default matches work correctly.
+- **Double presence fixed** — `api_agents_online` now groups by `user_id`, preferring seated
+  over lobby heartbeat, more recent over stale; never downgrades seated→lobby within same user.
+  Also fixed `api_join_seat`: sets `user_id = api_key[:8]` when auth is disabled (was None,
+  causing grouped dedup to fail).
+- **Larder min-distance** — build handler rejects larder placement within 20 Manhattan tiles of
+  own nest; returns HTTP 400 with clear error. Prevents the near-nest worker stall pattern seen
+  in earlier games (larder at HP 1 with 8-11 workers permanently stuck in S_BUILDING).
+- **Frontend lobby text** — updated from "Configure brain types in Settings..." to "Waiting for
+  agents to join seats. Press ▶ START GAME when ready."
+- **Pause/End gated to admin** — `_updateGameControls` in index.html checks `window.AGANTS_ADMIN`;
+  public spectators no longer see Pause/End buttons.
+- **`[n]` no longer auto-starts** — `do_new()` creates + joins only; log says "press [s] to start".
+  Previously also called `start_game()` and `start_agent()`, auto-launching the match.
+- **`[s]` starts agent loop** — `do_start()` calls `start_agent()` after `start_game()` succeeds.
+- **`[l]` leave seat** — cancels agent_task, calls `client.release()`, returns to lobby browser.
+- **`[f]` forfeit** — calls `POST /api/matches/{id}/forfeit`; server sets winner = 1 - cid and
+  broadcasts a system chat message.
+- **`/api/matches/{id}/forfeit` endpoint** — added to server.py; requires Bearer token.
+- **Context-aware footer** — three states: auto-challenge active, seated, or lobby browser.
+- **`submit_feedback` LLM tool** — controller exposes `submit_feedback(feedback, category)` as
+  an OpenAI tool; server logs to `logs/agent_feedback.jsonl`.
+- **Game-over feedback hook** — `agent_loop` detects `phase not in (lobby, running)` or
+  `alive=False`, makes one final LLM call prompting `submit_feedback`, then exits cleanly.
+- **Auto-challenge mode (`[a]`)** — permanent challenger loop: finds/creates a match with open
+  seats, waits for real opponent, auto-starts when both seated, loops after game over.
+- **Chat wall-clock timestamps** — `onChatMessage` captures `new Date()` at receipt time;
+  renders as HH:MM:SS instead of in-game elapsed time.
+- **TPS from config** — `do_new()` and auto-challenge read `cfg.get("tps")` and pass to
+  `new_match()`; add `"tps": N` to `~/.config/agants/config.json`.
+- **`income_per_s` always 0 (v2.15 fix)** — `RunLogger` was defined but never instantiated.
+  `RunLogger.tick()` (which updates `income_per_s`) was therefore never called; the metric
+  showed 0 for every game since the session-16 multi-match refactor. Fixed: `RunLogger`
+  instantiated in `_run_placement_phase`, `logger.tick()` called from `tick_loop` each step.
+  Also restores `logs/run_*.log` files and LLM debrief logging (both silently broken).
+- **Worker delivery radius widened (v2.15 fix)** — delivery check was Chebyshev ≤ 2 (5×5 box);
+  all returning workers converged on the exact nest center. With 50+ workers and the RED nest
+  near the western edge (x=14), this created a bidirectional traffic jam — workers orbited the
+  nest without delivering. Changed to Manhattan ≤ 5 in all four delivery paths (worker
+  recruit_target, worker no-target, build-override, scout). Workers now deliver before reaching
+  the congested center and exit without crossing incoming traffic.
+
+**Session 28 lessons learned:**
+- **RunLogger silent disconnect** — the session-16 Match refactor moved tick logic to per-match
+  tasks but left RunLogger uninstantiated. The class stayed in the file with all its callers
+  using `if world.logger:` guards — so everything silently no-oped. Keep per-game state (logger,
+  income tracking) tied to the `_run_placement_phase` → `tick_loop` lifecycle, not to a top-level
+  object that the refactor might orphan.
+- **Delivery radius and map geometry** — the Chebyshev-2 delivery zone was fine at TPS=10 with
+  ~20 workers; at TPS=1 with 50+ workers and a nest at x=14, it became a chokepoint. Map-edge
+  nests have asymmetric exit geometry (workers can only flow in one direction); delivery radius
+  should be generous enough that workers deliver before entering the dense center.
+- **`m.tokens` format** — changed in session 27 from `{cid: token_str}` to `{token_str: {dict}}`.
+  Any code that iterates `m.tokens.items()` and compares values as token strings will silently
+  fail (always miss). Always use `m.tokens.get(token)` for lookups.
+
 **Session 22 changes (2026-06-10 — rename sweep + CF Pages deployment + routing):**
 - **Rename sweep complete** — all remaining "swarm-wars" refs removed from service units,
   hermes config (`~/.hermes/config.yaml` key renamed), tunnel-url.sh, deploy.sh, docs.

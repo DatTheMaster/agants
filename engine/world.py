@@ -686,7 +686,7 @@ class World:
             elif cmd == "build":
                 bx, by = int(ov["x"]), int(ov["y"])
                 if ant.carrying:
-                    if abs(ant.x - c.nx) <= 2 and abs(ant.y - c.ny) <= 2:
+                    if abs(ant.x - c.nx) + abs(ant.y - c.ny) <= 5:
                         ant.carrying = False
                         if getattr(ant, "carrying_type", "food") == "dirt":
                             c.dirt = min(DIRT_CAP, c.dirt + DIRT_DELIVER)
@@ -745,7 +745,7 @@ class World:
         if ant.recruit_target:
             fx, fy = ant.recruit_target
             if ant.carrying:
-                if abs(ant.x-c.nx) <= 2 and abs(ant.y-c.ny) <= 2:
+                if abs(ant.x-c.nx) + abs(ant.y-c.ny) <= 5:
                     ant.carrying = False
                     if ant.carrying_type == "dirt":
                         c.dirt = min(DIRT_CAP, c.dirt + DIRT_DELIVER)
@@ -800,7 +800,7 @@ class World:
             return
 
         if ant.carrying:
-            if abs(ant.x-c.nx) <= 2 and abs(ant.y-c.ny) <= 2:
+            if abs(ant.x-c.nx) + abs(ant.y-c.ny) <= 5:
                 ant.carrying = False
                 if ant.carrying_type == "dirt":
                     gained = DIRT_DELIVER
@@ -974,7 +974,7 @@ class World:
                 return
 
         if ant.carrying:
-            if abs(ant.x-c.nx) <= 2 and abs(ant.y-c.ny) <= 2:
+            if abs(ant.x-c.nx) + abs(ant.y-c.ny) <= 5:
                 ant.carrying = False
                 earned = FOOD_DELIVER + c.carry_bonus
                 c.food += earned

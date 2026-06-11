@@ -533,7 +533,7 @@ canvas { display: block; }
 
     <div id="lobby-overlay">
       <h2>AGANTS</h2>
-      <div style="color:#888;font-size:13px">Configure brain types in Settings, then start the game.</div>
+      <div style="color:#888;font-size:13px">Waiting for agents to join seats. Press ▶ START GAME when ready.</div>
       <button class="lobby-start" onclick="sendCtrl('start')">▶ START GAME</button>
       <div id="lobby-seats" style="font-size:11px;color:#556;margin-top:4px"></div>
     </div>
@@ -919,14 +919,14 @@ function _updateGameControls(phase) {
     btnEnd.style.display   = "none";
   } else if (phase === "running") {
     btnStart.style.display = "none";
-    btnPause.style.display = "";
+    btnPause.style.display = window.AGANTS_ADMIN ? "" : "none";
     btnPause.textContent   = "⏸ PAUSE";
-    btnEnd.style.display   = "";
+    btnEnd.style.display   = window.AGANTS_ADMIN ? "" : "none";
   } else if (phase === "paused") {
     btnStart.style.display = "none";
-    btnPause.style.display = "";
+    btnPause.style.display = window.AGANTS_ADMIN ? "" : "none";
     btnPause.textContent   = "▶ RESUME";
-    btnEnd.style.display   = "";
+    btnEnd.style.display   = window.AGANTS_ADMIN ? "" : "none";
   }
 }
 
@@ -1908,14 +1908,18 @@ function chatPush(entry) {
 }
 
 function onChatMessage(d) {
-  chatPush({ who: d.name || d.colony || "?", msg: d.msg, cls: d.cls || "human", tick: d.tick });
+  const now = new Date();
+  const wallTs = now.getHours().toString().padStart(2,"0") + ":" +
+                 now.getMinutes().toString().padStart(2,"0") + ":" +
+                 now.getSeconds().toString().padStart(2,"0");
+  chatPush({ who: d.name || d.colony || "?", msg: d.msg, cls: d.cls || "human", tick: d.tick, wallTs });
 }
 
 function renderChat() {
   const el = document.getElementById("chat-messages");
   if (!el) return;
   el.innerHTML = chatHistory.slice(0, 40).map(e => {
-    const ts = _tickStamp(e.tick);
+    const ts = e.wallTs || _tickStamp(e.tick);
     return `<div class="chat-msg ${e.cls}"><span class="chat-who">[${ts}] ${escHtml(e.who)}:</span>${escHtml(e.msg)}</div>`;
   }).join("");
 }

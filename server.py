@@ -180,6 +180,17 @@ except Exception:
 #         default brain type is now "mcp" so both seats advertise as agent-ready out of the box;
 #         empty mcp seat already falls back to update_bot_strategy() — the intelligent planning
 #         bot fills in automatically when only one agent is connected (no dumb dummy opponent)
+# 2.15 — Session 28 bug-fix sweep:
+#         income_per_s always 0: RunLogger was never instantiated, so logger.tick() was never
+#           called — income_per_s stayed 0.0 for the entire game; fixed by creating RunLogger
+#           in _run_placement_phase and calling logger.tick() from tick_loop after each step;
+#           also restores run_*.log files and LLM debrief logging (broken since session 16 refactor)
+#         worker delivery radius widened: delivery check was Chebyshev ≤ 2 (5×5 box), causing
+#           all returning workers to converge at the exact nest center — bidirectional traffic jam,
+#           especially bad at RED nest (x=14, near map edge); changed to Manhattan ≤ 5 in all four
+#           delivery paths (worker recruit_target, worker no-target, build-override, scout);
+#           workers now deliver before reaching the congested center, exit without fighting through
+#           incoming traffic, and the nest-orbiting stall is eliminated
 # 2.14 — Bug-fix sweep (6 issues):
 #         mcp_server.py: get_directive / list_seats / game_control now target the JOINED match
 #           (were hitting the default match unconditionally via legacy unscoped endpoints);
@@ -1834,8 +1845,8 @@ class Server:
         await asyncio.sleep(0.5)
 
         world.finalize_placement(red_pos, blue_pos)
-        if world.logger:
-            world.logger.log_placement(red_pos, "fixed spawn", blue_pos, "fixed spawn")
+        world.logger = RunLogger(world)
+        world.logger.log_placement(red_pos, "fixed spawn", blue_pos, "fixed spawn")
         m._placement_food    = []
         m._placement_updates = []
 
@@ -1884,6 +1895,8 @@ class Server:
             m._step_in_progress = True
             await loop.run_in_executor(m._sim_executor, m.world.step)
             m._step_in_progress = False
+            if m.world.logger:
+                m.world.logger.tick()
             m._tick_times.append(time.monotonic())
             tick = m.world.tick
             if m.world.phase == "running":
@@ -2378,14 +2391,16 @@ class Server:
         agent = body.get("agent_name", f"MCP-{cid}")
         # Auth: if AGANTS_AUTH_URL is set, api_key is required
         user_id = None
+        api_key = body.get("api_key", "")
         if AGANTS_AUTH_URL:
-            api_key = body.get("api_key", "")
             user = await self._validate_api_key(api_key)
             if not user:
                 return await self._api_cors(web.json_response(
                     {"error": "invalid or missing api_key — register at /register"}, status=401))
             user_id = user["id"]
             agent   = user.get("username", agent)  # prefer registered name
+        elif api_key:
+            user_id = api_key[:8]  # stable key for dedup even without auth
         if m.world.mcp_seats.get(cid) is not None:
             return await self._api_cors(web.json_response({"error": "seat occupied", "agent": m.world.mcp_seats[cid]}, status=409))
         m.world.mcp_seats[cid] = agent
@@ -2927,6 +2942,14 @@ class Server:
                     return await self._api_cors(web.json_response({
                         "error": f"no friendly unit within {PROX} tiles of ({int(bx)},{int(by)})"
                     }, status=400))
+                # Larders built adjacent to the nest cause worker congestion at the
+                # delivery point; require at least 20 tiles from own nest.
+                if stype == "larder":
+                    nx, ny = c.nx, c.ny
+                    if abs(bx - nx) + abs(by - ny) < 20:
+                        return await self._api_cors(web.json_response({
+                            "error": f"larder must be at least 20 tiles from own nest (nest={int(nx)},{int(ny)})"
+                        }, status=400))
             m._pending_strategies.append((cid, {"build": b}))
             return await self._api_cors(web.json_response({
                 "ok": True, "dirt_required": dirt_cost,
@@ -3027,13 +3050,12 @@ class Server:
         auth_hdr = req.headers.get("Authorization", "")
         if auth_hdr.startswith("Bearer "):
             token = auth_hdr[7:]
-            for cid, tok in m.tokens.items():
-                if tok == token:
-                    colony_id = cid
-                    seat_name = m.world.mcp_seats.get(cid)
-                    sender_name = seat_name or ["RED", "BLUE"][cid]
-                    css_cls = ["red", "blue"][cid]
-                    break
+            entry = m.tokens.get(token)
+            if entry is not None:
+                colony_id = entry["colony_id"]
+                seat_name = m.world.mcp_seats.get(colony_id)
+                sender_name = seat_name or ["RED", "BLUE"][colony_id]
+                css_cls = ["red", "blue"][colony_id]
 
         msg = json.dumps({
             "type": "chat",
@@ -3086,6 +3108,34 @@ class Server:
             "seats":      seats,
             "created_at": m.created_at,
         }))
+
+    async def api_forfeit(self, req):
+        """Forfeit the requesting agent's colony. Requires Bearer token.
+        Ends the match immediately, awarding the win to the opponent."""
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
+        if m.world.phase not in ("running", "lobby"):
+            return await self._api_cors(web.json_response({"error": "match not in progress"}, status=400))
+        auth = req.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return await self._api_cors(web.json_response({"error": "Bearer token required"}, status=401))
+        token = auth[7:]
+        entry = m.tokens.get(token)
+        if entry is None:
+            return await self._api_cors(web.json_response({"error": "invalid token"}, status=401))
+        cid = entry["colony_id"]
+        winner = 1 - cid  # the other colony wins
+        m.world.winner = winner
+        if m.world.logger:
+            m.world.logger.finish(winner)
+        m.world.phase = "running"  # triggers normal end-of-game processing on next tick
+        await self._broadcast(json.dumps({
+            "type": "chat", "colony": None, "name": "system",
+            "msg": f"{['RED','BLUE'][cid]} forfeits — {['RED','BLUE'][winner]} wins!",
+            "cls": "sys", "tick": m.world.tick,
+        }), m=m)
+        return await self._api_cors(web.json_response({"ok": True, "forfeited": cid, "winner": winner}))
 
     async def api_delete_match(self, req):
         """Delete a match. Only allowed on lobby matches with no seated agents."""
@@ -3226,8 +3276,19 @@ class Server:
         stale = [t for t, p in self._presence.items() if p["last_seen"] < cutoff]
         for t in stale:
             self._presence.pop(t, None)
-        agents = []
+        # Deduplicate by user_id: prefer seated entry over lobby heartbeat
+        by_user: dict = {}
         for entry in self._presence.values():
+            uid = entry["user_id"]
+            prev = by_user.get(uid)
+            if prev is None:
+                by_user[uid] = entry
+            elif entry["colony_id"] is not None and prev["colony_id"] is None:
+                by_user[uid] = entry  # seated beats lobby
+            elif entry["last_seen"] > prev["last_seen"] and not (prev["colony_id"] is not None and entry["colony_id"] is None):
+                by_user[uid] = entry  # more recent, as long as we don't downgrade seated→lobby
+        agents = []
+        for entry in by_user.values():
             cid = entry["colony_id"]
             agents.append({
                 "agent":      entry["agent"],
@@ -3303,10 +3364,12 @@ class Server:
         app.router.add_get("/api/events/{colony_id}",            self.api_events)
         app.router.add_post("/api/feedback",                     self.api_feedback)
         app.router.add_post("/api/chat",                         self.api_chat)
+        app.router.add_post("/api/matches/{match_id}/chat",      self.api_chat)
         # REST API — per-match routes (same handlers, match_id resolved from path)
         app.router.add_post("/api/matches/{match_id}/seat/{colony_id}",             self.api_join_seat)
         app.router.add_delete("/api/matches/{match_id}/seat/{colony_id}",           self.api_release_seat)
         app.router.add_post("/api/matches/{match_id}/control",                      self.api_control)
+        app.router.add_post("/api/matches/{match_id}/forfeit",                      self.api_forfeit)
         app.router.add_get("/api/matches/{match_id}/state/{colony_id}",             self.api_state)
         app.router.add_get("/api/matches/{match_id}/notifications/{colony_id}",     self.api_notifications)
         app.router.add_get("/api/matches/{match_id}/intel_map/{colony_id}",         self.api_intel_map)
