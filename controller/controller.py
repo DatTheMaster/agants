@@ -97,6 +97,13 @@ class GameClient:
         except httpx.HTTPError:
             return []
 
+    async def heartbeat(self) -> None:
+        try:
+            await self.http.post(f"{self.base}/api/agents/heartbeat",
+                                 json={"api_key": self.api_key})
+        except httpx.HTTPError:
+            pass
+
     async def new_match(self, brains: dict | None = None) -> str:
         body: dict = {}
         if brains:
@@ -403,7 +410,12 @@ def _brief(args: dict) -> str:
 # --------------------------------------------------------------------------- #
 
 async def poller(client: GameClient, ui: UI):
+    last_heartbeat = 0.0
     while ui.running:
+        now = asyncio.get_event_loop().time()
+        if now - last_heartbeat >= 30:
+            await client.heartbeat()
+            last_heartbeat = now
         try:
             all_matches = await client.list_matches()
             ui.matches = [m for m in all_matches
@@ -445,7 +457,7 @@ def render(ui: UI, client: GameClient, total_height: int = 32) -> Layout:
     if ui.prompt is not None:
         footer = Text(f"{ui.prompt}: {ui.prompt_buf}_", style="bold yellow")
     else:
-        footer = Text("[j] join   [n] new vs bot   [s] start   [w] watch   [↑/↓] select   [q] quit   "
+        footer = Text("[r] join RED   [b] join BLUE   [n] new vs bot   [s] start   [w] watch   [↑/↓] select   [q] quit   "
                       f"— {ui.status}", style="dim")
     layout["footer"].update(footer)
     return layout
@@ -477,7 +489,9 @@ def render_matches(ui: UI, client: GameClient) -> Panel:
     online = Table.grid(padding=(0, 1))
     online.add_row(Text(f"Online agents ({len(ui.online)}):", style="bold"))
     for a in ui.online[:8]:
-        online.add_row(Text(f" {a['agent']:<12} {a['colony']:<5} {a['seconds_ago']}s ago", style="dim"))
+        where = a["colony"] or "lobby"
+        style = "dim" if a["colony"] else "yellow"
+        online.add_row(Text(f" {a['agent']:<14} {where:<6} {a['seconds_ago']}s ago", style=style))
 
     return Panel(Group(t, Text(""), online), title="Open Lobbies", border_style="grey50")
 
@@ -606,8 +620,10 @@ async def run_tui(cfg: dict):
             ui.selected = max(0, ui.selected - 1)
         elif ch == "DOWN":
             ui.selected = min(len(ui.matches) - 1, ui.selected + 1)
-        elif ch == "j":
-            asyncio.create_task(do_join())
+        elif ch == "r":
+            asyncio.create_task(do_join(0))
+        elif ch == "b":
+            asyncio.create_task(do_join(1))
         elif ch == "n":
             asyncio.create_task(do_new())
         elif ch == "s":
@@ -621,23 +637,21 @@ async def run_tui(cfg: dict):
             agent_task.cancel()
         agent_task = asyncio.create_task(agent_loop(client, llm, model, ui, loop))
 
-    async def do_join():
+    async def do_join(col: int):
+        if not ui.matches:
+            ui.add_log("[warn] no open lobbies — press 'n' to create one")
+            return
         if client.colony_id is not None:
             await client.release()
-        default_mid = ui.matches[ui.selected]["match_id"] if ui.matches else ""
-        mid = await ask(ui, "Match id (Enter=highlighted)", default_mid)
-        if mid is None:
-            return
-        col = await ask(ui, "Colony (0=RED  1=BLUE)", "0")
-        if col is None or col not in ("0", "1"):
-            return
+        mid = ui.matches[ui.selected]["match_id"]
         try:
-            await client.join(mid.strip(), int(col))
-            ui.status = f"{client.agent_name} {'RED' if int(col) == 0 else 'BLUE'} @ {client.match_id[:8]}"
-            ui.add_log(f"joined {client.match_id[:8]} as {client.agent_name} (colony {col})")
+            await client.join(mid, col)
+            color = "RED" if col == 0 else "BLUE"
+            ui.status = f"{client.agent_name} {color} @ {mid[:8]}"
+            ui.add_log(f"joined {mid[:8]} as {client.agent_name} ({color})")
             await start_agent()
         except httpx.HTTPError as e:
-            ui.add_log(f"[err] join failed: {e}")
+            ui.add_log(f"[err] join failed: {e.response.text[:120] if hasattr(e, 'response') else e}")
 
     async def do_new():
         try:
