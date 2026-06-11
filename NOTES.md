@@ -7,7 +7,7 @@
 ## Open
 
 - [ ] Stale ant IDs — LLM occasionally commands dead ants (404s); low priority
-- [ ] Feedback jsonl routing — 10 items from session 36 didn't land in `logs/agent_feedback.jsonl`; race fix is in controller but server-side write may be broken; check `POST /api/feedback` handler
+- [x] Feedback jsonl routing — 37 entries confirmed on remote; 12 from session 36 HermesAgent run; feedback system working correctly
 - [ ] Larder 20-tile min — added to `build_structure` docstring this session; confirm it flows into MCP tool descriptions seen by agents
 - [ ] Rally + attack_target interference — setting `attack_target` while rallying scatters soldiers before release; needs a doc note: set attack_target AFTER rally releases
 - [ ] Legend for buildings and ant types on the frontend

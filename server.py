@@ -892,9 +892,11 @@ def build_llm_prompt(colony, tick, world=None, memory=None,
         sc_  = sum(1 for t, _, _ in sq if t == A_SCOUT)
         reserved = sum(cost for _, _, cost in sq)
         min_t = min(tr for _, tr, _ in sq)
+        max_t = max(tr for _, tr, _ in sq)
         sparts = [f"{v}{k}" for k, v in [("W", sw_), ("S", ss_), ("sc", sc_)] if v]
+        full_note = f" · FULL — cancel_spawn to add different types" if len(sq) >= colony.MAX_SPAWN_QUEUE else ""
         spawn_queue_line = (f"SPAWN QUEUE: {len(sq)}/{colony.MAX_SPAWN_QUEUE} pending "
-                            f"({' '.join(sparts)} · next in {min_t}t · {reserved}♦ reserved) "
+                            f"({' '.join(sparts)} · next in {min_t}t · last in {max_t}t · {reserved}♦ reserved){full_note} "
                             f"[build times: W={colony.SPAWN_TIME[A_WORKER]}t S={colony.SPAWN_TIME[A_SOLDIER]}t sc={colony.SPAWN_TIME[A_SCOUT]}t]")
     else:
         spawn_queue_line = (f"SPAWN QUEUE: empty — "
@@ -2687,6 +2689,15 @@ class Server:
             elif assigned == 0 and pct < 100:
                 advisor.append(f"{st['type']} at ({st['x']},{st['y']}) stalled at {pct}% — "
                                f"no workers assigned; use command_type('{cid}','worker','build',x={st['x']},y={st['y']})")
+        # Warn when home/approach food nodes are nearly depleted (< 50♦ left)
+        _w_income = max(0.0, c.income_per_s)
+        for (fx, fy), info in c.food_intel.items():
+            _fn = next((f for f in w.foods if f["x"] == fx and f["y"] == fy), None)
+            if _fn is None: continue
+            if _fn.get("tier", "") not in ("home", "approach"): continue
+            if _fn["amt"] < 50:
+                advisor.append(f"FOOD NODE ({fx},{fy}) {_fn['tier']} nearly empty ({int(_fn['amt'])}♦ left) — "
+                               f"workers will idle soon; redistribute_workers() or expand to frontline")
         return {
             "tick": w.tick, "phase": w.phase, "colony_id": cid,
             "nest": [c.nx, c.ny],
@@ -2697,6 +2708,14 @@ class Server:
             "income_per_s": round(c.income_per_s, 2),
             "larder_income": LARDER_INCOME * sum(1 for st in w.structures if st["colony"] == cid and st.get("type") == "larder"),
             "dirt_per_s": round(c.dirt_per_s, 2),
+            "food_depletion_eta_t": (
+                round(sum(
+                    f["amt"] for f in w.foods
+                    if f.get("tier") in ("home","approach")
+                    and (f["x"], f["y"]) in c.food_intel
+                ) / _w_income)
+                if _w_income > 0 else None
+            ),
             "counts": {"workers": counts[0], "soldiers": counts[1], "scouts": counts[2], "queen": counts[3]},
             "tiers": {"worker": c.worker_tier, "scout": c.scout_tier, "soldier": c.soldier_tier},
             "spawn_queue": sq_summary,

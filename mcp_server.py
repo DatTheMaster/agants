@@ -443,10 +443,13 @@ def patch_directive(colony_id: int, patches: dict) -> dict:
         patches: dict of changes to apply. Can use nested format or dot-notation paths.
 
     NOTE — spawn ratio changes affect new queue entries only. Ants already in the
-    spawn queue will still emerge. If you need immediate effect (e.g. switching from
-    workers to soldiers), call cancel_spawn("worker") first to clear queued workers and
-    refund their reserved food, then patch the ratios. Workers also spawn faster (3 ticks)
-    than soldiers (5 ticks) so equal ratios produce more workers per unit time.
+    queue will still emerge. If the queue is full (10/10), no new types can be added
+    until slots open. For immediate effect (e.g. switching workers→soldiers), call
+    cancel_spawn("worker") first to clear the queue, then patch ratios — first soldier
+    appears in ~5 ticks. Without cancel_spawn, wait for existing ants to finish first.
+    Workers spawn in 3 ticks, soldiers in 5 ticks — equal ratios produce more workers.
+    The spawn queue line in get_state shows "last in Xt" — that's when the current
+    queue fully drains; new type changes only add slots AFTER that unless you cancel.
 
     Examples:
         {"military": {"stance": "aggressive", "auto_attack": true}}
