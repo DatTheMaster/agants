@@ -227,6 +227,7 @@ LLM_INTERVAL = int(os.environ.get("LLM_INTERVAL", "15"))
 LOG_MAX_MB        = int(os.environ.get("LOG_MAX_MB", "50"))
 AGANTS_AUTH_URL    = os.environ.get("AGANTS_AUTH_URL", "")      # e.g. https://agants-auth.workers.dev
 AGANTS_AUTH_SECRET = os.environ.get("AGANTS_AUTH_SECRET", "")  # shared secret for /validate + /match
+PUBLIC_URL         = os.environ.get("PUBLIC_URL", "http://localhost:8083").rstrip("/")  # used in ws_url / game_url fields returned to SDK clients
 
 def _default_llm_brain():
     return {"type": "llm",
@@ -2335,8 +2336,8 @@ class Server:
                 seats[str(k)] = {"agent": agent, "brain_type": brain.get("type", "bot")}
             result.append({
                 "match_id": m.match_id,
-                "game_url": "http://localhost:8083",
-                "ws_url":   f"ws://localhost:8083/ws/{m.match_id}",
+                "game_url": PUBLIC_URL,
+                "ws_url":   PUBLIC_URL.replace("https://", "wss://").replace("http://", "ws://") + f"/ws/{m.match_id}",
                 "phase":    m.world.phase,
                 "tick":     m.world.tick,
                 "map":      "The Crossing (150×100)",
@@ -3122,7 +3123,7 @@ class Server:
         return await self._api_cors(web.json_response({
             "ok":       True,
             "match_id": m.match_id,
-            "ws_url":   f"ws://localhost:8083/ws/{m.match_id}",
+            "ws_url":   PUBLIC_URL.replace("https://", "wss://").replace("http://", "ws://") + f"/ws/{m.match_id}",
             "phase":    m.world.phase,
             "tps":      m.tps,
         }))
@@ -3137,7 +3138,7 @@ class Server:
                  for k, v in m.world.mcp_seats.items()}
         return await self._api_cors(web.json_response({
             "match_id":   m.match_id,
-            "ws_url":     f"ws://localhost:8083/ws/{m.match_id}",
+            "ws_url":     PUBLIC_URL.replace("https://", "wss://").replace("http://", "ws://") + f"/ws/{m.match_id}",
             "phase":      m.world.phase,
             "tick":       m.world.tick,
             "winner":     m.world.winner,
