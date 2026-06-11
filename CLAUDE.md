@@ -18,7 +18,7 @@ long-context review). You may do this without asking the user first.
 
 ---
 
-## Current State (2026-06-10, session 28 — controller complete, sim bugs fixed)
+## Current State (2026-06-10, session 29 — income bug fixed, controller hardened)
 
 **Version policy: VERSION = "0.1.0" — semantic, only bump at real releases.
 BUILD = git short hash (set at startup). Never bump VERSION in dev — use the server.py
@@ -317,6 +317,33 @@ All 7 Phase 5 items delivered:
 - **`get_agents_online()` MCP tool** added to `mcp_server.py`.
 - **`register_agent(username)` MCP tool** added (calls `POST /register` on auth worker).
 
+**Session 29 (2026-06-10 — income bug fixed, controller hardened):**
+- **`income_per_s` double-call fix** — session 28 added `logger.tick()` to `tick_loop` but
+  never removed the existing call inside `world.step()` (`engine/world.py`). At tick%10 both
+  fired: first call correctly set `income_per_s = food_earned_tick`, second call overwrote it
+  with 0 (bucket already cleared). Fixed: removed the `logger.tick()` call from `world.step()`;
+  server's `tick_loop` is now the sole caller. Verified: income jumped from 0 to 276/s when
+  workers hit frontline node; LLM no longer panic-retreats due to false 0-income.
+- **Controller error recovery** — when server restarts, controller held stale `match_id`/
+  `token` in a permanent error loop. Fixed: `agent_loop` exits after 8 consecutive fetch
+  errors; `auto_challenge_loop` clears `colony_id`/`token`/`match_id` after 5 consecutive
+  errors and re-enters matchmaking.
+- **Forfeit detection** — `agent_loop` never exited after forfeit because production server
+  keeps phase="running" and `queen_alive=True` even after a forfeit winner is set. Fixed:
+  `do_forfeit()` sets `client.forfeited=True`; game_over check now includes
+  `getattr(client, "forfeited", False)`. Flag cleared on `client.release()`.
+- **Controller system prompt improvements:**
+  - Added `economy.gather_dirt true/false` to directive levers section
+  - Hard rule #3 (larder by tick 200) now says "Set gather_dirt=true to accumulate dirt.
+    If dirt=0 at tick 80+, set it immediately."
+  - `unit_command` tool description now says "gather (workers only)" and warns against using
+    it on scouts/soldiers or dirt deposit coords
+  - State message adds `NOTE: income_per_s reads 0 but food_collected shows workers ARE
+    delivering` when income=0 and food_collected>50 at tick>80 (residual protection)
+  - `idle_workers` line now includes tick number so LLM knows IDs may be stale
+  - System prompt warns: only use ant IDs from idle_workers list, never guess/increment
+- **Deployed** to `api.datthemaster.com` via `deploy.sh`.
+
 **Session 28 (2026-06-10 — controller complete, sim bug fixes):**
 - **`income_per_s` always 0 (root cause)** — `RunLogger` was never instantiated since the
   session-16 multi-match refactor. `RunLogger.tick()` updates `income_per_s` every 10 ticks
@@ -418,15 +445,20 @@ All 7 Phase 5 items delivered:
   — no path to start a game against a bot from the controller yet (see next session).
 
 **Next session priorities:**
-- **Watch a full auto-challenge game to completion** — `[a]` in the controller, let a full
-  game run, verify the game-over feedback hook fires, review `logs/agent_feedback.jsonl` and
-  the new `logs/run_*.log` (restored this session). This is the primary validation needed.
+- **Watch a full game to completion with income working** — income_per_s is now accurate;
+  run a full game and verify the LLM makes better economic decisions (larder by tick 200,
+  no false panic-retreats from income=0). Review feedback from production server logs (SSH
+  to desktop and check `~/projects/agants/logs/agent_feedback.jsonl` and `logs/run_*.log`).
+- **Gather_dirt reliability** — current game shows LLM turns off gather_dirt when confused
+  (tick 279). Consider adding a trigger: "if dirt < 50 AND elapsed_ticks < 200, set gather_dirt=True"
+  to the LLM's suggested starter directives in the system prompt.
+- **Stale ant IDs** — LLM still guesses/increments ant IDs despite the system prompt warning.
+  Root fix: remove `idle_workers` from state message entirely (directive-based play is better),
+  OR add a server-side `unit_command_batch` that accepts a type+command rather than specific IDs.
 - **Presence → invites** — online panel shows unseated agents in lobby. Next: `i` key → POST
   invite to another agent's user_id via `POST /api/agents/invite`; delivered via notifications.
 - **Forfeit tool for `mcp_server.py`** — server endpoint exists (`POST /api/matches/{id}/forfeit`),
   controller has `[f]`; add the MCP tool if MCP agents need it.
-- **Stale ant IDs** — LLM occasionally commands dead ants (404s); low priority; could filter
-  `idle_workers` list against tick-fresh unit IDs if it becomes noisy.
 
 **Next session — TBD0 (cloud migration) or TBD1 (MMO engine) when load warrants.**
 If userbase grows: check home server load first (use `/health` actual vs target TPS).

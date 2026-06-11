@@ -71,6 +71,7 @@ class GameClient:
         self.match_id: str | None = None
         self.colony_id: int | None = None
         self.agent_name: str = "agent"
+        self.forfeited: bool = False
 
     async def close(self):
         await self.http.aclose()
@@ -140,6 +141,7 @@ class GameClient:
             pass
         self.token = None
         self.colony_id = None
+        self.forfeited = False
 
     async def state(self) -> dict:
         path = self._mpath(f"/state/{self.colony_id}")
@@ -208,7 +210,8 @@ TOOLS = [
                        "'convert' (data {\"convert\":{\"id\":antId,\"to\":\"soldier\"}}), "
                        "'cancel_spawn' (data {\"unit_type\":\"worker|soldier|scout|all\"}), "
                        "'unit_command' (data {\"ant_id\":N,\"command\":\"move_to|attack_xy|gather|hold|patrol|clear\",\"x\":X,\"y\":Y}). "
-                       "For unit_command: command is a flat key alongside ant_id, x, y — do NOT nest inside an 'override' dict.",
+                       "For unit_command: command is a flat key alongside ant_id, x, y — do NOT nest inside an 'override' dict. "
+                       "gather (workers only): sends worker to collect food at the given food node — do NOT use on scouts or soldiers, do NOT use on dirt deposit coords.",
         "parameters": {"type": "object", "properties": {
             "command_type": {"type": "string"},
             "data": {"type": "object"}},
@@ -255,7 +258,7 @@ LIFESPAN  worker 500t, soldier 300t, scout 200t.
 
 DIRECTIVE LEVERS (patch_directive):
  spawn.<worker|soldier|scout>.target_ratio (sum ~1.0), .min, .max
- economy.upgrade_priority [list], economy.auto_upgrade, economy.priority_food [x,y]
+ economy.upgrade_priority [list], economy.auto_upgrade, economy.priority_food [x,y], economy.gather_dirt true/false
  military.stance, military.rally_point [x,y], military.rally_release_at <count>,
    military.attack_target [x,y], military.auto_attack, military.retreat,
    military.siege_priority "queen"
@@ -274,7 +277,8 @@ HARD RULES — violating these loses games:
 3. BUILD A LARDER BY TICK 200. Home/approach food nodes deplete ~tick 300. After that, income=0
    means you can never spawn again. Larder costs 150 dirt (+6 food/t passive forever). Use
    send_command("build", {{"build":{{"type":"larder","x":<near nest>,"y":<near nest>}}}}).
-   Check dirt value in state — workers passively accumulate it.
+   To accumulate dirt: patch economy.gather_dirt=true (workers actively gather from nearby deposits).
+   Watch dirt_income in state. If dirt=0 at tick 80+, set gather_dirt=true immediately.
 
 4. SIEGE REQUIRES siege_priority="queen". Without it soldiers fight bodyguards and deal 0
    damage to the queen. Set it the moment your soldiers enter enemy territory.
@@ -294,6 +298,8 @@ buy_upgrade/build/convert/cancel_spawn/unit_command. get_intel_map() for a spati
 send_chat(message) to taunt. Be decisive: usually 1-2 tool calls per tick.
 For unit_command: data is flat — {{\"ant_id\":N,\"command\":\"move_to\",\"x\":X,\"y\":Y}}.
 Do NOT nest command inside an \"override\" dict.
+ONLY use ant IDs from the idle_workers list in the state message — never guess or increment IDs.
+Ants die frequently; IDs become stale within 1-2 ticks. If you see 400 errors, stop retrying and use directives instead.
 
 FEEDBACK: When the game ends (phase=ended, or your colony alive=False), call submit_feedback()
 with what worked, what data was unclear or missing, and what you'd do differently. Be specific —
@@ -327,11 +333,16 @@ def format_state_message(state: dict, notifs: list[dict]) -> str:
         lines.append("food_nodes: " + ", ".join(
             f"({n['pos'][0]},{n['pos'][1]}){n['tier'][:1]}={n['amt']}({n['pct']}%)w{n['workers_here']}/{n['cap']}"
             for n in nodes[:6]))
+    # income sanity check: if income=0 but food was collected, the meter is unreliable
+    if state.get("income_per_s", 0) == 0 and state.get("food_collected", 0) > 50 and state["tick"] > 80:
+        lines.append("NOTE: income_per_s reads 0 but food_collected shows workers ARE delivering — "
+                     "the income sensor may be delayed or unreliable; do NOT over-react to 0-income.")
     units = state.get("units", [])
     if units:
         idle_workers = [u for u in units if u["type"] == "worker" and u.get("state") == "idle" and not u.get("override")][:6]
         if idle_workers:
-            lines.append("idle_workers: " + ", ".join(f"id={u['id']}@({u['x']},{u['y']})" for u in idle_workers))
+            lines.append(f"idle_workers (tick {state['tick']}): " +
+                         ", ".join(f"id={u['id']}@({u['x']},{u['y']})" for u in idle_workers))
     if state.get("advisor"):
         lines.append("ADVISOR: " + " | ".join(state["advisor"]))
     if state.get("events"):
@@ -382,11 +393,17 @@ async def agent_loop(client: GameClient, llm: OpenAI, model: str, ui: UI, loop: 
         "send_chat": lambda a: client.send_chat(a.get("message", "")),
         "submit_feedback": lambda a: client.submit_feedback(a.get("feedback", ""), a.get("category", "general")),
     }
+    _state_errors = 0
     while ui.running and client.colony_id is not None:
         try:
             state = await client.state()
             notifs = await client.notifications()
+            _state_errors = 0
         except httpx.HTTPError as e:
+            _state_errors += 1
+            if _state_errors >= 8:
+                ui.add_log(f"[err] too many fetch errors — agent loop exiting")
+                break
             ui.add_log(f"[err] state fetch: {e}")
             await asyncio.sleep(1.0)
             continue
@@ -399,7 +416,8 @@ async def agent_loop(client: GameClient, llm: OpenAI, model: str, ui: UI, loop: 
 
         # Detect game over: prompt for feedback then exit
         game_over = (state.get("phase") not in ("lobby", "running") or
-                     state.get("alive") is False)
+                     state.get("queen_alive") is False or
+                     getattr(client, "forfeited", False))
         if game_over:
             ui.add_log(f"[t{tick}] game over — requesting feedback")
             messages.append({"role": "user", "content":
@@ -690,6 +708,7 @@ async def run_tui(cfg: dict):
                 ui.add_log(f"[warn] forfeit: {r['error']}")
             else:
                 ui.add_log("forfeited — opponent wins")
+                client.forfeited = True
         except Exception as e:
             ui.add_log(f"[err] forfeit: {e}")
 
@@ -763,6 +782,7 @@ async def run_tui(cfg: dict):
         play when the game starts, then repeat until auto_challenge is turned off."""
         nonlocal agent_task
         ui.add_log("[auto] challenger mode active — searching for a match")
+        _auto_errs = 0
         while ui.running and ui.auto_challenge:
             # ── Phase 1: Get a seat ───────────────────────────────────────────
             if client.colony_id is None:
@@ -803,7 +823,15 @@ async def run_tui(cfg: dict):
                 continue
             try:
                 state = await client.state()
+                _auto_errs = 0
             except Exception:
+                _auto_errs += 1
+                if _auto_errs >= 5:
+                    ui.add_log("[auto] repeated errors — abandoning stale match")
+                    _auto_errs = 0
+                    client.token = None
+                    client.colony_id = None
+                    client.match_id = None
                 await asyncio.sleep(3)
                 continue
 

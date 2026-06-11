@@ -592,9 +592,6 @@ class World:
 
         self._update_fog()
 
-        if self.logger:
-            self.logger.tick()
-
         self._check_win()
 
     def _check_win(self):
