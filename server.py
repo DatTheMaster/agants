@@ -1621,6 +1621,9 @@ class Server:
         self._startup_time = time.monotonic()
         # token → {agent, user_id, match_id, colony_id, last_seen}
         self._presence: dict[str, dict] = {}
+        # api_key → {user_id, username, cached_at} — avoid re-validating every heartbeat
+        self._key_cache: dict[str, dict] = {}
+        self._KEY_CACHE_TTL = 3600  # 1 hour; revoked keys expire within this window
         os.makedirs(self.SAVE_DIR,    exist_ok=True)
         os.makedirs(self.RESULTS_DIR, exist_ok=True)
         self._rotate_logs()
@@ -1792,7 +1795,7 @@ class Server:
     async def _broadcast(self, msg, m: Match = None):
         clients = (m or self._m).clients
         dead = set()
-        for ws in clients:
+        for ws in list(clients):  # snapshot — send_str yields and clients may change mid-iter
             try: await ws.send_str(msg)
             except: dead.add(ws)
         clients -= dead
@@ -1909,6 +1912,8 @@ class Server:
             if m.world.winner is not None and tick > 0:
                 self._save_result(m)
                 self._delete_save(m)
+                m._sim_executor.shutdown(wait=False)
+                break  # game over — stop ticking
             elif tick > 0 and tick % self.SAVE_INTERVAL == 0:
                 asyncio.get_event_loop().run_in_executor(None, self._save_match, m)
             await asyncio.sleep(max(0, 1.0/m.tps - (time.monotonic()-t0)))
@@ -1938,6 +1943,17 @@ class Server:
         while True:
             await asyncio.sleep(0.1)
 
+            # Exit as soon as the game ends, regardless of brain type
+            if m.world.winner is not None:
+                world = m.world
+                brain = _brain_for_match(m, colony_id)
+                if brain["type"] == "llm" and brain.get("api_key") and client is not None:
+                    wid = id(world) * 10 + colony_id
+                    if wid not in debriefed:
+                        debriefed.add(wid)
+                        await self._llm_debrief(m, world, client, colony_id)
+                break
+
             brain = _brain_for_match(m, colony_id)
             if brain["type"] != "llm" or not brain.get("api_key"):
                 await asyncio.sleep(1)
@@ -1957,13 +1973,6 @@ class Server:
             if world is not last_world:
                 last_world     = world
                 last_call_time = time.monotonic()  # reset on new game
-
-            if world.winner is not None:
-                wid = id(world) * 10 + colony_id
-                if wid not in debriefed:
-                    debriefed.add(wid)
-                    await self._llm_debrief(m, world, client, colony_id)
-                continue
 
             # Colonies don't exist during placement phase — wait for game to start
             if world.phase != "running":
@@ -3205,7 +3214,7 @@ class Server:
         async def _send():
             try:
                 async with aiohttp.ClientSession() as s:
-                    await s.post(
+                    async with s.post(
                         f"{AGANTS_AUTH_URL.rstrip('/')}/match",
                         json={
                             "match_id":       rec["match_id"],
@@ -3218,7 +3227,8 @@ class Server:
                         },
                         headers={"X-Internal-Secret": AGANTS_AUTH_SECRET},
                         timeout=aiohttp.ClientTimeout(total=5),
-                    )
+                    ) as resp:
+                        await resp.read()
             except Exception as e:
                 print(f"⚠️  auth match post error: {e}")
         asyncio.create_task(_send())
@@ -3277,11 +3287,18 @@ class Server:
             body = {}
         api_key = body.get("api_key", "")
         if AGANTS_AUTH_URL:
-            user = await self._validate_api_key(api_key)
-            if not user:
-                return await self._api_cors(web.json_response({"error": "invalid api_key"}, status=401))
-            user_id  = user["id"]
-            username = user.get("username", "agent")
+            cached = self._key_cache.get(api_key)
+            if cached and time.time() - cached["cached_at"] < self._KEY_CACHE_TTL:
+                user_id  = cached["user_id"]
+                username = cached["username"]
+            else:
+                user = await self._validate_api_key(api_key)
+                if not user:
+                    self._key_cache.pop(api_key, None)
+                    return await self._api_cors(web.json_response({"error": "invalid api_key"}, status=401))
+                user_id  = user["id"]
+                username = user.get("username", "agent")
+                self._key_cache[api_key] = {"user_id": user_id, "username": username, "cached_at": time.time()}
         elif api_key:
             user_id  = api_key[:8]
             username = body.get("name", "agent")
