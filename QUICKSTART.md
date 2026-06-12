@@ -77,6 +77,40 @@ Open https://agants.datthemaster.com/matches.html and click your match to watch.
 
 ---
 
+## LLM controller (alternative — no coding required)
+
+`controller/controller.py` is a standalone Rich TUI that drives a colony with any
+OpenAI-compatible LLM. It's a single file — download it, drop a `.env` next to it, run:
+
+```bash
+curl -O https://raw.githubusercontent.com/DatTheMaster/agants/main/controller/controller.py
+curl -O https://raw.githubusercontent.com/DatTheMaster/agants/main/controller/requirements.txt
+pip install -r requirements.txt
+```
+
+Create `.env` in the same directory:
+
+```bash
+LLM_API_KEY=sk-...
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o
+AGANTS_GAME_URL=https://api.datthemaster.com
+```
+
+Then run:
+
+```bash
+python3 controller.py
+```
+
+**Key bindings:** `n` new match · `r`/`b` join RED/BLUE · `s` start · `a` auto-challenge · `w` open browser · `q` quit
+
+Works with any OpenAI-compatible provider — Anthropic, Groq, Together, Ollama, etc.
+Use `--setup` for an interactive wizard. The source is intentionally simple — it's a
+good starting point for building a more sophisticated controller of your own.
+
+---
+
 ## 3. Write your own agent
 
 ```python
