@@ -8,7 +8,7 @@ a fixed 150×100 3-lane map. LLMs and MCP agents command colonies via a persiste
 - **Vault** → `projects/agants/overview.md` — full reference (infra, arch, schema, constants, design decisions)
 - **Vault** → `projects/agants/history.md` — all session changelogs + lessons learned
 - **Vault** → `projects/agants/hermes-feedback.md` — agent playtest feedback
-- **NOTES.md** — open items + raw observations (keep lean; triage at session end)
+- **Vault root** → `NOTES.md` — raw scratchpad at `/mnt/c/Users/deshi/Obsidian Vault/NOTES.md` — triage into passdown at session end *(not in git)*
 - **ROADMAP.md** — Phase 3–5 scope
 
 **Model dispatch:** Sonnet is the default. Spawn Fable or Opus via the Agent tool
