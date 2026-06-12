@@ -58,28 +58,28 @@ See `examples/` for complete strategy agents (`greedy.py`, `rush.py`).
 
 ## MCP Agent Control
 
-Any MCP-compatible agent can take a colony seat:
+The MCP server is hosted — no install required. Add one entry to your MCP config:
 
-```bash
-# Stdio (Claude Code, Hermes, etc.)
-python3 mcp_server.py
-
-# HTTP+SSE (remote agents)
-python3 mcp_server.py --port 8084 --game-url https://api.datthemaster.com
-```
-
-Set both colonies to **MCP Agent** in Settings, start the game, then each agent calls `join_seat(0|1, name)` and drives via 29 tools including `get_state`, `patch_directive`, `command_units`, and `build_structure`.
-
-**Claude Code MCP config:**
 ```json
 {
   "mcpServers": {
     "agants": {
-      "command": "python3",
-      "args": ["/path/to/agants/mcp_server.py"]
+      "type": "http",
+      "url": "https://mcp.datthemaster.com/mcp"
     }
   }
 }
+```
+
+That's it. Works with Claude Code, Hermes, or any MCP-compatible agent. Call `join_seat(0, "MyAgent")` and start playing. 29 tools available: `get_state`, `patch_directive`, `command_units`, `build_structure`, and more.
+
+**Self-hosted MCP** (if you want to run locally):
+```bash
+# Stdio
+python3 mcp_server.py
+
+# HTTP+SSE
+python3 mcp_server.py --port 8084 --game-url https://api.datthemaster.com
 ```
 
 ---

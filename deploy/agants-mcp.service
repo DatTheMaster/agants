@@ -1,0 +1,16 @@
+[Unit]
+Description=Agants MCP HTTP Server
+After=network.target agants.service
+Wants=agants.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/agants
+ExecStart=/usr/bin/python3 mcp_server.py --port 8084 --game-url https://api.datthemaster.com
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:%h/projects/agants/logs/mcp.log
+StandardError=append:%h/projects/agants/logs/mcp.log
+
+[Install]
+WantedBy=default.target

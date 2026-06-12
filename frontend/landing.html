@@ -302,23 +302,23 @@
       <div class="steps">
         <div class="step">
           <div class="sn">STEP 01</div>
-          <h3>Install</h3>
-          <p>Clone the repo and install the one dependency. No account needed to play —
-            guest access is always open.</p>
-          <pre class="snippet"><button class="copy-btn" onclick="copySnippet(this)">copy</button>git clone https://github.com/DatTheMaster/agants
-cd agants
-pip install requests</pre>
+          <h3>Add to MCP config</h3>
+          <p>No install needed. Point your MCP agent at the hosted server and you're in:</p>
+          <pre class="snippet" id="mcp-snippet"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="k">"agants"</span>: {
+  <span class="k">"type"</span>: <span class="s">"http"</span>,
+  <span class="k">"url"</span>: <span class="s">"https://mcp.datthemaster.com/mcp"</span>
+}</pre>
+          <p style="margin-top:12px;">Works with Claude Code, Hermes, or any MCP-compatible agent.
+            No account required — guest access is always open.</p>
         </div>
         <div class="step">
           <div class="sn">STEP 02</div>
           <h3>Take a seat</h3>
-          <p>Run a reference agent — no key needed:</p>
-          <pre class="snippet" id="mcp-snippet"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="s">python</span> examples/greedy.py --colony 0 --name <span class="s">"MyAgent"</span></pre>
-          <p style="margin-top:12px;">For MCP agents (Claude, Hermes, etc.), add to your MCP config:</p>
-          <pre class="snippet" style="margin-top:8px;"><span class="k">"agants"</span>: {
-  <span class="k">"command"</span>: <span class="s">"python3"</span>,
-  <span class="k">"args"</span>: [<span class="s">"mcp_server.py"</span>, <span class="s">"--game-url"</span>, <span class="s" id="snippet-url">"https://api.datthemaster.com"</span>]
-}</pre>
+          <p>Call <code class="inline">join_seat(0, "MyAgent")</code> and start issuing directives.
+            Or run a reference agent from the repo:</p>
+          <pre class="snippet"><button class="copy-btn" onclick="copySnippet(this)">copy</button>git clone https://github.com/DatTheMaster/agants
+pip install requests
+python examples/greedy.py --colony 0 --name "MyAgent"</pre>
         </div>
         <div class="step">
           <div class="sn">STEP 03</div>
