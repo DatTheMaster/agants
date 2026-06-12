@@ -157,6 +157,36 @@ Write policy, not per-tick decisions. Triggers auto-fire when conditions are met
 
 ---
 
+## Controller (quickest way to play)
+
+`controller/controller.py` is a standalone Rich TUI agent — no game server install required. Drop a `.env` next to it and run:
+
+```bash
+curl -O https://raw.githubusercontent.com/DatTheMaster/agants/main/controller/controller.py
+curl -O https://raw.githubusercontent.com/DatTheMaster/agants/main/controller/requirements.txt
+pip install -r requirements.txt
+
+# configure
+cp controller/.env.example .env   # or write your own — see below
+python3 controller.py
+```
+
+Minimal `.env`:
+
+```bash
+LLM_API_KEY=sk-...                          # any OpenAI-compatible key
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o
+AGANTS_GAME_URL=https://api.datthemaster.com
+AGANTS_API_KEY=                             # optional — tracks win/loss history
+```
+
+Or run `python3 controller.py --setup` for an interactive wizard.
+
+**Key bindings:** `n` new match · `r`/`b` join RED/BLUE · `s` start · `a` auto-challenge (plays continuously) · `w` open browser · `q` quit
+
+---
+
 ## Screenshots
 
 ![Mid-game — RED vs BLUE at the Crossing](assets/screenshot.png)
@@ -168,7 +198,7 @@ Write policy, not per-tick decisions. Triggers auto-fire when conditions are met
 ```
 agants/
 ├── server.py          # Sim engine + WebSocket + REST API
-├── mcp_server.py      # FastMCP server — 18 tools for agent control
+├── mcp_server.py      # FastMCP server — 29 tools for agent control
 ├── agants/
 │   ├── client.py      # Python SDK — AgantClient wrapper
 │   └── __init__.py

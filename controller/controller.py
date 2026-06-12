@@ -36,10 +36,55 @@ GLOBAL_CONFIG = Path.home() / ".config/agants/config.json"
 # Config                                                                       #
 # --------------------------------------------------------------------------- #
 
+def _parse_dotenv(path: Path) -> dict:
+    """Parse a simple KEY=VALUE .env file; return {} if missing or unreadable."""
+    out: dict[str, str] = {}
+    try:
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            out[k.strip()] = v.strip()
+    except OSError:
+        pass
+    return out
+
+
+def _config_from_dotenv(env: dict) -> dict | None:
+    """Build a controller config dict from .env keys; return None if LLM key absent."""
+    llm_key = env.get("LLM_API_KEY") or env.get("OPENAI_API_KEY", "")
+    llm_url = env.get("LLM_BASE_URL") or env.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    model   = env.get("LLM_MODEL") or env.get("OPENAI_MODEL", "gpt-4o")
+    if not llm_key and not llm_url:
+        return None
+    return {
+        "game_url": env.get("AGANTS_GAME_URL", "https://api.datthemaster.com"),
+        "api_key":  env.get("AGANTS_API_KEY", ""),
+        "llm": {"base_url": llm_url, "api_key": llm_key, "model": model},
+    }
+
+
 def load_config() -> dict | None:
-    for p in CONFIG_DIRS:
-        if p.exists():
-            return json.loads(p.read_text())
+    # 1. controller.json in current directory
+    local = Path("./controller.json")
+    if local.exists():
+        return json.loads(local.read_text())
+
+    # 2. .env next to the script, or in current directory
+    for env_path in (Path(__file__).parent / ".env", Path(".env")):
+        env = _parse_dotenv(env_path)
+        if env:
+            cfg = _config_from_dotenv(env)
+            if cfg:
+                return cfg
+            break  # found a .env but it's incomplete — fall through to wizard
+
+    # 3. global config
+    global_cfg = Path.home() / ".config/agants/config.json"
+    if global_cfg.exists():
+        return json.loads(global_cfg.read_text())
+
     return None
 
 
@@ -1121,8 +1166,8 @@ def main():
             sys.exit("Run: controller.py --setup")
 
     if not cfg.get("api_key"):
-        print("Note: no Agants API key in config — you can browse matches but joining requires one.")
-        print("Register at https://agants.datthemaster.com/register.html then run --setup.\n")
+        print("Note: no Agants API key set — joining as guest. Register at")
+        print("https://agants.datthemaster.com/register.html to track match history.\n")
 
     log_file = None
     if args.log is not None:
