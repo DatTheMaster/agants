@@ -899,8 +899,9 @@ def build_llm_prompt(colony, tick, world=None, memory=None,
                             f"({' '.join(sparts)} · next in {min_t}t · last in {max_t}t · {reserved}♦ reserved){full_note} "
                             f"[build times: W={colony.SPAWN_TIME[A_WORKER]}t S={colony.SPAWN_TIME[A_SOLDIER]}t sc={colony.SPAWN_TIME[A_SCOUT]}t]")
     else:
-        spawn_queue_line = (f"SPAWN QUEUE: empty — "
-                            f"build times: W={colony.SPAWN_TIME[A_WORKER]}t  S={colony.SPAWN_TIME[A_SOLDIER]}t  sc={colony.SPAWN_TIME[A_SCOUT]}t")
+        spawn_queue_line = (f"SPAWN QUEUE: empty — Note: after setting spawn targets, "
+                            f"expect 15-30t before units appear in queue. "
+                            f"Build times: W={colony.SPAWN_TIME[A_WORKER]}t  S={colony.SPAWN_TIME[A_SOLDIER]}t  sc={colony.SPAWN_TIME[A_SCOUT]}t")
 
     # Aging ants — those in final 20% of lifespan
     _TNAME = ["W", "S", "sc"]
@@ -2471,11 +2472,15 @@ class Server:
         api_key = body.get("api_key", "")
         if AGANTS_AUTH_URL and api_key:
             user = await self._validate_api_key(api_key)
-            if not user:
+            if user is False:
                 return await self._api_cors(web.json_response(
                     {"error": "invalid api_key — check key or omit to join as guest"}, status=401))
-            user_id = user["id"]
-            agent   = user.get("username", agent)  # prefer registered name
+            if user:
+                user_id = user["id"]
+                agent   = user.get("username", agent)  # prefer registered name
+            else:
+                # auth worker unreachable — fail open, treat as unverified key
+                user_id = api_key[:8]
         elif api_key:
             user_id = api_key[:8]  # stable key for dedup even without auth
         if not agent:
@@ -3230,10 +3235,21 @@ class Server:
                             "error": f"larder must be at least 20 tiles from own nest (nest={int(nx)},{int(ny)})"
                         }, status=400))
             m._pending_strategies.append((cid, {"build": b}))
-            return await self._api_cors(web.json_response({
+            resp = {
                 "ok": True, "dirt_required": dirt_cost,
                 "dirt_remaining": int(c.dirt - dirt_cost)
-            }))
+            }
+            # Warn when a guard_post is placed far from the nest — workers heading
+            # out to build/garrison it are likely to be picked off en route.
+            if stype == "guard_post" and isinstance(bx, (int, float)) and isinstance(by, (int, float)):
+                nest_dist = abs(bx - c.nx) + abs(by - c.ny)
+                if nest_dist > 35:
+                    resp["warning"] = (
+                        f"guard_post is {int(nest_dist)} tiles from your nest — "
+                        "workers are likely to be killed en route. "
+                        "Safe placement is <=35 tiles from nest."
+                    )
+            return await self._api_cors(web.json_response(resp))
         elif cmd_type == "convert":
             m._pending_strategies.append((cid, {"convert": body.get("convert", {})}))
         elif cmd_type == "cancel_spawn":
@@ -3437,8 +3453,10 @@ class Server:
         self.matches.pop(match_id, None)
         return await self._api_cors(web.json_response({"ok": True, "deleted": match_id}))
 
-    async def _validate_api_key(self, key: str) -> "dict | None":
-        """Call auth worker /validate. Returns {id, username} or None on failure."""
+    async def _validate_api_key(self, key: str) -> "dict | None | bool":
+        """Call auth worker /validate.
+        Returns {id, username} on success, False if key is explicitly invalid (401),
+        or None if auth worker is unreachable/erroring (fail open)."""
         if not AGANTS_AUTH_URL or not key:
             return None
         try:
@@ -3451,9 +3469,12 @@ class Server:
                 ) as resp:
                     if resp.status == 200:
                         return await resp.json()
+                    if resp.status == 401:
+                        return False  # explicit rejection — key not found
+                    print(f"⚠️  auth validate unexpected status {resp.status} — failing open")
         except Exception as e:
-            print(f"⚠️  auth validate error: {e}")
-        return None
+            print(f"⚠️  auth validate error: {e} — failing open")
+        return None  # unavailable — caller treats as unverified guest
 
     def _post_match_result(self, rec: dict, red_uid, blue_uid, winner_uid):
         """Fire-and-forget: POST completed match to auth worker."""
@@ -3541,11 +3562,16 @@ class Server:
                 username = cached["username"]
             else:
                 user = await self._validate_api_key(api_key)
-                if not user:
+                if user is False:
                     self._key_cache.pop(api_key, None)
                     return await self._api_cors(web.json_response({"error": "invalid api_key"}, status=401))
-                user_id  = user["id"]
-                username = user.get("username", "agent")
+                if not user:
+                    # auth worker unavailable — fall through with key-derived id
+                    user_id  = api_key[:8]
+                    username = body.get("agent_name", "agent")
+                else:
+                    user_id  = user["id"]
+                    username = user.get("username", "agent")
                 self._key_cache[api_key] = {"user_id": user_id, "username": username, "cached_at": time.time()}
         elif api_key:
             user_id  = api_key[:8]

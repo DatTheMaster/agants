@@ -280,7 +280,9 @@ def get_state(colony_id: int) -> dict:
     - food, dirt, income_per_s, dirt_per_s
     - counts: {workers, soldiers, scouts, queen}
     - tiers: current upgrade level per unit type (0-3)
-    - spawn_queue: queued units and reserved food
+    - spawn_queue: pending units currently cooking + food reserved for them. NOTE: after you
+      change spawn targets in the directive, expect a 15-30 tick delay before units begin
+      appearing in the queue — an empty spawn_queue right after a directive change is normal.
     - aging_soon: units near end of lifespan
     - combat: soldiers_in_siege, soldiers_adjacent_queen, enemy_queen_hp,
       queen_dps_actual (real damage/s to the enemy queen — the number that matters),
@@ -480,6 +482,16 @@ def patch_directive(colony_id: int, patches: dict) -> dict:
       retreat=true effectively disables auto_attack for non-sieged units.
     - To fully stop an attack: set retreat=true AND clear attack_target/rally_point.
       Sieged soldiers will finish their current engagement, then retreat on the next tick.
+
+    RALLY POINT (massing before an attack):
+    - Soldiers travel to the rally_point ONE AT A TIME as they are spawned/freed — they
+      do not teleport; expect them to trickle in over many ticks.
+    - rally_release_at is the MINIMUM COUNT needed before the rally releases. If you set it
+      to 12 but only ever have 7 soldiers, the rally NEVER releases. Set rally_release_at to
+      a number <= your current (or realistically reachable) soldier count, or use a trigger
+      to auto-release when the count is met.
+    - After the rally releases, set attack_target FIRST, THEN clear rally_point — do not set
+      both simultaneously (set attack_target and rally_point=null in separate/ordered steps).
     """
     return _post(_match_path(colony_id, f"/directive/{colony_id}"), {"patches": patches}, headers=_auth(colony_id))
 
@@ -520,6 +532,10 @@ def buy_upgrade(colony_id: int, unit: str) -> dict:
 @mcp.tool()
 def build_structure(colony_id: int, structure_type: str, x: int, y: int) -> dict:
     """Order construction of a structure at the given map coordinates.
+
+    PLACEMENT SAFETY: keep structures within ~35 tiles of your nest. guard_posts placed
+    beyond 35 tiles routinely get their builders killed mid-construction (workers are
+    vulnerable en route). The server returns a "warning" in the response for far placements.
 
     Args:
         colony_id: 0 for RED, 1 for BLUE

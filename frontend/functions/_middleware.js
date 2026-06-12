@@ -6,6 +6,9 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   if (url.pathname === "/config.js") {
     const backend = (env.AGANTS_BACKEND || "").replace(/"/g, "");
+    // If env vars weren't baked in at deploy time (e.g. git-connected auto-deploy),
+    // fall through to static config.js which has hardcoded production defaults.
+    if (!backend) return next();
     const authUrl = (env.AGANTS_AUTH_URL  || "").replace(/"/g, "");
     const admin   = env.AGANTS_ADMIN === "true" ? "true" : "false";
     return new Response(

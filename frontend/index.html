@@ -216,6 +216,34 @@ canvas { display: block; }
 .upg-unit-header.scout-hdr  { color: #2a3a4a; }
 .upg-unit-header.soldier-hdr { color: #4a2a2a; }
 
+/* ── Legend ── */
+#legend { border-top: 1px solid #1a1a1a; flex-shrink: 0; }
+#legend-toggle {
+  width: 100%; background: none; border: none;
+  border-bottom: 1px solid #111; color: #2a2a2a;
+  font-size: 11px; font-family: inherit; text-align: left;
+  padding: 6px 14px; cursor: pointer; letter-spacing: 1px;
+  text-transform: uppercase; display: flex; justify-content: space-between;
+}
+#legend-toggle:hover { color: #444; }
+#legend-body { display: none; padding: 5px 12px 8px; }
+#legend-body.open { display: block; }
+.lgnd-section { margin-bottom: 5px; }
+.lgnd-title {
+  color: #2a3a2a; font-size: 9px; letter-spacing: 1px;
+  text-transform: uppercase; margin-bottom: 3px; font-weight: bold;
+}
+.lgnd-row {
+  display: flex; align-items: center; gap: 6px;
+  margin: 2px 0; font-size: 10px; color: #555; line-height: 1.4;
+}
+.ico-worker  { width:8px;height:8px;background:#3a7;border-radius:2px;display:inline-block;flex-shrink:0; }
+.ico-soldier { width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #733;display:inline-block;flex-shrink:0; }
+.ico-scout   { width:8px;height:8px;background:#357;border-radius:50%;display:inline-block;flex-shrink:0; }
+.ico-queen   { width:10px;height:10px;background:#996;border-radius:50%;box-shadow:0 0 3px #aa6;display:inline-block;flex-shrink:0; }
+.ico-bldg    { width:16px;height:14px;border:1px solid #333;display:inline-flex;align-items:center;justify-content:center;font-size:8px;color:#666;border-radius:2px;flex-shrink:0; }
+.ico-dot     { width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0; }
+
 /* ── Chat ── */
 #chat-section {
   flex: 1;
@@ -587,9 +615,9 @@ canvas { display: block; }
         <div class="upg-row locked" id="r-upg-w1"><span class="upg-name">Foraging II</span><span class="upg-cost">2,200</span><span class="upg-status">·</span></div>
         <div class="upg-row locked" id="r-upg-w2"><span class="upg-name">Foraging III</span><span class="upg-cost">6,000</span><span class="upg-status">·</span></div>
         <div class="upg-unit-header scout-hdr">Scout</div>
-        <div class="upg-row locked" id="r-upg-s0"><span class="upg-name">Pathfinding</span><span class="upg-cost">450</span><span class="upg-status">LOCKED</span></div>
-        <div class="upg-row locked" id="r-upg-s1"><span class="upg-name">Swift</span><span class="upg-cost">2,000</span><span class="upg-status">·</span></div>
-        <div class="upg-row locked" id="r-upg-s2"><span class="upg-name">Master Rec.</span><span class="upg-cost">5,500</span><span class="upg-status">·</span></div>
+        <div class="upg-row locked" id="r-upg-s0"><span class="upg-name">Range I</span><span class="upg-cost">450</span><span class="upg-status">LOCKED</span></div>
+        <div class="upg-row locked" id="r-upg-s1"><span class="upg-name">Range II</span><span class="upg-cost">2,000</span><span class="upg-status">·</span></div>
+        <div class="upg-row locked" id="r-upg-s2"><span class="upg-name">Range III</span><span class="upg-cost">5,500</span><span class="upg-status">·</span></div>
         <div class="upg-unit-header soldier-hdr">Soldier</div>
         <div class="upg-row locked" id="r-upg-m0"><span class="upg-name">Combat I</span><span class="upg-cost">600</span><span class="upg-status">LOCKED</span></div>
         <div class="upg-row locked" id="r-upg-m1"><span class="upg-name">Combat II</span><span class="upg-cost">2,800</span><span class="upg-status">·</span></div>
@@ -627,13 +655,43 @@ canvas { display: block; }
         <div class="upg-row locked" id="b-upg-w1"><span class="upg-name">Foraging II</span><span class="upg-cost">2,200</span><span class="upg-status">·</span></div>
         <div class="upg-row locked" id="b-upg-w2"><span class="upg-name">Foraging III</span><span class="upg-cost">6,000</span><span class="upg-status">·</span></div>
         <div class="upg-unit-header scout-hdr">Scout</div>
-        <div class="upg-row locked" id="b-upg-s0"><span class="upg-name">Pathfinding</span><span class="upg-cost">450</span><span class="upg-status">LOCKED</span></div>
-        <div class="upg-row locked" id="b-upg-s1"><span class="upg-name">Swift</span><span class="upg-cost">2,000</span><span class="upg-status">·</span></div>
-        <div class="upg-row locked" id="b-upg-s2"><span class="upg-name">Master Rec.</span><span class="upg-cost">5,500</span><span class="upg-status">·</span></div>
+        <div class="upg-row locked" id="b-upg-s0"><span class="upg-name">Range I</span><span class="upg-cost">450</span><span class="upg-status">LOCKED</span></div>
+        <div class="upg-row locked" id="b-upg-s1"><span class="upg-name">Range II</span><span class="upg-cost">2,000</span><span class="upg-status">·</span></div>
+        <div class="upg-row locked" id="b-upg-s2"><span class="upg-name">Range III</span><span class="upg-cost">5,500</span><span class="upg-status">·</span></div>
         <div class="upg-unit-header soldier-hdr">Soldier</div>
         <div class="upg-row locked" id="b-upg-m0"><span class="upg-name">Combat I</span><span class="upg-cost">600</span><span class="upg-status">LOCKED</span></div>
         <div class="upg-row locked" id="b-upg-m1"><span class="upg-name">Combat II</span><span class="upg-cost">2,800</span><span class="upg-status">·</span></div>
         <div class="upg-row locked" id="b-upg-m2"><span class="upg-name">Combat III</span><span class="upg-cost">7,500</span><span class="upg-status">·</span></div>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div id="legend">
+      <button id="legend-toggle" onclick="toggleLegend()">
+        <span>Legend</span><span id="legend-arrow">▶</span>
+      </button>
+      <div id="legend-body">
+        <div class="lgnd-section">
+          <div class="lgnd-title">Ant Types</div>
+          <div class="lgnd-row"><span class="ico-worker"></span> Worker — gather food &amp; dirt</div>
+          <div class="lgnd-row"><span class="ico-soldier"></span> Soldier — melee combat</div>
+          <div class="lgnd-row"><span class="ico-scout"></span> Scout — fast, reveals map</div>
+          <div class="lgnd-row"><span class="ico-queen"></span> Queen — nest, spawns ants</div>
+        </div>
+        <div class="lgnd-section">
+          <div class="lgnd-title">Buildings</div>
+          <div class="lgnd-row"><span class="ico-bldg">GP</span> Guard Post — atk range 10t</div>
+          <div class="lgnd-row"><span class="ico-bldg">W</span> Watchtower — vision 12t</div>
+          <div class="lgnd-row"><span class="ico-bldg">B</span> Barracks — spawn ×1.5</div>
+          <div class="lgnd-row"><span class="ico-bldg">L</span> Larder — +6♦/t passive</div>
+        </div>
+        <div class="lgnd-section">
+          <div class="lgnd-title">Map</div>
+          <div class="lgnd-row"><span class="ico-dot" style="background:rgb(90,195,75)"></span> Home food node</div>
+          <div class="lgnd-row"><span class="ico-dot" style="background:rgb(215,175,0)"></span> Approach food node</div>
+          <div class="lgnd-row"><span class="ico-dot" style="background:rgb(255,80,50)"></span> Frontline food node</div>
+          <div class="lgnd-row"><span class="ico-dot" style="background:rgb(130,90,45)"></span> Dirt node</div>
+        </div>
       </div>
     </div>
 
@@ -901,6 +959,13 @@ function sendCtrl(action) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: action + "_game" }));
   }
+}
+
+function toggleLegend() {
+  const b = document.getElementById('legend-body');
+  const a = document.getElementById('legend-arrow');
+  b.classList.toggle('open');
+  a.textContent = b.classList.contains('open') ? '▼' : '▶';
 }
 
 function togglePause() {
@@ -1388,7 +1453,7 @@ function onTick(d) {
       x: a[1], y: a[2], px, py,
       col: a[5], type: a[6], st: a[7], carrying: a[8],
       hp: a[9], maxHp: a[10], tier,
-      lastAngle: prev ? prev.lastAngle : 0,
+      lastAngle: prev ? prev.lastAngle : (a[6] === 3 && a[5] === 1 ? Math.PI : 0),
     });
   }
 
@@ -2122,7 +2187,7 @@ function updateSidebar(now) {
       { suffix: "w", tier: tiers[0], costs: [500, 2200, 6000], etaKey: "worker",
         names: ["Foraging I","Foraging II","Foraging III"] },
       { suffix: "s", tier: tiers[1], costs: [450, 2000, 5500], etaKey: "scout",
-        names: ["Pathfinding","Swift","Master Rec."] },
+        names: ["Range I","Range II","Range III"] },
       { suffix: "m", tier: tiers[2], costs: [600, 2800, 7500], etaKey: "soldier",
         names: ["Combat I","Combat II","Combat III"] },
     ];

@@ -543,6 +543,28 @@ class World:
                     n_workers = sum(1 for a in c.ants if a.type == A_WORKER)
                     worker_capped = worker_max is not None and n_workers >= worker_max
 
+                    # Clear stale/impossible upgrade_reserve entries so they don't
+                    # permanently block spawning. An entry is stale if the unit is at
+                    # max tier, or the reserved amount can never cover the next upgrade.
+                    ur = c.directive["economy"].get("upgrade_reserve", {})
+                    if ur:
+                        _RES_TREES = {
+                            "worker":  (c.worker_tier,  WORKER_UPGRADE_COSTS),
+                            "scout":   (c.scout_tier,   SCOUT_UPGRADE_COSTS),
+                            "soldier": (c.soldier_tier, SOLDIER_UPGRADE_COSTS),
+                        }
+                        _stale = []
+                        for _utype, _amt in ur.items():
+                            _tier, _costs = _RES_TREES.get(_utype, (3, None))
+                            if _tier >= 3:
+                                _stale.append(_utype); continue
+                            if _amt < _costs[_tier]:
+                                _stale.append(_utype)
+                        for _utype in _stale:
+                            del ur[_utype]
+                            if _utype in sp and sp[_utype].get("pause"):
+                                sp[_utype]["pause"] = False
+
                     reserve_floor = sp.get("reserve_food", 150) + sum(
                         c.directive["economy"].get("upgrade_reserve", {}).values())
 
@@ -1521,6 +1543,16 @@ class World:
         for c in self.colonies:
             if pos in c.known_food:
                 c.push_notification("food_depleted", {"x": f["x"], "y": f["y"], "kind": f["kind"]}, tick=self.tick)
+            # Proactively clear priority_food if it pointed at this now-dead node,
+            # so workers redistribute instead of idling on a depleted target.
+            pf = c.directive["economy"].get("priority_food")
+            pf_t = tuple(pf) if isinstance(pf, (list, tuple)) and len(pf) == 2 else None
+            if pf_t == pos:
+                c.directive["economy"]["priority_food"] = []
+                c.push_event(f"★ priority_food node at ({pos[0]},{pos[1]}) depleted — "
+                             "clearing priority_food; workers will redistribute")
+                c.push_notification("priority_food_cleared",
+                                    {"x": pos[0], "y": pos[1], "reason": "depleted"}, tick=self.tick)
 
     def _dirt_nearby(self, x, y, radius=3):
         best, best_d = None, radius + 1

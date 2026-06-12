@@ -147,6 +147,7 @@ def run(colony_id: int, name: str, api_key: str = ""):
 
 
 def main():
+    global SERVER
     parser = argparse.ArgumentParser(description="Greedy economy-first Agants agent")
     parser.add_argument("--colony", type=int, default=0, choices=[0, 1],
                         help="0=RED 1=BLUE (default: 0)")
@@ -156,7 +157,6 @@ def main():
     parser.add_argument("--server", default=SERVER, help="Server base URL")
     args = parser.parse_args()
 
-    global SERVER
     SERVER = args.server
     run(args.colony, args.name, args.key)
 

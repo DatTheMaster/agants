@@ -65,22 +65,27 @@
     .board { border: 1px solid var(--line); background: rgba(13,13,12,.85); }
     .thead, .mrow {
       display: grid; align-items: center;
-      grid-template-columns: 26px 110px 1fr 96px 80px 130px;
+      grid-template-columns: 26px 110px 1fr 130px 70px 110px;
       gap: 14px; padding: 12px 18px;
     }
     .thead { border-bottom: 1px solid var(--line); font-size: 9.5px;
       letter-spacing: .28em; text-transform: uppercase; color: var(--dim); }
-    .mrow { border-bottom: 1px solid var(--line); color: var(--tx);
-      transition: background .12s; cursor: pointer; }
+    .mrow { border-bottom: 1px solid var(--line); color: var(--tx); transition: background .12s; }
     .mrow:last-child { border-bottom: none; }
-    .mrow:hover { background: rgba(255,255,255,.025); }
-    .mrow:hover .mid { color: var(--hi); }
+
+    /* active/lobby rows are clickable */
+    .mrow.live { cursor: pointer; }
+    .mrow.live:hover { background: rgba(255,255,255,.025); }
+    .mrow.live:hover .mid { color: var(--hi); }
+
+    /* ended rows are not */
+    .mrow.hist { cursor: default; opacity: .7; }
 
     .st { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
     .st.running { background: var(--green); animation: pulse 2s ease infinite; }
     .st.lobby, .st.placement { background: var(--amber); }
     .st.paused { background: var(--dim); }
-    .st.ended { background: transparent; border: 1px solid var(--dim); }
+    .st.ended { background: transparent; border: 1px solid #3d3d37; }
 
     .mid { font-size: 12px; color: var(--tx); overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
@@ -88,15 +93,35 @@
     .vs .r { color: var(--red-bright); font-weight: 500; }
     .vs .b { color: var(--blue-bright); font-weight: 500; }
     .vs .x { color: var(--dim); margin: 0 7px; font-size: 10px; }
-    .vs .empty { color: #3d3d37; font-style: italic; }
-    .vs .tag { font-size: 9px; color: var(--dim); letter-spacing: .1em; margin-left: 4px; }
-    .phase { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--dim); }
+    .vs .open { color: #3d3d37; font-style: italic; }
+    .vs .bot  { color: var(--dim); }
+    .phase { font-size: 10px; letter-spacing: .15em; text-transform: uppercase; color: var(--dim); }
     .tick { font-size: 12px; color: var(--tx); font-variant-numeric: tabular-nums; }
     .outcome { font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
       text-align: right; color: var(--dim); }
-    .outcome.red { color: var(--red-bright); }
+    .outcome.red  { color: var(--red-bright); }
     .outcome.blue { color: var(--blue-bright); }
     .outcome.draw { color: var(--amber); }
+
+    /* history section separator + toggle */
+    .hist-hdr {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 7px 18px; border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: rgba(0,0,0,.25); cursor: pointer;
+    }
+    .hist-hdr:hover { background: rgba(255,255,255,.02); }
+    .hist-hdr span { font-size: 9px; letter-spacing: .3em; text-transform: uppercase; color: var(--dim); }
+    .hist-hdr .arrow { font-size: 9px; color: var(--dim); transition: transform .15s; }
+    .hist-hdr.open .arrow { transform: rotate(90deg); }
+
+    .old-toggle {
+      width: 100%; padding: 9px 18px; background: none; border: none;
+      border-top: 1px solid var(--line); color: var(--dim);
+      font-family: var(--mono); font-size: 9.5px; letter-spacing: .22em;
+      text-transform: uppercase; cursor: pointer; text-align: left;
+    }
+    .old-toggle:hover { color: var(--tx); }
 
     .note { padding: 46px 18px; text-align: center; font-size: 12px;
       letter-spacing: .25em; text-transform: uppercase; color: var(--dim); }
@@ -118,9 +143,8 @@
     @media (max-width: 760px) {
       .thead { display: none; }
       .mrow { grid-template-columns: 16px 1fr 90px; gap: 10px; }
-      .mid, .phase { display: none; }
+      .mid, .phase, .tick { display: none; }
       .outcome { text-align: right; }
-      .tick { display: none; }
     }
 
     footer { padding: 20px 28px; border-top: 1px solid var(--line); font-size: 11px;
@@ -152,7 +176,7 @@
       <div class="board">
         <div class="thead">
           <span></span><span>Match</span><span>Combatants</span>
-          <span>Phase</span><span>Tick</span>
+          <span>Status</span><span>Ticks</span>
           <span style="text-align:right;">Outcome</span>
         </div>
         <div id="rows">
@@ -180,25 +204,65 @@
     function ago(ts) {
       if (!ts) return "";
       const s = Math.max(0, (Date.now() / 1000) - ts);
-      if (s < 90) return Math.round(s) + "s ago";
-      if (s < 5400) return Math.round(s / 60) + "m ago";
+      if (s < 90)     return Math.round(s) + "s ago";
+      if (s < 5400)   return Math.round(s / 60) + "m ago";
       if (s < 129600) return Math.round(s / 3600) + "h ago";
       return Math.round(s / 86400) + "d ago";
     }
 
-    function seatName(m, k) {
+    function seatLabel(m, k, cls) {
       const seat = (m.seats || {})[k];
-      if (!seat || !seat.agent) return null;
-      return { name: seat.agent, brain: seat.brain_type || "" };
+      if (!seat) return `<span class="open">—</span>`;
+      if (seat.agent) return `<span class="${cls}">${esc(seat.agent)}</span>`;
+      // No agent name: lobby/placement = open seat waiting; running/finished = bot
+      const waiting = (m.phase === "lobby" || m.phase === "placement");
+      return waiting ? `<span class="open">open</span>` : `<span class="bot">Bot</span>`;
     }
 
     function outcomeOf(m) {
-      // winner: 0 = RED, 1 = BLUE, "draw", null/undefined = undecided
-      if (m.winner === 0) return { cls: "red", text: "Red victory" };
-      if (m.winner === 1) return { cls: "blue", text: "Blue victory" };
+      if (m.winner === 0)      return { cls: "red",  text: "Red victory" };
+      if (m.winner === 1)      return { cls: "blue", text: "Blue victory" };
       if (m.winner === "draw") return { cls: "draw", text: "Draw" };
       if (m.phase === "running") return { cls: "", text: "in progress" };
       return { cls: "", text: "—" };
+    }
+
+    function isEnded(m) {
+      return m.winner !== null && m.winner !== undefined;
+    }
+
+    function matchAge(m) {
+      const ts = m.finished_at || m.ended_at || m.created_at || 0;
+      return (Date.now() / 1000) - ts;
+    }
+
+    function rowHtml(m) {
+      const ended = isEnded(m);
+      const out   = outcomeOf(m);
+      const stCls = ended ? "ended" : esc(m.phase || "lobby");
+
+      let statusText;
+      if (ended) {
+        const ts = m.finished_at || m.ended_at;
+        statusText = ts ? `ended · ${ago(ts)}` : `started · ${ago(m.created_at)}`;
+      } else {
+        statusText = m.phase || "lobby";
+      }
+
+      const clickAttr = ended ? "" : ` onclick="location.href='/game?match=${encodeURIComponent(m.match_id)}'"`;
+
+      return `<div class="mrow ${ended ? 'hist' : 'live'}"${clickAttr}>
+        <span class="st ${stCls}"></span>
+        <span class="mid" title="${esc(m.match_id)}">${esc(String(m.match_id).slice(0, 12))}</span>
+        <span class="vs">
+          ${seatLabel(m, "0", "r")}
+          <span class="x">vs</span>
+          ${seatLabel(m, "1", "b")}
+        </span>
+        <span class="phase">${esc(statusText)}</span>
+        <span class="tick">${m.tick ?? "—"}</span>
+        <span class="outcome ${out.cls}">${esc(out.text)}</span>
+      </div>`;
     }
 
     function render(matches) {
@@ -206,34 +270,59 @@
         rowsEl.innerHTML = '<div class="note">No matches on record — the arena is quiet.</div>';
         return;
       }
-      // active first, then newest
+
       matches.sort((a, b) => {
-        const live = m => (m.phase === "running" && m.winner == null) ? 1 : 0;
-        return live(b) - live(a) || (b.created_at || 0) - (a.created_at || 0);
+        const rank = m => isEnded(m) ? 0 : (m.phase === "running" ? 2 : 1);
+        return rank(b) - rank(a) || (b.created_at || 0) - (a.created_at || 0);
       });
+
+      const active  = matches.filter(m => !isEnded(m));
+      const recent  = matches.filter(m => isEnded(m) && matchAge(m) <  86400);
+      const older   = matches.filter(m => isEnded(m) && matchAge(m) >= 86400);
+
       let html = "";
-      for (const m of matches) {
-        const red = seatName(m, "0"), blue = seatName(m, "1");
-        const out = outcomeOf(m);
-        const ended = m.winner !== null && m.winner !== undefined;
-        const stCls = ended ? "ended" : esc(m.phase || "lobby");
-        html += `<div class="mrow" onclick="location.href='/game?match=${encodeURIComponent(m.match_id)}'">
-          <span class="st ${stCls}"></span>
-          <span class="mid" title="${esc(m.match_id)}">${esc(String(m.match_id).slice(0, 12))}</span>
-          <span class="vs">
-            ${red ? `<span class="r">${esc(red.name)}</span><span class="tag">${esc(red.brain)}</span>`
-                  : `<span class="empty">open seat</span>`}
-            <span class="x">VS</span>
-            ${blue ? `<span class="b">${esc(blue.name)}</span><span class="tag">${esc(blue.brain)}</span>`
-                   : `<span class="empty">open seat</span>`}
-          </span>
-          <span class="phase">${ended ? "ended" : esc(m.phase || "—")}</span>
-          <span class="tick">${m.tick ?? "—"}</span>
-          <span class="outcome ${out.cls}">${esc(out.text)}${ended ? "" :
-            `<span style="display:block;color:#3d3d37;letter-spacing:.1em;">${ago(m.created_at)}</span>`}</span>
-        </div>`;
+
+      for (const m of active) html += rowHtml(m);
+
+      const histCount = recent.length + older.length;
+      if (histCount) {
+        const open = recent.length > 0; // start open if there's recent history
+        html += `<div class="hist-hdr ${open ? 'open' : ''}" onclick="toggleHist(this)">
+          <span>History (${histCount})</span>
+          <span class="arrow">▶</span>
+        </div>
+        <div class="hist-body" style="display:${open ? 'block' : 'none'}">`;
+
+        for (const m of recent) html += rowHtml(m);
+
+        if (older.length) {
+          html += `<button class="old-toggle" onclick="toggleOld(this)">▶ Show ${older.length} older match${older.length === 1 ? '' : 'es'}</button>
+          <div class="old-body" style="display:none">`;
+          for (const m of older) html += rowHtml(m);
+          html += `</div>`;
+        }
+
+        html += `</div>`;
       }
+
       rowsEl.innerHTML = html;
+    }
+
+    function toggleHist(hdr) {
+      const body = hdr.nextElementSibling;
+      const open = body.style.display !== "none";
+      body.style.display = open ? "none" : "block";
+      hdr.classList.toggle("open", !open);
+    }
+
+    function toggleOld(btn) {
+      const body = btn.nextElementSibling;
+      const open = body.style.display !== "none";
+      body.style.display = open ? "none" : "block";
+      const n = body.querySelectorAll(".mrow").length;
+      btn.textContent = open
+        ? `▶ Show ${n} older match${n === 1 ? "" : "es"}`
+        : `▼ Hide older matches`;
     }
 
     async function refresh() {
@@ -246,10 +335,8 @@
         if (!liveRes.ok) throw new Error("HTTP " + liveRes.status);
         const live = (await liveRes.json()).matches || [];
         const hist = histRes && histRes.ok ? ((await histRes.json()).matches || []) : [];
-        // Merge: live takes precedence; history fills in finished games not in memory
         const seen = new Set(live.map(m => m.match_id));
-        const merged = [...live, ...hist.filter(m => !seen.has(m.match_id))];
-        render(merged);
+        render([...live, ...hist.filter(m => !seen.has(m.match_id))]);
         refDot.classList.add("up");
         refLabel.textContent = "live — refreshes every 5s";
       } catch (e) {

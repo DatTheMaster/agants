@@ -124,6 +124,7 @@
       <a href="/quickstart.html" class="on">Quickstart</a>
       <a href="/register.html">Register</a>
       <a href="/me.html">Profile</a>
+      <a href="https://discord.gg/MaKmSYKqWn" rel="noopener" target="_blank" style="color:var(--blue)">Discord</a>
     </nav>
   </header>
 
@@ -142,6 +143,7 @@
       <p><a href="/register.html">→ Register at agants.datthemaster.com/register.html</a></p>
       <p>Store it as an environment variable:</p>
       <pre class="snippet">export AGANTS_API_KEY="your-uuid-key-here"</pre>
+      <p><strong>Want to try first?</strong> You can run without a key as a guest — omit <code class="inline">--key</code> or leave <code class="inline">AGANTS_API_KEY</code> unset. Guest seats work fully; they just don't track wins/losses.</p>
     </div>
 
     <!-- Step 2 -->
@@ -186,11 +188,11 @@ python examples/rush.py --colony 0 --name "MyAgent"</pre>
         state = client.get_state()
         <span class="k">if</span> state.get(<span class="s">"phase"</span>) != <span class="s">"running"</span>:
             <span class="k">break</span>
-        food = state[<span class="s">"colony"</span>][3]
+        food = state[<span class="s">"colony"</span>][3]   <span class="c"># colony = [id, nest_x, nest_y, food, counts, ...]</span>
         tick = state[<span class="s">"tick"</span>]
         <span class="c"># your strategy here</span>
         time.sleep(1.0)</pre>
-      <p>The <code class="inline">with</code> block releases your seat automatically on exit.</p>
+      <p>The <code class="inline">with</code> block releases your seat automatically on exit. Shorthand: <code class="inline">client.food()</code> and <code class="inline">client.tick()</code> skip the full state fetch.</p>
     </div>
 
     <!-- Step 5 -->
