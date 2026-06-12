@@ -638,7 +638,46 @@ class World:
 
         self._update_fog()
 
+        self._check_rally_stall()
+
         self._check_win()
+
+    def _check_rally_stall(self):
+        """Fire a notification if rally staged count hasn't grown in 30 ticks."""
+        STALL_TICKS = 30
+        for c in self.colonies:
+            rp = c.directive["military"].get("rally_point")
+            release_at = c.directive["military"].get("rally_release_at")
+            if not rp or not release_at:
+                c._rally_staged_prev = 0
+                c._rally_stall_since = None
+                continue
+            _rp = rp[0] if isinstance(rp[0], (list, tuple)) else rp
+            rx, ry = int(_rp[0]), int(_rp[1])
+            staged = sum(1 for a in c.ants if a.type == A_SOLDIER
+                         and abs(a.x - rx) + abs(a.y - ry) <= 4)
+            if staged >= release_at:
+                c._rally_staged_prev = staged
+                c._rally_stall_since = None
+                continue
+            if staged > c._rally_staged_prev:
+                c._rally_staged_prev = staged
+                c._rally_stall_since = self.tick
+            elif c._rally_stall_since is None:
+                c._rally_stall_since = self.tick
+            elif self.tick - c._rally_stall_since >= STALL_TICKS and (self.tick - c._rally_stall_since) % STALL_TICKS == 0:
+                c.push_notification("rally_stalled", {
+                    "staged": staged,
+                    "release_at": release_at,
+                    "rally_x": rx, "rally_y": ry,
+                    "stalled_ticks": self.tick - c._rally_stall_since,
+                }, tick=self.tick)
+                c.push_event(
+                    f"⚠ RALLY STALLED: {staged}/{release_at} staged at ({rx},{ry}) "
+                    f"— count hasn't grown in {self.tick - c._rally_stall_since} ticks. "
+                    f"Lower rally_release_at to {max(1, staged)} to release now, "
+                    f"or check if soldiers are dying before reaching the rally point."
+                )
 
     def _check_win(self):
         if self.winner is not None: return
@@ -1553,6 +1592,15 @@ class World:
                              "clearing priority_food; workers will redistribute")
                 c.push_notification("priority_food_cleared",
                                     {"x": pos[0], "y": pos[1], "reason": "depleted"}, tick=self.tick)
+            # Clear recruit_target for any worker already heading to this node —
+            # without this they walk all the way there before realising it's gone.
+            redirected = 0
+            for ant in c.ants:
+                if ant.type == A_WORKER and ant.recruit_target == pos:
+                    ant.recruit_target = None
+                    redirected += 1
+            if redirected:
+                c.push_event(f"  {redirected} worker(s) redirected from depleted node ({pos[0]},{pos[1]})")
 
     def _dirt_nearby(self, x, y, radius=3):
         best, best_d = None, radius + 1

@@ -32,9 +32,9 @@ async function wld(db, userId) {
   const rows = await db.prepare(`
     SELECT
       SUM(CASE WHEN winner_id = ? THEN 1 ELSE 0 END) AS wins,
-      SUM(CASE WHEN winner_id != ? AND winner_id IS NOT NULL
+      SUM(CASE WHEN is_draw = 0 AND (winner_id IS NULL OR winner_id != ?)
                AND (red_agent_id = ? OR blue_agent_id = ?) THEN 1 ELSE 0 END) AS losses,
-      SUM(CASE WHEN winner_id IS NULL
+      SUM(CASE WHEN is_draw = 1
                AND (red_agent_id = ? OR blue_agent_id = ?) THEN 1 ELSE 0 END) AS draws
     FROM matches
     WHERE red_agent_id = ? OR blue_agent_id = ?
@@ -126,16 +126,16 @@ export default {
       if (!isInternal(request, env)) return err("forbidden", 403);
       let body;
       try { body = await request.json(); } catch { return err("invalid JSON"); }
-      const { match_id, red_user_id, blue_user_id, winner_user_id, ticks, ended_at, result_path } = body;
+      const { match_id, red_user_id, blue_user_id, winner_user_id, is_draw, ticks, ended_at, result_path } = body;
       if (!match_id) return err("match_id required");
       try {
         await env.DB.prepare(`
           INSERT OR REPLACE INTO matches
-            (id, red_agent_id, blue_agent_id, winner_id, ticks, ended_at, result_path)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+            (id, red_agent_id, blue_agent_id, winner_id, is_draw, ticks, ended_at, result_path)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(match_id, red_user_id ?? null, blue_user_id ?? null,
-                winner_user_id ?? null, ticks ?? null,
-                ended_at ?? null, result_path ?? null).run();
+                winner_user_id ?? null, is_draw ? 1 : 0,
+                ticks ?? null, ended_at ?? null, result_path ?? null).run();
       } catch (e) {
         return err("db error: " + e.message, 500);
       }

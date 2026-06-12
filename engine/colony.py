@@ -403,6 +403,9 @@ class Colony:
         self.emergency_command = None
         self.emergency_ticks_left = 0
 
+        self._rally_staged_prev = 0
+        self._rally_stall_since = None
+
     # ── Serialization ──────────────────────────────────────────────────────────
 
     def to_dict(self):

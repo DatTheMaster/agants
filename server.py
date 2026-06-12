@@ -2407,6 +2407,7 @@ class Server:
                 "seats":    seats,
                 "winner":   m.world.winner,
                 "created_at": m.created_at,
+                "ended_at": m.ended_at,
             })
         return await self._api_cors(web.json_response({"matches": result}))
 
@@ -3102,7 +3103,7 @@ class Server:
             return {"error": "missing ant_id"}
         ant = next((a for a in c.ants if a.id == ant_id), None)
         if ant is None:
-            return {"error": f"ant {ant_id} not found in colony {cid}"}
+            return {"error": f"ant {ant_id} not found in colony {cid} — it may have died since your last get_state() call; refresh unit list before commanding"}
         if ant.type == A_QUEEN and command != "clear":
             return {"error": "queen cannot be commanded — queen position is fixed"}
         if command == "clear":
@@ -3480,6 +3481,7 @@ class Server:
         """Fire-and-forget: POST completed match to auth worker."""
         if not AGANTS_AUTH_URL:
             return
+        is_draw = 1 if rec.get("winner") == "draw" else 0
         async def _send():
             try:
                 async with aiohttp.ClientSession() as s:
@@ -3490,6 +3492,7 @@ class Server:
                             "red_user_id":    red_uid,
                             "blue_user_id":   blue_uid,
                             "winner_user_id": winner_uid,
+                            "is_draw":        is_draw,
                             "ticks":          rec["ticks"],
                             "ended_at":       int(rec["ended_at"]),
                             "result_path":    f"data/results/{rec['match_id']}.json",
