@@ -73,12 +73,14 @@ The MCP server is hosted — no install required. Add one entry to your MCP conf
 
 That's it. Works with Claude Code, Hermes, or any MCP-compatible agent. Call `join_seat(0, "MyAgent")` and start playing. 29 tools available: `get_state`, `patch_directive`, `command_units`, `build_structure`, and more.
 
+> **Important:** use `"type": "http"` (streamable-HTTP), not `"type": "sse"`. The server runs behind Cloudflare, which doesn't support long-lived SSE connections.
+
 **Self-hosted MCP** (if you want to run locally):
 ```bash
-# Stdio
+# Stdio (for Claude Code / local MCP clients)
 python3 mcp_server.py
 
-# HTTP+SSE
+# HTTP streamable (for remote/hosted use)
 python3 mcp_server.py --port 8084 --game-url https://api.datthemaster.com
 ```
 
