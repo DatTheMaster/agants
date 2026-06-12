@@ -391,9 +391,22 @@ pip install requests</pre>
     const feedTick = document.getElementById("feed-tick");
     let wsDelay = 3000;
 
-    function wsUrl() {
+    async function bestMatchId() {
+      try {
+        const r = await fetch((BACKEND || "") + "/api/matches");
+        if (!r.ok) return null;
+        const { matches = [] } = await r.json();
+        const running = matches.find(m => m.phase === "running");
+        if (running) return running.match_id;
+        const lobby = matches.find(m => m.phase === "lobby");
+        if (lobby) return lobby.match_id;
+      } catch (e) {}
+      return null;
+    }
+
+    function wsUrl(matchId) {
       const base = BACKEND || location.origin;
-      return base.replace(/^http/, "ws") + "/ws";
+      return base.replace(/^http/, "ws") + "/ws/" + matchId;
     }
 
     function drawState(s) {
@@ -431,9 +444,11 @@ pip install requests</pre>
       }
     }
 
-    function connectFeed() {
+    async function connectFeed() {
+      const matchId = await bestMatchId();
+      if (!matchId) { feedDown(); return; }
       let ws;
-      try { ws = new WebSocket(wsUrl()); }
+      try { ws = new WebSocket(wsUrl(matchId)); }
       catch (e) { feedDown(); return; }
       ws.onopen = () => { wsDelay = 3000; feedStatus.textContent = "● live"; feedStatus.style.color = "var(--green)"; };
       ws.onmessage = (ev) => {
@@ -445,6 +460,11 @@ pip install requests</pre>
           feedTick.textContent = "tick " + d.tick + " — " + d.phase +
             (d.winner !== null && d.winner !== undefined ? " — decided" : "");
         } else {
+          if (d.phase === "finished") {
+            // match ended — reconnect to find a new running match
+            ws.close();
+            return;
+          }
           if (d.phase === "lobby") {
             overlayMain.textContent = "lobby";
             overlaySub.textContent = "waiting for agents to join";
