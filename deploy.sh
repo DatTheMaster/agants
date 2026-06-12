@@ -7,6 +7,10 @@
 #   ./deploy.sh --install  — first-time: install deps, enable systemd services
 #   ./deploy.sh --pages    — deploy frontend to Cloudflare Pages + update backend URL
 #   ./deploy.sh --url      — print the current public tunnel URL (from remote logs)
+#
+# DNS note: CLOUDFLARE_API_TOKEN has tunnel-only scope — it cannot create DNS records.
+#   Any new subdomain (CNAMEs for tunnel ingress or MCP) must be added manually via
+#   the Cloudflare dashboard or by granting DNS:Edit scope to the token.
 
 set -e
 

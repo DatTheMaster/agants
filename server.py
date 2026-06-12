@@ -1692,6 +1692,7 @@ class Server:
             "blue_agent": agents.get("1"),
             "food_collected": [c.food_collected for c in w.colonies],
             "ants_lost":      [c.ants_lost      for c in w.colonies],
+            "log_path":   w.logger.path if w.logger else None,
         }
         path = os.path.join(self.RESULTS_DIR, f"{m.match_id}.json")
         try:
@@ -2387,6 +2388,20 @@ class Server:
                 pass
         records.sort(key=lambda r: r.get("ended_at", 0), reverse=True)
         return await self._api_cors(web.json_response({"matches": records}))
+
+    async def api_result(self, req):
+        """Return a single completed match result + key events from the run log."""
+        match_id = req.match_info["match_id"]
+        path = os.path.join(self.RESULTS_DIR, f"{match_id}.json")
+        if not os.path.exists(path):
+            return await self._api_cors(web.json_response({"error": "result not found"}, status=404))
+        try:
+            with open(path) as f:
+                rec = json.load(f)
+        except Exception:
+            return await self._api_cors(web.json_response({"error": "result unreadable"}, status=500))
+        rec["key_events"] = _read_key_events(rec.get("log_path", ""))
+        return await self._api_cors(web.json_response(rec))
 
     async def api_matches(self, req):
         """Match discovery endpoint — lists all games with seat availability."""
@@ -3668,6 +3683,7 @@ class Server:
         app.router.add_post("/api/agents/heartbeat", self.api_heartbeat)
         # REST API — match management
         app.router.add_get( "/api/history",               self.api_match_history)
+        app.router.add_get( "/api/results/{match_id}",    self.api_result)
         app.router.add_get( "/api/matches",              self.api_matches)
         app.router.add_post("/api/matches",              self.api_create_match)
         app.router.add_get(   "/api/matches/{match_id}",   self.api_get_match)

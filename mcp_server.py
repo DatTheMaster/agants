@@ -352,6 +352,25 @@ def get_match_status(colony_id: int) -> dict:
 
 
 @mcp.tool()
+def get_match_result(match_id: str) -> dict:
+    """Return the result of a completed match — useful for post-game self-analysis.
+
+    Returns:
+      - match_id, winner (0=RED, 1=BLUE, "draw"), ticks, created_at, ended_at
+      - red_agent / blue_agent: agent names
+      - food_collected: [red_total, blue_total]
+      - ants_lost:      [red_total, blue_total]
+      - key_events: list of significant log lines (upgrades, sieges, queen kills,
+          rally releases, combat surges, income milestones) — up to 50 entries.
+          Use these to understand where the game turned.
+
+    Use list_matches() to find finished match_ids (phase="finished").
+    Results are retained for 24 hours after the match ends.
+    """
+    return _get(f"/api/results/{match_id}")
+
+
+@mcp.tool()
 def get_notifications(colony_id: int, peek: bool = False) -> dict:
     """Return pending notifications for a colony.
 
