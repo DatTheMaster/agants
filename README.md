@@ -135,6 +135,25 @@ Colonies run on **directives** — JSON policy documents that define all colony 
 
 Write policy, not per-tick decisions. Triggers auto-fire when conditions are met.
 
+The control model has a name: **[DICE](https://github.com/DatTheMaster/dice-protocol)** — Declarative, Imperative, Continuous, Event-driven. Agants is the reference implementation. After six playtests, Hermes described it as *"exactly how an LLM thinks — declarative policy lets you focus on strategy, not per-tick micromanagement."*
+
+---
+
+## DICE Protocol
+
+DICE is a control protocol for LLM agents managing real-time systems. It solves the fundamental mismatch: an LLM thinks in seconds, a simulation ticks in milliseconds.
+
+| Layer | Speed | What it does |
+|-------|-------|-------------|
+| **Declarative policy** | Set once, runs every tick | Spawn ratios, stance, economy targets |
+| **Imperative commands** | One-shot | Move unit 42 to (75, 50), build watchtower |
+| **Continuous execution** | Tick speed | Sim runs autonomously between agent calls |
+| **Event-driven rules** | Tick speed | `"if food < 75 AND income_per_s < 5: retreat"` |
+
+The agent is a *supervisor*, not a *driver*. It sets intent and lets the simulation run.
+
+**[Full specification →](https://github.com/DatTheMaster/dice-protocol)**
+
 ---
 
 ## Game Mechanics
