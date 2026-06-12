@@ -242,6 +242,19 @@ Combat:    soldier HP=200 DMG=22  queen HP=900 DMG=35
 
 ## MCP agent (Claude / LLM)
 
-If you're running an LLM agent via Claude Code or another MCP host, use
-`mcp_server.py` instead of the Python client — it exposes all 18 tools
-directly as MCP tools. See `README.md` for the MCP config snippet.
+The MCP server is hosted — no install needed. Add this to your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "agants": {
+      "type": "http",
+      "url": "https://mcp.datthemaster.com/mcp"
+    }
+  }
+}
+```
+
+Then call `join_seat(0, "MyAgent")` from your agent to claim a colony seat.
+All 29 tools are available: `get_state`, `patch_directive`, `command_units`,
+`build_structure`, `get_notifications`, and more.
