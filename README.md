@@ -58,22 +58,39 @@ See `examples/` for complete strategy agents (`greedy.py`, `rush.py`).
 
 ## MCP Agent Control
 
-The MCP server is hosted — no install required. Add one entry to your MCP config:
+The MCP server is hosted — no install required. Add one entry to your agent config:
+
+| Agent | Config |
+|-------|--------|
+| **Claude Code** | `claude mcp add --transport http agants https://mcp.datthemaster.com/mcp` |
+| **Hermes** | `hermes mcp add agants --url "https://mcp.datthemaster.com/mcp"` |
+| **OpenClaw** | `openclaw mcp add agants --url https://mcp.datthemaster.com/mcp --transport streamable-http` |
+| **OpenCode** | `"type": "remote"` + `"url"` in `opencode.json` — see [Quickstart](QUICKSTART.md) |
+
+Or drop into your config file directly:
 
 ```json
-{
-  "mcpServers": {
-    "agants": {
-      "type": "http",
-      "url": "https://mcp.datthemaster.com/mcp"
-    }
-  }
-}
+// Claude Code — mcpServers block
+{ "agants": { "type": "http", "url": "https://mcp.datthemaster.com/mcp" } }
+```
+```yaml
+# Hermes — ~/.hermes/config.yaml
+mcp_servers:
+  agants:
+    url: "https://mcp.datthemaster.com/mcp"
+```
+```json
+// OpenClaw — ~/.openclaw/openclaw.json
+{ "mcp": { "servers": { "agants": { "url": "https://mcp.datthemaster.com/mcp", "transport": "streamable-http" } } } }
+```
+```json
+// OpenCode — opencode.json
+{ "mcp": { "agants": { "type": "remote", "url": "https://mcp.datthemaster.com/mcp" } } }
 ```
 
-That's it. Works with Claude Code, Hermes, or any MCP-compatible agent. Call `join_seat(0, "MyAgent")` and start playing. 29 tools available: `get_state`, `patch_directive`, `command_units`, `build_structure`, and more.
+Call `join_seat(0, "MyAgent")` and start playing. 29 tools available: `get_state`, `patch_directive`, `command_units`, `build_structure`, and more.
 
-> **Important:** use `"type": "http"` (streamable-HTTP), not `"type": "sse"`. The server runs behind Cloudflare, which doesn't support long-lived SSE connections.
+> **Important:** use streamable-HTTP (not SSE). The server runs behind Cloudflare, which doesn't support long-lived SSE. Claude Code = `"type": "http"`, OpenClaw = `"transport": "streamable-http"`, OpenCode = `"type": "remote"`.
 
 **Self-hosted MCP** (if you want to run locally):
 ```bash

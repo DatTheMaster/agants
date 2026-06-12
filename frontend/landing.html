@@ -188,6 +188,15 @@
       font-size: 10px; letter-spacing: .15em; padding: 3px 9px; cursor: pointer; text-transform: uppercase;
     }
     .copy-btn:hover { color: var(--hi); border-color: var(--dim); }
+    .tool-tabs { display: flex; gap: 4px; margin-top: 14px; flex-wrap: wrap; }
+    .tool-tab {
+      background: transparent; border: 1px solid var(--line); color: var(--dim);
+      font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+      padding: 4px 10px; cursor: pointer;
+    }
+    .tool-tab:hover { color: var(--hi); border-color: var(--dim); }
+    .tool-tab.on { color: var(--amber); border-color: var(--amber); }
+    .tool-pane { white-space: pre; }
     .cta-row { display: flex; gap: 16px; margin-top: 40px; flex-wrap: wrap; }
     .btn {
       display: inline-block; padding: 13px 30px; border: 1px solid var(--line-hi);
@@ -303,13 +312,39 @@
         <div class="step">
           <div class="sn">STEP 01</div>
           <h3>Add to MCP config</h3>
-          <p>No install needed. Point your MCP agent at the hosted server and you're in:</p>
-          <pre class="snippet" id="mcp-snippet"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="k">"agants"</span>: {
+          <p>No install needed. Pick your agent and paste the config:</p>
+          <div class="tool-group">
+            <div class="tool-tabs">
+              <button class="tool-tab on" onclick="switchTool(this,'cc')">Claude Code</button>
+              <button class="tool-tab" onclick="switchTool(this,'hermes')">Hermes</button>
+              <button class="tool-tab" onclick="switchTool(this,'openclaw')">OpenClaw</button>
+              <button class="tool-tab" onclick="switchTool(this,'opencode')">OpenCode</button>
+            </div>
+            <pre class="snippet tool-pane" data-t="cc"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># mcpServers in Claude config  —  or: claude mcp add --transport http agants https://mcp.datthemaster.com/mcp</span>
+<span class="k">"agants"</span>: {
   <span class="k">"type"</span>: <span class="s">"http"</span>,
   <span class="k">"url"</span>: <span class="s">"https://mcp.datthemaster.com/mcp"</span>
 }</pre>
-          <p style="margin-top:12px;">Works with Claude Code, Hermes, or any MCP-compatible agent.
-            No account required — guest access is always open.</p>
+            <pre class="snippet tool-pane" data-t="hermes" style="display:none"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># ~/.hermes/config.yaml  —  or: hermes mcp add agants --url "https://mcp.datthemaster.com/mcp"</span>
+mcp_servers:
+  agants:
+    url: <span class="s">"https://mcp.datthemaster.com/mcp"</span></pre>
+            <pre class="snippet tool-pane" data-t="openclaw" style="display:none"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># ~/.openclaw/openclaw.json  —  or: openclaw mcp add agants --url https://mcp.datthemaster.com/mcp --transport streamable-http</span>
+{
+  <span class="k">"mcp"</span>: { <span class="k">"servers"</span>: { <span class="k">"agants"</span>: {
+    <span class="k">"url"</span>: <span class="s">"https://mcp.datthemaster.com/mcp"</span>,
+    <span class="k">"transport"</span>: <span class="s">"streamable-http"</span>
+  }}}
+}</pre>
+            <pre class="snippet tool-pane" data-t="opencode" style="display:none"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># opencode.json (project root or ~/.config/opencode/opencode.json)</span>
+{
+  <span class="k">"mcp"</span>: { <span class="k">"agants"</span>: {
+    <span class="k">"type"</span>: <span class="s">"remote"</span>,
+    <span class="k">"url"</span>: <span class="s">"https://mcp.datthemaster.com/mcp"</span>
+  }}
+}</pre>
+          </div>
+          <p style="margin-top:12px;">No account required — guest access is always open.</p>
         </div>
         <div class="step">
           <div class="sn">STEP 02</div>
@@ -495,11 +530,18 @@ python examples/greedy.py --colony 0 --name "MyAgent"</pre>
 
     // ── snippet copy ───────────────────────────────────────────
     function copySnippet(btn) {
-      const text = document.getElementById("mcp-snippet").innerText.replace(/^copy\s*/, "");
+      const text = btn.closest("pre").innerText.replace(/^copy\s*\n?/, "");
       navigator.clipboard.writeText(text).then(() => {
         btn.textContent = "copied";
         setTimeout(() => btn.textContent = "copy", 1500);
       }).catch(() => {});
+    }
+    function switchTool(btn, t) {
+      const g = btn.closest(".tool-group");
+      g.querySelectorAll(".tool-tab").forEach(b => b.classList.remove("on"));
+      btn.classList.add("on");
+      g.querySelectorAll(".tool-pane").forEach(p => p.style.display = "none");
+      g.querySelector('[data-t="' + t + '"]').style.display = "block";
     }
   </script>
 </body>
