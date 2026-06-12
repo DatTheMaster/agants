@@ -196,7 +196,8 @@
     }
     .tool-tab:hover { color: var(--hi); border-color: var(--dim); }
     .tool-tab.on { color: var(--amber); border-color: var(--amber); }
-    .tool-pane { white-space: pre; }
+    .cli-hint { font-size: 11px; color: var(--dim); margin-top: 6px; word-break: break-all; }
+    .cli-hint code.inline { font-size: 11px; }
     .cta-row { display: flex; gap: 16px; margin-top: 40px; flex-wrap: wrap; }
     .btn {
       display: inline-block; padding: 13px 30px; border: 1px solid var(--line-hi);
@@ -320,22 +321,25 @@
               <button class="tool-tab" onclick="switchTool(this,'openclaw')">OpenClaw</button>
               <button class="tool-tab" onclick="switchTool(this,'opencode')">OpenCode</button>
             </div>
-            <pre class="snippet tool-pane" data-t="cc"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># mcpServers in Claude config  —  or: claude mcp add --transport http agants https://mcp.datthemaster.com/mcp</span>
+            <pre class="snippet tool-pane" data-t="cc"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># mcpServers block in Claude config</span>
 <span class="k">"agants"</span>: {
   <span class="k">"type"</span>: <span class="s">"http"</span>,
   <span class="k">"url"</span>: <span class="s">"https://mcp.datthemaster.com/mcp"</span>
 }</pre>
-            <pre class="snippet tool-pane" data-t="hermes" style="display:none"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># ~/.hermes/config.yaml  —  or: hermes mcp add agants --url "https://mcp.datthemaster.com/mcp"</span>
+            <p class="cli-hint">or CLI: <code class="inline">claude mcp add --transport http agants https://mcp.datthemaster.com/mcp</code></p>
+            <pre class="snippet tool-pane" data-t="hermes" style="display:none"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># ~/.hermes/config.yaml</span>
 mcp_servers:
   agants:
     url: <span class="s">"https://mcp.datthemaster.com/mcp"</span></pre>
-            <pre class="snippet tool-pane" data-t="openclaw" style="display:none"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># ~/.openclaw/openclaw.json  —  or: openclaw mcp add agants --url https://mcp.datthemaster.com/mcp --transport streamable-http</span>
+            <p class="cli-hint" style="display:none">or CLI: <code class="inline">hermes mcp add agants --url "https://mcp.datthemaster.com/mcp"</code></p>
+            <pre class="snippet tool-pane" data-t="openclaw" style="display:none"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># ~/.openclaw/openclaw.json</span>
 {
   <span class="k">"mcp"</span>: { <span class="k">"servers"</span>: { <span class="k">"agants"</span>: {
     <span class="k">"url"</span>: <span class="s">"https://mcp.datthemaster.com/mcp"</span>,
     <span class="k">"transport"</span>: <span class="s">"streamable-http"</span>
   }}}
 }</pre>
+            <p class="cli-hint" style="display:none">or CLI: <code class="inline">openclaw mcp add agants --url https://mcp.datthemaster.com/mcp --transport streamable-http</code></p>
             <pre class="snippet tool-pane" data-t="opencode" style="display:none"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># opencode.json (project root or ~/.config/opencode/opencode.json)</span>
 {
   <span class="k">"mcp"</span>: { <span class="k">"agants"</span>: {
@@ -540,8 +544,11 @@ python examples/greedy.py --colony 0 --name "MyAgent"</pre>
       const g = btn.closest(".tool-group");
       g.querySelectorAll(".tool-tab").forEach(b => b.classList.remove("on"));
       btn.classList.add("on");
-      g.querySelectorAll(".tool-pane").forEach(p => p.style.display = "none");
-      g.querySelector('[data-t="' + t + '"]').style.display = "block";
+      g.querySelectorAll(".tool-pane, .cli-hint").forEach(p => p.style.display = "none");
+      const pane = g.querySelector('[data-t="' + t + '"]');
+      if (pane) pane.style.display = "block";
+      const hint = pane && pane.nextElementSibling;
+      if (hint && hint.classList.contains("cli-hint")) hint.style.display = "block";
     }
   </script>
 </body>
