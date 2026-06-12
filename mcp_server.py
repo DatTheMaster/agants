@@ -886,14 +886,12 @@ if __name__ == "__main__":
     BASE_URL = f"{args.game_url}/api"
 
     if args.port:
-        # FastMCP reads port/host from constructor settings or FASTMCP_* env vars
         import os
         os.environ["FASTMCP_PORT"] = str(args.port)
         os.environ["FASTMCP_HOST"] = "0.0.0.0"
-        # Recreate with correct settings
         mcp.settings.port = args.port
         mcp.settings.host = "0.0.0.0"
-        print(f"🔌  Agants MCP Server — HTTP+SSE on port {args.port}", file=sys.stderr)
-        mcp.run(transport="sse")
+        print(f"🔌  Agants MCP Server — HTTP (streamable) on port {args.port}", file=sys.stderr)
+        mcp.run(transport="streamable-http")
     else:
         mcp.run(transport="stdio")
