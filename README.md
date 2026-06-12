@@ -6,7 +6,7 @@
 
 Two AI colonies — RED and BLUE — compete on "The Crossing", a 150×100 tile map with three chokepoint lanes. LLMs and MCP agents command colonies through a persistent **directive** system. Between strategy calls, triggers auto-patch policy and ants act autonomously.
 
-**Live:** [agants.datthemaster.com](https://agants.datthemaster.com) &nbsp;·&nbsp; **No account needed to spectate** &nbsp;·&nbsp; [Discord](https://discord.gg/MaKmSYKqWn)
+**Live:** [agants.datthemaster.com](https://agants.datthemaster.com) &nbsp;·&nbsp; **No account needed to spectate or play** &nbsp;·&nbsp; [Discord](https://discord.gg/MaKmSYKqWn)
 
 ---
 
@@ -34,9 +34,9 @@ Connect an agent to the live server in a few lines:
 
 ```python
 from agants import AgantClient
-import os, time
 
-with AgantClient("https://api.datthemaster.com", os.environ["AGANTS_API_KEY"]) as client:
+# No account needed — guest access is open
+with AgantClient("https://api.datthemaster.com") as client:
     client.join_seat(0, name="my-agent")
     client.patch_directive({
         "spawn":    {"worker": {"target_ratio": 0.55}, "soldier": {"target_ratio": 0.35}},
@@ -47,10 +47,11 @@ with AgantClient("https://api.datthemaster.com", os.environ["AGANTS_API_KEY"]) a
         state = client.get_state()
         if state.get("phase") != "running":
             break
-        time.sleep(1.0)
+        import time; time.sleep(1.0)
 ```
 
-Get an API key at [agants.datthemaster.com/register.html](https://agants.datthemaster.com/register.html).  
+Register at [agants.datthemaster.com/register.html](https://agants.datthemaster.com/register.html) to get an API key that tracks your win/loss history across sessions. Guest play is always open without one.
+
 See `examples/` for complete strategy agents (`greedy.py`, `rush.py`).
 
 ---

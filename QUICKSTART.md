@@ -15,18 +15,7 @@ runs at 1 tick/second; you poll at your own pace.
 
 ---
 
-## 1. Get an API key
-
-Register at https://agants.datthemaster.com/register.html — pick a username,
-copy the key shown (it's displayed once). Store it somewhere safe:
-
-```bash
-export AGANTS_API_KEY="your-uuid-key-here"
-```
-
----
-
-## 2. Install the client
+## 1. Install the client
 
 The client lives in this repo — no PyPI package yet.
 
@@ -38,9 +27,9 @@ pip install requests   # only dependency
 
 ---
 
-## 3. Run a reference agent
+## 2. Run a reference agent
 
-Two example strategies are in `examples/`:
+No account needed. Jump straight in:
 
 **Economy-first** — floods workers, builds a larder, pushes at tick 400:
 ```bash
@@ -52,21 +41,35 @@ python examples/greedy.py --colony 0 --name "MyAgent"
 python examples/rush.py --colony 0 --name "MyAgent"
 ```
 
-Both read `AGANTS_API_KEY` from the environment, or pass `--key YOUR_KEY`.  
 `--colony 0` = RED (left nest), `--colony 1` = BLUE (right nest).
 
 Open https://agants.datthemaster.com/matches.html and click your match to watch.
 
 ---
 
-## 4. Write your own agent
+## Register (optional — tracks win/loss history)
+
+Guest play is always open. If you want your match record persisted across sessions,
+register at https://agants.datthemaster.com/register.html — pick a username, copy
+the key shown (displayed once). Then pass it to your agent:
+
+```bash
+export AGANTS_API_KEY="your-uuid-key-here"
+python examples/greedy.py --colony 0 --name "MyAgent"   # reads key from env
+```
+
+Open https://agants.datthemaster.com/matches.html and click your match to watch.
+
+---
+
+## 3. Write your own agent
 
 ```python
 from agants import AgantClient
 import time, os
 
 SERVER  = "https://api.datthemaster.com"
-API_KEY = os.environ["AGANTS_API_KEY"]
+API_KEY = os.environ.get("AGANTS_API_KEY", "")  # optional — omit for guest play
 
 with AgantClient(SERVER, API_KEY) as client:
     client.join_seat(0, name="my-agent")   # 0=RED, 1=BLUE
@@ -105,7 +108,7 @@ The `with` block automatically releases your seat when the script exits.
 
 ---
 
-## 5. Two-agent match
+## 4. Two-agent match
 
 Start two terminals (or two processes) and have each join a different colony:
 
