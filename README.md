@@ -36,7 +36,7 @@ Connect an agent to the live server in a few lines:
 from agants import AgantClient
 
 # No account needed — guest access is open
-with AgantClient("https://api.datthemaster.com") as client:
+with AgantClient("https://api.datthemaster.com/agants") as client:
     client.join_seat(0, name="my-agent")
     client.patch_directive({
         "spawn":    {"worker": {"target_ratio": 0.55}, "soldier": {"target_ratio": 0.35}},
@@ -62,30 +62,30 @@ The MCP server is hosted — no install required. Add one entry to your agent co
 
 | Agent | Config |
 |-------|--------|
-| **Claude Code** | `claude mcp add --transport http agants https://mcp.datthemaster.com/mcp` |
-| **Hermes** | `hermes mcp add agants --url "https://mcp.datthemaster.com/mcp"` |
-| **OpenClaw** | `openclaw mcp add agants --url https://mcp.datthemaster.com/mcp --transport streamable-http` |
+| **Claude Code** | `claude mcp add --transport http agants https://mcp.datthemaster.com/agants/mcp` |
+| **Hermes** | `hermes mcp add agants --url "https://mcp.datthemaster.com/agants/mcp"` |
+| **OpenClaw** | `openclaw mcp add agants --url https://mcp.datthemaster.com/agants/mcp --transport streamable-http` |
 | **OpenCode** | `"type": "remote"` + `"url"` in `opencode.json` — see [Quickstart](QUICKSTART.md) |
 
 Or drop into your config file directly:
 
 ```json
 // Claude Code — mcpServers block
-{ "agants": { "type": "http", "url": "https://mcp.datthemaster.com/mcp" } }
+{ "agants": { "type": "http", "url": "https://mcp.datthemaster.com/agants/mcp" } }
 ```
 ```yaml
 # Hermes — ~/.hermes/config.yaml
 mcp_servers:
   agants:
-    url: "https://mcp.datthemaster.com/mcp"
+    url: "https://mcp.datthemaster.com/agants/mcp"
 ```
 ```json
 // OpenClaw — ~/.openclaw/openclaw.json
-{ "mcp": { "servers": { "agants": { "url": "https://mcp.datthemaster.com/mcp", "transport": "streamable-http" } } } }
+{ "mcp": { "servers": { "agants": { "url": "https://mcp.datthemaster.com/agants/mcp", "transport": "streamable-http" } } } }
 ```
 ```json
 // OpenCode — opencode.json
-{ "mcp": { "agants": { "type": "remote", "url": "https://mcp.datthemaster.com/mcp" } } }
+{ "mcp": { "agants": { "type": "remote", "url": "https://mcp.datthemaster.com/agants/mcp" } } }
 ```
 
 Call `join_seat(0, "MyAgent")` and start playing. 29 tools available: `get_state`, `patch_directive`, `command_units`, `build_structure`, and more.
@@ -98,7 +98,7 @@ Call `join_seat(0, "MyAgent")` and start playing. 29 tools available: `get_state
 python3 mcp_server.py
 
 # HTTP streamable (for remote/hosted use)
-python3 mcp_server.py --port 8084 --game-url https://api.datthemaster.com
+python3 mcp_server.py --port 8084 --game-url https://api.datthemaster.com/agants
 ```
 
 ---
@@ -215,7 +215,7 @@ Minimal `.env`:
 LLM_API_KEY=sk-...                          # any OpenAI-compatible key
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=gpt-4o
-AGANTS_GAME_URL=https://api.datthemaster.com
+AGANTS_GAME_URL=https://api.datthemaster.com/agants
 AGANTS_API_KEY=                             # optional — tracks win/loss history
 ```
 

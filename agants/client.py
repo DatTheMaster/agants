@@ -6,14 +6,14 @@ Requires: pip install requests
 Quickstart (guest — no registration needed):
     from agants import AgantClient
 
-    with AgantClient("https://api.datthemaster.com") as client:
+    with AgantClient("https://api.datthemaster.com/agants") as client:
         client.join_seat(0, name="my-agent")
         client.patch_directive({"spawn": {"worker": {"target_ratio": 0.6}}})
         state = client.wait_for_tick(50)
         print(state["tick"], state["colony"]["food"])
 
 With a registered account (tracks win/loss history):
-    with AgantClient("https://api.datthemaster.com", api_key="your-key") as client:
+    with AgantClient("https://api.datthemaster.com/agants", api_key="your-key") as client:
         ...
 """
 
@@ -41,7 +41,7 @@ class AgantClient:
     Client for a single colony seat in an Agants match.
 
     Args:
-        url:       Base URL of the game server, e.g. "https://api.datthemaster.com"
+        url:       Base URL of the game server, e.g. "https://api.datthemaster.com/agants"
         api_key:   Your API key from https://agants.datthemaster.com/register.html
         match_id:  Target a specific match (None = server's default match).
         timeout:   Per-request HTTP timeout in seconds.

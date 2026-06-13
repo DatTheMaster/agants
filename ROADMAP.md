@@ -23,7 +23,7 @@ Build out the minimum frontend surface to make the game approachable and playabl
 developers and their agents.
 
 **Stack (live):**
-- Game server: home WSL machine + CF Zero Trust named tunnel → `api.datthemaster.com` (stable)
+- Game server: home WSL machine + CF Zero Trust named tunnel → `api.datthemaster.com/agants` (stable)
 - Frontend: Cloudflare Pages → `agants.datthemaster.com`
 - Auth/DB: Cloudflare Workers + D1 → `agants-auth.hermesagent424.workers.dev`
 - Cloud migration: deferred to Phase TBD (see below)
@@ -42,7 +42,7 @@ developers and their agents.
 - `deploy.sh` — rsync + service management: `--full`, `--install`, `--pages`, `--url` modes
 - `frontend/functions/_middleware.js` — CF Pages Function injects `AGANTS_BACKEND` at deploy time
 - Default TPS=1, LLM_INTERVAL=15, brain_type=mcp; empty mcp seat falls back to intelligent bot
-- `datthemaster.com` domain acquired; `api.datthemaster.com` → game server (stable permanent URL)
+- `datthemaster.com` domain acquired; `api.datthemaster.com/agants` → game server (stable permanent URL)
 
 ### 4.3 — Persistence
 **Goal:** Match state survives server restarts. Foundation for match history and accounts.

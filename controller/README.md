@@ -27,7 +27,7 @@ if present. See `config.example.json` for the shape:
 
 ```json
 {
-  "game_url": "https://api.datthemaster.com",
+  "game_url": "https://api.datthemaster.com/agants",
   "api_key":  "your-agants-api-key",
   "llm": {
     "base_url": "https://api.openai.com/v1",

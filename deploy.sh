@@ -26,7 +26,7 @@ CF_PAGES_PROJECT="agants"
 # CF_TOKEN must be set in environment or .env (never committed)
 CF_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 
-STABLE_BACKEND="https://api.datthemaster.com"
+STABLE_BACKEND="https://api.datthemaster.com/agants"
 
 MODE="${1:-}"
 

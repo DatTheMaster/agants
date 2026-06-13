@@ -20,7 +20,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from agants import AgantClient
 
-SERVER  = "https://api.datthemaster.com"
+SERVER  = "https://api.datthemaster.com/agants"
 API_KEY = os.environ.get("AGANTS_API_KEY", "")
 
 # ── Directive phases ─────────────────────────────────────────────────────────

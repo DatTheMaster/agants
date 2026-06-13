@@ -819,16 +819,19 @@ class World:
                     ant.state = S_FORAGING
                 return
 
+        _flee_dist = int((c.directive.get("unit_types") or {}).get("worker", {}).get("flee_distance", 4))
         for ec in self.colonies:
             if ec.id == ant.colony: continue
-            for e in ec.ants:
-                if e.type == A_SOLDIER and abs(ant.x-e.x)+abs(ant.y-e.y) <= 4:
-                    if ant.carrying:
-                        ant.carrying = False
-                        ant.recruit_target = None
-                    ant.state = S_RETURNING
-                    self._move_to(ant, c.nx, c.ny, 0)
-                    return
+            _dist = lambda e: abs(ant.x - e.x) + abs(ant.y - e.y)
+            close  = sum(1 for e in ec.ants if e.type == A_SOLDIER and _dist(e) <= _flee_dist)
+            nearby = sum(1 for e in ec.ants if e.type == A_SOLDIER and _dist(e) <= _flee_dist * 2)
+            if close >= 1 or nearby >= 3:  # single soldier in flee_dist OR army of 3+ nearby
+                if ant.carrying:
+                    ant.carrying = False
+                ant.recruit_target = None  # don't return to the danger zone
+                ant.state = S_RETURNING
+                self._move_to(ant, c.nx, c.ny, 0)
+                return
 
         if ant.recruit_target:
             fx, fy = ant.recruit_target
@@ -1220,11 +1223,17 @@ class World:
 
         _rally = c.directive["military"]["rally_point"]
         _at_rally = False
+        _en_route_to_rally = False
         if _rally and not in_siege:
             _rp = _rally[0] if isinstance(_rally[0], (list, tuple)) else _rally
-            _at_rally = abs(ant.x - int(_rp[0])) + abs(ant.y - int(_rp[1])) <= 4
+            _dist_to_rally = abs(ant.x - int(_rp[0])) + abs(ant.y - int(_rp[1]))
+            _at_rally = _dist_to_rally <= 4
+            _en_route_to_rally = not _at_rally
 
-        detect_range = 5 if _at_rally else 15
+        # Soldiers en route to rally ignore distant enemies (don't break off mid-march);
+        # they only fight if an enemy is adjacent (dist ≤ 2).  Once staged at the rally
+        # point they use the normal small detection window (5) to hold the position.
+        detect_range = 2 if _en_route_to_rally else (5 if _at_rally else 15)
         enemy = self._nearest_enemy(ant, detect_range, siege=in_siege, queen_focus=queen_focus)
         if enemy:
             self._move_to(ant, enemy.x, enemy.y, 1)

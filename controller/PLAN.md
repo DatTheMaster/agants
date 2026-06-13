@@ -25,7 +25,7 @@ Created interactively on first run (`controller.py --setup`).
 
 ```json
 {
-  "game_url": "https://api.datthemaster.com",
+  "game_url": "https://api.datthemaster.com/agants",
   "api_key":  "your-agants-api-key",
   "llm": {
     "base_url": "https://api.openai.com/v1",

@@ -8,7 +8,7 @@ a fixed 150×100 3-lane map. LLMs and MCP agents command colonies via a persiste
 - **Vault** → `projects/agants/overview.md` — full reference (infra, arch, schema, constants, design decisions)
 - **Vault** → `projects/agants/history.md` — all session changelogs + lessons learned
 - **Vault** → `projects/agants/hermes-feedback.md` — agent playtest feedback
-- **Vault root** → `NOTES.md` — raw scratchpad at `/mnt/c/Users/deshi/Obsidian Vault/NOTES.md` — triage into passdown at session end *(not in git)*
+- **Vault** → `projects/agants/NOTES.md` — raw scratchpad — triage into passdown at session end *(not in git)*
 - **ROADMAP.md** — Phase 3–5 scope
 
 **Model dispatch:** Sonnet is the default. Spawn Fable or Opus via the Agent tool
@@ -18,19 +18,20 @@ for multi-file architecture, deep reasoning, or long-context review — without 
 
 ## Deployment
 
-- Frontend: `agants.datthemaster.com` (CF Pages)
-- Game server: `api.datthemaster.com` (CF named tunnel — stable across restarts)
+- Frontend: `agants.datthemaster.com` (CF Worker — `agants-frontend`, static assets binding)
+- Game server: `api.datthemaster.com/agants` (CF named tunnel — stable across restarts)
 - Auth worker: `agants-auth.hermesagent424.workers.dev` (D1-backed)
-- Deploy: `bash deploy.sh` (sync + restart) · `--pages` to redeploy frontend
+- Deploy game server: `bash deploy.sh` (sync + restart)
+- Deploy frontend: `source .env && CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN npx wrangler deploy --config frontend-worker/wrangler.toml`
 - **`AGANTS_AUTH_URL` + `AGANTS_AUTH_SECRET` not synced by deploy.sh** — set manually via SSH if `.env` is recreated
-- **`PUBLIC_URL=https://api.datthemaster.com`** must be in remote `.env`
+- **`PUBLIC_URL=https://api.datthemaster.com/agants`** must be in remote `.env`
 - `VERSION = "0.1.0"` — bump only at real releases. `BUILD` = git short hash.
 
 ## Run
 
 ```bash
 python3 server.py                        # binds 0.0.0.0:8083
-python3 mcp_server.py                    # stdio MCP (default: api.datthemaster.com)
+python3 mcp_server.py                    # stdio MCP (default: api.datthemaster.com/agants)
 python3 mcp_server.py --port 8084        # HTTP+SSE MCP
 python3 controller/controller.py --setup # first-time wizard
 ```

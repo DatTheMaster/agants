@@ -56,10 +56,10 @@ def _config_from_dotenv(env: dict) -> dict | None:
     llm_key = env.get("LLM_API_KEY") or env.get("OPENAI_API_KEY", "")
     llm_url = env.get("LLM_BASE_URL") or env.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
     model   = env.get("LLM_MODEL") or env.get("OPENAI_MODEL", "gpt-4o")
-    if not llm_key and not llm_url:
+    if not llm_key:
         return None
     return {
-        "game_url": env.get("AGANTS_GAME_URL", "https://api.datthemaster.com"),
+        "game_url": env.get("AGANTS_GAME_URL", "https://api.datthemaster.com/agants"),
         "api_key":  env.get("AGANTS_API_KEY", ""),
         "llm": {"base_url": llm_url, "api_key": llm_key, "model": model},
     }
@@ -90,7 +90,7 @@ def load_config() -> dict | None:
 
 def setup_wizard() -> None:
     print("Agants Controller setup\n")
-    game_url = input("Game server URL [https://api.datthemaster.com]: ").strip() or "https://api.datthemaster.com"
+    game_url = input("Game server URL [https://api.datthemaster.com/agants]: ").strip() or "https://api.datthemaster.com/agants"
     api_key = input("Agants API key (optional — leave blank to join as guest): ").strip()
     base_url = input("LLM base URL [https://api.openai.com/v1]: ").strip() or "https://api.openai.com/v1"
     llm_key = input("LLM API key: ").strip()

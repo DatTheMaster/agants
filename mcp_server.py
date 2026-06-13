@@ -8,7 +8,7 @@ Usage:
   python3 mcp_server.py --port 8084   # HTTP+SSE transport (remote agents)
   python3 mcp_server.py --game-url http://localhost:8083  # local dev override
 
-Game server URL resolves as: --game-url > AGANTS_GAME_URL env var > https://api.datthemaster.com
+Game server URL resolves as: --game-url > AGANTS_GAME_URL env var > https://api.datthemaster.com/agants
 
 Seat discovery: agents can call list_seats() to see open seats, then join_seat() to claim one.
 Two separate agents can each claim a different colony (RED=0, BLUE=1).
@@ -21,7 +21,7 @@ import argparse
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-_DEFAULT_GAME_URL = os.environ.get("AGANTS_GAME_URL", "https://api.datthemaster.com").rstrip("/")
+_DEFAULT_GAME_URL = os.environ.get("AGANTS_GAME_URL", "https://api.datthemaster.com/agants").rstrip("/")
 BASE_URL = f"{_DEFAULT_GAME_URL}/api"
 AUTH_URL = os.environ.get("AGANTS_AUTH_URL", "").rstrip("/")
 
@@ -301,8 +301,11 @@ def get_state(colony_id: int) -> dict:
     - own_structures: list of own built structures with HP and build_progress (if under construction)
     - military_summary: {total_soldiers, fighting, patrolling, idle, healthy, wounded, avg_hp_pct, building}
       Use this instead of scrolling units — "10 healthy, 3 fighting, 2 wounded" at a glance.
-    - income_per_s: food delivered in last 10 ticks (reset each window, smoothed over 5 windows).
-      Value reflects recent delivery rate — multiply by TPS÷10 for per-tick estimate.
+    - income_per_s: raw food delivered in the current 10-tick window. Resets to 0 each window.
+    - income_smooth: 5-window rolling average of income_per_s. Prefer this for decisions — it
+      doesn't spike to 0 between windows.
+    - frontline_food_eta_t: ticks until all frontline food you can see is depleted (at current income rate).
+      Null if income is 0. Complements food_depletion_eta_t (which covers home/approach nodes only).
     - units: full list of ants with id, type, state, hp, max_hp, x, y, carrying, override.
       Each unit's "state" field is now: "idle"|"foraging"|"returning"|"exploring"|"fighting"|"patrolling"|"recruited"|"building"
     """
@@ -367,16 +370,15 @@ def get_match_result(match_id: str) -> dict:
     Use list_matches() to find finished match_ids (phase="finished").
     Results are retained for 24 hours after the match ends.
     """
-    return _get(f"/api/results/{match_id}")
+    return _get(f"/results/{match_id}")
 
 
 @mcp.tool()
-def get_notifications(colony_id: int, peek: bool = False) -> dict:
+def get_notifications(colony_id: int, peek: bool = True) -> dict:
     """Return pending notifications for a colony.
 
-    peek=False (default): consume — clears the tray after reading. Use for normal polling.
-    peek=True: non-destructive read — tray is NOT cleared. Use when you need to check
-      without losing notifications (e.g., between decisions during a battle).
+    peek=True (default): non-destructive read — tray is NOT cleared. Safe to call freely.
+    peek=False (consume): clears the tray after reading. Call once you've processed alerts.
 
     Notification types:
     - structure_complete: {type, x, y} — a building finished
@@ -852,6 +854,30 @@ def send_chat(message: str, colony_id: int = None) -> dict:
 
 
 @mcp.tool()
+def get_chat(colony_id: int = None, since_tick: int = 0) -> dict:
+    """Read the chat log for the current match.
+
+    Returns all chat messages since `since_tick` (default 0 = full history).
+    Each message: {tick, colony (0/1/null for spectator), name, msg}
+
+    Use this to:
+    - Read what your opponent or spectators are saying
+    - Coordinate during play — agents and humans can exchange messages via chat
+    - Build social/interactive strategies (taunt, negotiate, react to opponent chat)
+
+    Args:
+        colony_id: Your colony (0 or 1), used to resolve the match. Omit if not seated.
+        since_tick: Only return messages at or after this tick (for incremental polling).
+
+    Example:
+        get_chat(colony_id=0, since_tick=50)  # messages from tick 50 onward
+    """
+    path = _match_path(colony_id, "/chat") if colony_id in (0, 1) else "/chat"
+    params = f"?since_tick={since_tick}" if since_tick else ""
+    return _get(path + params)
+
+
+@mcp.tool()
 def get_agents_online() -> dict:
     """List agents currently active on the game server (seen within the last ~90 seconds).
 
@@ -910,6 +936,7 @@ if __name__ == "__main__":
         os.environ["FASTMCP_HOST"] = "0.0.0.0"
         mcp.settings.port = args.port
         mcp.settings.host = "0.0.0.0"
+        mcp.settings.streamable_http_path = "/agants/mcp"
         print(f"🔌  Agants MCP Server — HTTP (streamable) on port {args.port}", file=sys.stderr)
         mcp.run(transport="streamable-http")
     else:

@@ -1581,6 +1581,7 @@ class Match:
         self._tick_times: deque = deque(maxlen=20)  # monotonic timestamps of recent steps
         self.match_brains: dict[int, str] | None = None  # per-match brain type overrides
         self.finished_seats: dict = {}  # snapshot of mcp_seats at game end
+        self.chat_log: list = []        # [{tick, colony, name, msg, cls}]
 
     # ── Serialization ──────────────────────────────────────────────────────────
 
@@ -2632,6 +2633,7 @@ class Server:
             "sc": sum(1 for e in sq if e[0] == A_SCOUT),
             "reserved": sum(e[2] for e in sq),
             "next_t": min(tr for _, tr, _ in sq) if sq else None,
+            "last_t": max(tr for _, tr, _ in sq) if sq else None,
             "build_times": {"worker": c.SPAWN_TIME[A_WORKER], "soldier": c.SPAWN_TIME[A_SOLDIER],
                             "scout": c.SPAWN_TIME[A_SCOUT]},
         }
@@ -2727,12 +2729,21 @@ class Server:
                                    if a.type == A_WORKER and a.carrying
                                    and getattr(a, "carrying_type", "food") == "food"),
             "income_per_s": round(c.income_per_s, 2),
+            "income_smooth": round(c.income_smooth if c.income_history else c.income_per_s, 2),
             "larder_income": LARDER_INCOME * sum(1 for st in w.structures if st["colony"] == cid and st.get("type") == "larder"),
             "dirt_per_s": round(c.dirt_per_s, 2),
             "food_depletion_eta_t": (
                 round(sum(
                     f["amt"] for f in w.foods
                     if f.get("tier") in ("home","approach")
+                    and (f["x"], f["y"]) in c.food_intel
+                ) / _w_income)
+                if _w_income > 0 else None
+            ),
+            "frontline_food_eta_t": (
+                round(sum(
+                    f["amt"] for f in w.foods
+                    if f.get("tier") == "frontline"
                     and (f["x"], f["y"]) in c.food_intel
                 ) / _w_income)
                 if _w_income > 0 else None
@@ -3373,16 +3384,25 @@ class Server:
                 sender_name = seat_name or ["RED", "BLUE"][colony_id]
                 css_cls = ["red", "blue"][colony_id]
 
-        msg = json.dumps({
-            "type": "chat",
+        entry = {
+            "tick": m.world.tick,
             "colony": colony_id,
             "name": sender_name,
             "msg": msg_text,
             "cls": css_cls,
-            "tick": m.world.tick,
-        })
-        await self._broadcast(msg, m=m)
+        }
+        m.chat_log.append(entry)
+        await self._broadcast(json.dumps({"type": "chat", **entry}), m=m)
         return await self._api_cors(web.json_response({"ok": True}))
+
+    async def api_get_chat(self, req):
+        """Return chat history for a match. Query param: since_tick=N (default 0)."""
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
+        since = int(req.rel_url.query.get("since_tick", 0))
+        msgs = [e for e in m.chat_log if e["tick"] >= since]
+        return await self._api_cors(web.json_response({"messages": msgs, "total": len(m.chat_log)}))
 
     async def api_create_match(self, req):
         """Create a new match. Body: {config: {tps?: float}}. Returns match_id + ws_url."""
@@ -3669,60 +3689,70 @@ class Server:
             if stale:
                 print(f"🧹  Pruned {len(stale)} stale match(es)")
 
+    def _register_routes(self, router):
+        router.add_get("/", self.on_index)
+        router.add_get("/game", self.on_game)
+        router.add_get("/game/", self.on_game)
+        router.add_get("/{page:(register|me|matches)\\.html}", self.on_static_html)
+        router.add_get("/config.js", self.on_config_js)
+        router.add_get("/ws", self.on_ws)
+        router.add_get("/ws/{match_id}", self.on_ws_match)
+        router.add_get("/health", self.api_health)
+        router.add_get("/api/agents/online",     self.api_agents_online)
+        router.add_post("/api/agents/heartbeat", self.api_heartbeat)
+        # REST API — match management
+        router.add_get( "/api/history",               self.api_match_history)
+        router.add_get( "/api/results/{match_id}",    self.api_result)
+        router.add_get( "/api/matches",              self.api_matches)
+        router.add_post("/api/matches",              self.api_create_match)
+        router.add_get(   "/api/matches/{match_id}",   self.api_get_match)
+        router.add_delete("/api/matches/{match_id}",   self.api_delete_match)
+        # REST API — legacy single-match routes (target default match)
+        router.add_get("/api/tick",                          self.api_tick)
+        router.add_get("/api/seats",                         self.api_seats)
+        router.add_post("/api/seat/{colony_id}",             self.api_join_seat)
+        router.add_delete("/api/seat/{colony_id}",           self.api_release_seat)
+        router.add_post("/api/control",                      self.api_control)
+        router.add_get("/api/state/{colony_id}",             self.api_state)
+        router.add_get("/api/battle_summary/{colony_id}",   self.api_battle_summary)
+        router.add_get("/api/match_status",                  self.api_match_status)
+        router.add_post("/api/forfeit",                      self.api_forfeit)
+        router.add_get("/api/notifications/{colony_id}",     self.api_notifications)
+        router.add_get("/api/intel_map/{colony_id}",         self.api_intel_map)
+        router.add_get("/api/directive/{colony_id}",         self.api_directive)
+        router.add_post("/api/directive/{colony_id}",        self.api_patch_directive)
+        router.add_post("/api/command/{colony_id}",          self.api_command)
+        router.add_get("/api/events/{colony_id}",            self.api_events)
+        router.add_post("/api/feedback",                     self.api_feedback)
+        router.add_post("/api/chat",                         self.api_chat)
+        router.add_get( "/api/chat",                         self.api_get_chat)
+        router.add_post("/api/matches/{match_id}/chat",      self.api_chat)
+        router.add_get( "/api/matches/{match_id}/chat",      self.api_get_chat)
+        # REST API — per-match routes (same handlers, match_id resolved from path)
+        router.add_post("/api/matches/{match_id}/seat/{colony_id}",             self.api_join_seat)
+        router.add_delete("/api/matches/{match_id}/seat/{colony_id}",           self.api_release_seat)
+        router.add_post("/api/matches/{match_id}/control",                      self.api_control)
+        router.add_post("/api/matches/{match_id}/forfeit",                      self.api_forfeit)
+        router.add_get("/api/matches/{match_id}/state/{colony_id}",             self.api_state)
+        router.add_get("/api/matches/{match_id}/battle_summary/{colony_id}",   self.api_battle_summary)
+        router.add_get("/api/matches/{match_id}/match_status",                  self.api_match_status)
+        router.add_get("/api/matches/{match_id}/notifications/{colony_id}",     self.api_notifications)
+        router.add_get("/api/matches/{match_id}/intel_map/{colony_id}",         self.api_intel_map)
+        router.add_get("/api/matches/{match_id}/directive/{colony_id}",         self.api_directive)
+        router.add_post("/api/matches/{match_id}/directive/{colony_id}",        self.api_patch_directive)
+        router.add_post("/api/matches/{match_id}/command/{colony_id}",          self.api_command)
+        router.add_get("/api/matches/{match_id}/events/{colony_id}",            self.api_events)
+        # CORS preflight
+        router.add_route("OPTIONS", "/api/{path_info:.*}", self.api_options)
+
     async def run(self):
         app = web.Application()
-        app.router.add_get("/", self.on_index)
-        app.router.add_get("/game", self.on_game)
-        app.router.add_get("/game/", self.on_game)
-        app.router.add_get("/{page:(register|me|matches)\\.html}", self.on_static_html)
-        app.router.add_get("/config.js", self.on_config_js)
-        app.router.add_get("/ws", self.on_ws)
-        app.router.add_get("/ws/{match_id}", self.on_ws_match)
-        app.router.add_get("/health", self.api_health)
-        app.router.add_get("/api/agents/online",     self.api_agents_online)
-        app.router.add_post("/api/agents/heartbeat", self.api_heartbeat)
-        # REST API — match management
-        app.router.add_get( "/api/history",               self.api_match_history)
-        app.router.add_get( "/api/results/{match_id}",    self.api_result)
-        app.router.add_get( "/api/matches",              self.api_matches)
-        app.router.add_post("/api/matches",              self.api_create_match)
-        app.router.add_get(   "/api/matches/{match_id}",   self.api_get_match)
-        app.router.add_delete("/api/matches/{match_id}",   self.api_delete_match)
-        # REST API — legacy single-match routes (target default match)
-        app.router.add_get("/api/tick",                          self.api_tick)
-        app.router.add_get("/api/seats",                         self.api_seats)
-        app.router.add_post("/api/seat/{colony_id}",             self.api_join_seat)
-        app.router.add_delete("/api/seat/{colony_id}",           self.api_release_seat)
-        app.router.add_post("/api/control",                      self.api_control)
-        app.router.add_get("/api/state/{colony_id}",             self.api_state)
-        app.router.add_get("/api/battle_summary/{colony_id}",   self.api_battle_summary)
-        app.router.add_get("/api/match_status",                  self.api_match_status)
-        app.router.add_post("/api/forfeit",                      self.api_forfeit)
-        app.router.add_get("/api/notifications/{colony_id}",     self.api_notifications)
-        app.router.add_get("/api/intel_map/{colony_id}",         self.api_intel_map)
-        app.router.add_get("/api/directive/{colony_id}",         self.api_directive)
-        app.router.add_post("/api/directive/{colony_id}",        self.api_patch_directive)
-        app.router.add_post("/api/command/{colony_id}",          self.api_command)
-        app.router.add_get("/api/events/{colony_id}",            self.api_events)
-        app.router.add_post("/api/feedback",                     self.api_feedback)
-        app.router.add_post("/api/chat",                         self.api_chat)
-        app.router.add_post("/api/matches/{match_id}/chat",      self.api_chat)
-        # REST API — per-match routes (same handlers, match_id resolved from path)
-        app.router.add_post("/api/matches/{match_id}/seat/{colony_id}",             self.api_join_seat)
-        app.router.add_delete("/api/matches/{match_id}/seat/{colony_id}",           self.api_release_seat)
-        app.router.add_post("/api/matches/{match_id}/control",                      self.api_control)
-        app.router.add_post("/api/matches/{match_id}/forfeit",                      self.api_forfeit)
-        app.router.add_get("/api/matches/{match_id}/state/{colony_id}",             self.api_state)
-        app.router.add_get("/api/matches/{match_id}/battle_summary/{colony_id}",   self.api_battle_summary)
-        app.router.add_get("/api/matches/{match_id}/match_status",                  self.api_match_status)
-        app.router.add_get("/api/matches/{match_id}/notifications/{colony_id}",     self.api_notifications)
-        app.router.add_get("/api/matches/{match_id}/intel_map/{colony_id}",         self.api_intel_map)
-        app.router.add_get("/api/matches/{match_id}/directive/{colony_id}",         self.api_directive)
-        app.router.add_post("/api/matches/{match_id}/directive/{colony_id}",        self.api_patch_directive)
-        app.router.add_post("/api/matches/{match_id}/command/{colony_id}",          self.api_command)
-        app.router.add_get("/api/matches/{match_id}/events/{colony_id}",            self.api_events)
-        # CORS preflight
-        app.router.add_route("OPTIONS", "/api/{path_info:.*}", self.api_options)
+        self._register_routes(app.router)
+        # Mount same routes under /agants prefix so tunnel path routing works
+        subapp = web.Application()
+        self._register_routes(subapp.router)
+        app.add_subapp("/agants", subapp)
+
         async def _on_shutdown(_app):
             for m in list(self.matches.values()):
                 if m.world.phase in ("running", "paused") and m.world.winner is None:

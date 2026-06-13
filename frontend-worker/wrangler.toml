@@ -1,0 +1,14 @@
+name = "agants-frontend"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+workers_dev = false
+
+assets = { directory = "../frontend", binding = "ASSETS" }
+
+routes = [
+  { pattern = "agants.datthemaster.com/*", zone_name = "datthemaster.com" }
+]
+
+[observability.logs]
+enabled = true
+invocation_logs = true
