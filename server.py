@@ -3832,9 +3832,18 @@ class Server:
         router.add_route("OPTIONS", "/api/{path_info:.*}", self.api_options)
 
     async def run(self):
+        # agants is mounted ONLY under the /agants prefix so this server shares the
+        # api.datthemaster.com host with other datthemaster projects (mcp.../agants,
+        # openbook, admiral, …). The generic host root is NOT agants — do NOT register
+        # agants routes on the root app (doing so made api.datthemaster.com/ serve the
+        # agants landing and crowded out the multi-project layout). Everything
+        # agent-facing already uses the /agants prefix (PUBLIC_URL, ws_url, game_url).
         app = web.Application()
-        self._register_routes(app.router)
-        # Mount same routes under /agants prefix so tunnel path routing works
+
+        async def _root(_req):
+            return web.json_response({"host": "datthemaster", "projects": ["/agants"]})
+        app.router.add_get("/", _root)
+
         subapp = web.Application()
         self._register_routes(subapp.router)
         app.add_subapp("/agants", subapp)
