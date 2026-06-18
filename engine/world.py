@@ -1277,7 +1277,16 @@ class World:
 
         queen_focus = c.directive["military"]["siege_priority"] == "queen"
 
-        _rally = c.directive["military"]["rally_point"]
+        _mil = c.directive["military"]
+        _rally = _mil["rally_point"]
+        # A rally only HOLDS the army when it has a release count (rally_release_at) or
+        # there's no attack order. A leftover rally_point with NO release must not pin
+        # soldiers while attack_target / auto_attack is set — otherwise the army masses
+        # at the rally forever and the attack order is silently ignored. Staged rallies
+        # (rally_release_at set) still gate as intended.
+        if _rally and not _mil.get("rally_release_at") and (
+                _mil.get("attack_target") or (_mil.get("auto_attack") and c.enemy)):
+            _rally = None
         _at_rally = False
         _en_route_to_rally = False
         if _rally and not in_siege:
@@ -1292,7 +1301,6 @@ class World:
         # (rally / attack_target / auto_attack push) the window is tight — fight only
         # what's right in front and keep marching. Once at the enemy nest it widens to
         # lock onto the queen.
-        _mil = c.directive["military"]
         _advancing = bool(_mil.get("attack_target")) or (_mil.get("auto_attack") and c.enemy)
         if in_siege:
             detect_range = SOLDIER_ENGAGE_SIEGE
@@ -1374,7 +1382,7 @@ class World:
             if adj is None:
                 self._move_to(ant, enemy.x, enemy.y, 1)
         else:
-            rally = c.directive["military"]["rally_point"]
+            rally = _rally   # effective rally: None when an attack order overrides a no-release rally
             if rally and not in_siege:
                 if rally and isinstance(rally[0], (list, tuple)):
                     rx, ry = int(rally[0][0]), int(rally[0][1])
