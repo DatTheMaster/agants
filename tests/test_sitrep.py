@@ -1,7 +1,7 @@
 import sys; sys.path.insert(0, ".")
 from engine.world import World
 from engine.colony import Ant
-from engine.constants import A_SOLDIER, A_QUEEN
+from engine.constants import A_SOLDIER, A_QUEEN, A_WORKER, A_SCOUT
 
 def _fresh():
     w = World(); w.finalize_placement((14, 50), (136, 50))
@@ -51,8 +51,31 @@ def test_orders_attack_advancing():
     atk = next(o for o in orders if o["intent"] == "attack_target")
     assert atk["status"] == "advancing", f"expected advancing, got {atk}"
 
+def test_standing_enemy_unknown_until_scouted():
+    w, me, enemy = _fresh()
+    me.ants += [Ant(40, 50, 0, A_SOLDIER, born_tick=0) for _ in range(5)]
+    me.enemy_scouted_tick = -9999       # never scouted
+    st = build_sitrep(me, w)["standing"]
+    assert st["military"]["enemy"] == "unknown", st["military"]
+    assert st["military"]["verdict"] == "unknown"
+    assert st["economy"]["enemy"] == "not_observable"
+    assert st["military"]["you"] == 5 * 20      # 5 soldiers * 20
+
+def test_standing_enemy_scouted_value_and_staleness():
+    w, me, enemy = _fresh()
+    me.ants += [Ant(40, 50, 0, A_SOLDIER, born_tick=0) for _ in range(5)]
+    w.tick = 1000
+    me.enemy_scouted_tick = 980
+    me.enemy_scouted_counts = [4, 3, 1, 1]      # w,s,sc,q -> 4*5 + 3*20 + 1*8 = 88 (matches army_value: incl workers)
+    st = build_sitrep(me, w)["standing"]
+    assert st["military"]["enemy"] == 88, st["military"]
+    assert st["military"]["enemy_stale_ticks"] == 20
+    assert st["military"]["verdict"] == "leading"   # you 100 > enemy 88
+
 if __name__ == "__main__":
     test_com_history_tracks_soldiers()
     test_orders_attack_no_effect_when_frozen()
     test_orders_attack_advancing()
-    print("Task 2 PASS")
+    test_standing_enemy_unknown_until_scouted()
+    test_standing_enemy_scouted_value_and_staleness()
+    print("Task 3 PASS")

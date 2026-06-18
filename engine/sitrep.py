@@ -77,5 +77,65 @@ def _orders(colony, world):
     return out
 
 
+def _verdict(you, enemy, margin_floor=1):
+    if enemy is None:
+        return "unknown", None
+    margin = you - enemy
+    if abs(margin) <= margin_floor:
+        return "even", margin
+    return ("leading" if margin > 0 else "trailing"), margin
+
+
+def _standing(colony, world):
+    from engine.constants import MAP_W, MAP_H
+    counts = [sum(1 for a in colony.ants if a.type == t) for t in range(4)]
+    you_mil = counts[A_SOLDIER] * UNIT_VALUE[A_SOLDIER] + counts[A_SCOUT] * UNIT_VALUE[A_SCOUT] \
+        + counts[A_WORKER] * UNIT_VALUE[A_WORKER]
+
+    # enemy military: scouted-only (coarse counts), with staleness
+    sc = getattr(colony, "enemy_scouted_counts", [0, 0, 0, 0])
+    seen_tick = getattr(colony, "enemy_scouted_tick", -9999)
+    if seen_tick < 0:
+        enemy_mil, stale, mverdict, mmargin = "unknown", None, "unknown", None
+    else:
+        enemy_mil = sc[A_SOLDIER] * UNIT_VALUE[A_SOLDIER] + sc[A_SCOUT] * UNIT_VALUE[A_SCOUT] \
+            + sc[A_WORKER] * UNIT_VALUE[A_WORKER]
+        stale = world.tick - seen_tick
+        mverdict, mmargin = _verdict(you_mil, enemy_mil)
+
+    # economy: enemy not directly observable; honest proxy from scouted counts
+    economy = {"you": {"food": int(colony.food), "income_per_s": round(colony.income_per_s, 1)},
+               "enemy": "not_observable",
+               "enemy_proxy": {"scouted_workers": sc[A_WORKER], "scouted_soldiers": sc[A_SOLDIER]}}
+
+    # territory: your owned tiles (full); enemy fog-gated -> unknown
+    you_tiles = sum(1 for o in getattr(world, "territory", b"") if o == colony.id)
+    you_pct = round(you_tiles / (MAP_W * MAP_H) * 100, 1)
+
+    # queen: your hp full; threat = enemy soldiers on your turf (observable); enemy queen hp only if sieged
+    queen = next((a for a in colony.ants if a.type == A_QUEEN), None)
+    qhp = int(queen.hp) if queen else 0
+    threat = 0
+    enemy_qhp = "unknown"
+    if colony.enemy:
+        threat = sum(1 for a in colony.enemy.ants if a.type == A_SOLDIER
+                     and abs(a.x - colony.nx) + abs(a.y - colony.ny) <= 15)
+        in_siege = sum(1 for a in colony.ants if a.type == A_SOLDIER
+                       and abs(a.x - colony.enemy.nx) + abs(a.y - colony.enemy.ny) <= 12)
+        if in_siege > 0:
+            eq = next((a for a in colony.enemy.ants if a.type == A_QUEEN), None)
+            if eq:
+                enemy_qhp = int(eq.hp)
+
+    return {
+        "military": {"you": you_mil, "enemy": enemy_mil, "enemy_seen_tick": seen_tick if seen_tick >= 0 else None,
+                     "enemy_stale_ticks": stale, "verdict": mverdict, "margin": mmargin},
+        "economy": economy,
+        "territory": {"you_pct": you_pct, "enemy_pct": "unknown", "verdict": "unknown"},
+        "queen": {"your_hp": qhp, "your_hp_pct": round(qhp / 900 * 100), "threat_soldiers_near_nest": threat,
+                  "enemy_queen_hp": enemy_qhp},
+    }
+
+
 def build_sitrep(colony, world):
-    return {"orders": _orders(colony, world)}
+    return {"standing": _standing(colony, world), "orders": _orders(colony, world)}
