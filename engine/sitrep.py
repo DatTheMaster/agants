@@ -154,8 +154,14 @@ def _field(colony, world):
     if seen_enemies:
         cx = sum(a.x for a in seen_enemies) / len(seen_enemies)
         cy = sum(a.y for a in seen_enemies) / len(seen_enemies)
+        # Composition is fog-legitimate: these are the units we can currently SEE.
+        composition = {
+            "soldiers": sum(1 for a in seen_enemies if a.type == A_SOLDIER),
+            "scouts":   sum(1 for a in seen_enemies if a.type == A_SCOUT),
+            "workers":  sum(1 for a in seen_enemies if a.type == A_WORKER),
+        }
         enemy_army = {"seen": True, "size": len(seen_enemies), "pos": [round(cx), round(cy)],
-                      "seen_tick": world.tick, "age_ticks": 0}
+                      "composition": composition, "seen_tick": world.tick, "age_ticks": 0}
     else:
         enemy_army = {"seen": False}
 

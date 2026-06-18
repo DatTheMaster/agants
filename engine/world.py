@@ -2044,7 +2044,7 @@ class World:
                     soldiers = sum(1 for x, y, t in spotted if t == A_SOLDIER)
                     scouts   = sum(1 for x, y, t in spotted if t == A_SCOUT)
                     c.enemy_sightings.append((cx, cy, soldiers, len(spotted), self.tick, workers, scouts))
-                    if len(c.enemy_sightings) > 15: c.enemy_sightings.pop(0)
+                    if len(c.enemy_sightings) > 8: c.enemy_sightings.pop(0)
                     if soldiers >= 3:
                         c.push_notification("enemy_contact", {"cx": cx, "cy": cy, "soldiers": soldiers, "total": len(spotted)}, tick=self.tick)
 

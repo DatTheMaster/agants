@@ -296,8 +296,14 @@ def get_state(colony_id: int) -> dict:
       upgrades, larder timing, massing attacks). Treat these as high-value prompts —
       they fire only when a game lever is being neglected.
     - food_intel: dict of known food node coords → {amt, max, tier, last_seen}
-    - enemy_sightings: [(cx, cy, soldiers, total, tick)] — recent enemy presence zones
+    - enemy_sightings: fog-respecting list (most-recent first, last 8) of recently-seen
+      enemy clusters: {pos, total, soldiers, workers, scouts, seen_tick, ticks_ago}.
+      ticks_ago tells you how STALE each sighting is. Composition is what was visible.
     - seen_structs: known enemy structure positions and types
+
+    For a leaner snapshot when you have many units, prefer get_battle_summary (compact
+    combat view) or get_units(type="soldier"|"worker"|"scout") to fetch just one unit
+    type instead of the full unit dump.
     - own_structures: list of own built structures with HP and build_progress (if under construction)
     - military_summary: {total_soldiers, fighting, patrolling, idle, healthy, wounded, avg_hp_pct, building}
       Use this instead of scrolling units — "10 healthy, 3 fighting, 2 wounded" at a glance.

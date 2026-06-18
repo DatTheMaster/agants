@@ -784,6 +784,25 @@ def soldier_sectors(colony):
     return ", ".join(parts) if parts else "none"
 
 
+def format_enemy_sightings(colony, world_tick, limit=8):
+    """Fog-respecting enemy sightings as labelled dicts, most-recent first, capped.
+    Each sighting was recorded only from enemy units that were actually visible, and
+    carries its composition + the tick it was seen, so the agent can read the army
+    makeup AND how stale the intel is (`ticks_ago`) instead of decoding raw tuples."""
+    out = []
+    for s in list(colony.enemy_sightings)[-limit:]:
+        cx, cy, sol, tot, tk = s[0], s[1], s[2], s[3], s[4]
+        wk = s[5] if len(s) > 5 else None
+        sc = s[6] if len(s) > 6 else None
+        out.append({
+            "pos": [cx, cy], "total": tot,
+            "soldiers": sol, "workers": wk, "scouts": sc,
+            "seen_tick": tk, "ticks_ago": max(0, world_tick - tk),
+        })
+    out.reverse()  # most-recent first
+    return out
+
+
 def build_llm_prompt(colony, tick, world=None, memory=None,
                      my_color="BLUE", enemy_color="RED"):
     s = colony.get_state(world_tick=tick)
@@ -1009,15 +1028,15 @@ def build_llm_prompt(colony, tick, world=None, memory=None,
             f"barracks {own_br}/{BARRACKS_MAX}  wall {own_wl}/{WALL_MAX}  larder {own_lr}/{LARDER_MAX}\n"
             f"ENEMY STRUCTURES SPOTTED: {enemy_struct_str}"
         )
-        # Enemy unit sightings
+        # Enemy unit sightings (fog-respecting; most-recent first, with staleness)
         if colony.enemy_sightings:
-            recent = colony.enemy_sightings[-5:]
             sig_parts = []
-            for s in reversed(recent):
-                cx, cy, sol, tot, tk = s[0], s[1], s[2], s[3], s[4]
-                wk = s[5] if len(s) > 5 else "?"
-                sc = s[6] if len(s) > 6 else "?"
-                sig_parts.append(f"{tot} ants ({sol}S/{wk}W/{sc}sc) near ({cx},{cy}) t{tk}")
+            for s in format_enemy_sightings(colony, tick, limit=5):
+                wk = s["workers"] if s["workers"] is not None else "?"
+                sc = s["scouts"] if s["scouts"] is not None else "?"
+                sig_parts.append(
+                    f"{s['total']} ants ({s['soldiers']}S/{wk}W/{sc}sc) near "
+                    f"({s['pos'][0]},{s['pos'][1]}) {s['ticks_ago']}t ago")
             lines.append(f"ENEMY SIGHTINGS: {' · '.join(sig_parts)}")
         else:
             lines.append("ENEMY SIGHTINGS: none — send scouts into center/enemy territory")
@@ -2783,7 +2802,7 @@ class Server:
             "trigger_log": list(c.trigger_log)[-10:],
             "events": [list(c.events)[i] for i in range(min(20, len(c.events)))],
             "food_intel": {f"{k[0]},{k[1]}": v for k, v in c.food_intel.items()},
-            "enemy_sightings": list(c.enemy_sightings),
+            "enemy_sightings": format_enemy_sightings(c, w.tick),
             "seen_structs": {f"{k[0]},{k[1]}": v for k, v in c.seen_structs.items()},
             "own_structures": own_structs,
             "combat": {
@@ -2818,6 +2837,7 @@ class Server:
                 # churn of the gather cycle so this reads as truly-unassigned economy.
                 "idle": sum(1 for a in c.ants if a.state == S_IDLE
                             and (a.type != A_WORKER or getattr(a, "_idle_ticks", 0) >= 3)),
+                "compact_views": "get_units(type=worker|soldier|scout) or get_battle_summary avoid the full unit dump",
             },
             "military_summary": {
                 "total_soldiers": counts[1],
@@ -3138,7 +3158,7 @@ class Server:
             "map": map_rows,
             "annotated_map": [f"   {header}"] + annotated,
             "food_intel": {f"{k[0]},{k[1]}": v for k, v in c.food_intel.items()},
-            "enemy_sightings": list(c.enemy_sightings),
+            "enemy_sightings": format_enemy_sightings(c, w.tick),
             "seen_structs": {f"{k[0]},{k[1]}": v for k, v in c.seen_structs.items()},
             "legend": "R/B=nests  h=home food  a=approach  F=frontline  x=depleted  #=rock  W/G/K=own structures  w/g/k=enemy spotted  !=enemy soldiers>=3  ?=enemy contact",
             "cell_size_tiles": f"{cell_w:.1f}x{cell_h:.1f}",
