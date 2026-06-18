@@ -36,9 +36,14 @@ export class Overlays {
     this._lastFogKey = null; // force fog rebuild for the new POV
   }
 
+  // Free a RenderTexture-backed overlay sprite INCLUDING its texture + GPU source.
+  // A bare destroy() leaks the RenderTexture; fog rebakes constantly as units move,
+  // so that leak was a primary cause of the long-run OOM.
+  _free(s) { if (s) s.destroy({ texture: true, textureSource: true }); }
+
   destroy() {
-    this._terrSprite?.destroy();
-    this._fogSprite?.destroy();
+    this._free(this._terrSprite);
+    this._free(this._fogSprite);
     this._terrSprite = null;
     this._fogSprite = null;
   }
@@ -78,10 +83,11 @@ export class Overlays {
     const key = Overlays._key(territory, 0);
     if (key === this._lastTerrKey) return;
     this._lastTerrKey = key;
-    this._terrSprite?.destroy();
+    this._free(this._terrSprite);
     this._terrSprite = this._bake(app, territory, (v) => {
-      if (v === 1) return { color: 0xd23232, alpha: 40 / 255 }; // RED
-      if (v === 2) return { color: 0x3250dc, alpha: 40 / 255 }; // BLUE
+      // Subtle tint so the ground isn't washed red/blue (units must read clearly).
+      if (v === 1) return { color: 0xc83c3c, alpha: 22 / 255 }; // RED
+      if (v === 2) return { color: 0x3c54dc, alpha: 22 / 255 }; // BLUE
       return null;
     });
     this.territoryLayer.addChild(this._terrSprite);
@@ -94,7 +100,7 @@ export class Overlays {
     const key = Overlays._key(fogArr, this.povMode);
     if (key === this._lastFogKey) return;
     this._lastFogKey = key;
-    this._fogSprite?.destroy();
+    this._free(this._fogSprite);
     this._fogSprite = null;
     if (!fogArr) return;
     this._fogSprite = this._bake(app, fogArr, (v) => {
@@ -102,13 +108,15 @@ export class Overlays {
       if (alpha <= 0) return null;
       return { color: 0x000000, alpha };
     });
-    // Soften fog edges (spec §7); guard if pixi-filters absent.
+    // Soften fog edges (spec §7); reuse ONE BlurFilter across rebakes (a new one per
+    // fog change leaked). Guard if pixi-filters absent.
     const PIXI = window.PIXI;
-    const BlurFilter = PIXI.BlurFilter || PIXI.filters?.BlurFilter;
-    if (BlurFilter) {
-      try { this._fogSprite.filters = [new BlurFilter({ strength: 2 })]; }
-      catch (e) { /* filter optional */ }
+    if (this._blur === undefined) {
+      const BlurFilter = PIXI.BlurFilter || PIXI.filters?.BlurFilter;
+      try { this._blur = BlurFilter ? new BlurFilter({ strength: 2 }) : null; }
+      catch (e) { this._blur = null; }
     }
+    if (this._blur) this._fogSprite.filters = [this._blur];
     this.fogLayer.addChild(this._fogSprite);
   }
 }

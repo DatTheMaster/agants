@@ -45,6 +45,14 @@ export async function main() {
   const stageEl = document.getElementById('stage');
   stage.mount(app, stageEl);
 
+  // The generated ant base art is dark, so multiplicative colony tint came out muddy
+  // (esp. red on the warm ground). Lift ant brightness at the layer level so RED/BLUE
+  // read as bright, saturated colors. One filter for the whole layer (cheap on GPU).
+  try {
+    const CMF = PIXI.ColorMatrixFilter || PIXI.filters?.ColorMatrixFilter;
+    if (CMF) { const f = new CMF(); f.brightness(1.7, false); stage.antLayer.filters = [f]; }
+  } catch (e) { /* filter optional */ }
+
   const camera = new Camera(stage.world, stageEl, app);
   camera.attachInput();
 
@@ -114,6 +122,7 @@ export async function main() {
   const hud = new Hud(stage.uiLayer, camera, store, app, stageEl);
 
   let mapBuilt = false;
+  let _mapKey = null;
 
   // POV toggle: 0 spectator, 1 RED, 2 BLUE. Reuse the existing DOM #pov-btn by
   // overriding the page-global cyclePov() so the Canvas-era button drives Pixi.
@@ -135,6 +144,14 @@ export async function main() {
   function buildMap(m) {
     const mw = m?.map?.w, mh = m?.map?.h, terrain = m?.terrain;
     if (!mw || !mh || !terrain) return;
+    // Terrain is STATIC, but the replay (and reconnects) re-send the map message every
+    // loop. Build only when it actually changes — re-baking each loop leaked chunk
+    // RenderTextures and was a primary cause of the long-run OOM.
+    let cs = mw ^ (mh << 8) ^ terrain.length;
+    for (let i = 0; i < terrain.length; i += 137) cs = (cs * 31 + terrain[i]) | 0;
+    const key = mw + 'x' + mh + ':' + cs;
+    if (key === _mapKey) return;
+    _mapKey = key;
     tileGrid.build(app, mw, mh, terrain, terrainAtlas);
     overlays.setMapSize(mw, mh);
     camera.setWorldSize(mw, mh);

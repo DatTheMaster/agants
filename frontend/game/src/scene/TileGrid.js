@@ -8,13 +8,21 @@ import { TS } from './Camera.js';
 // Values verified against the replay stream: 0 dirt, 1 leaf, 2 water, 3 rock,
 // 4 nest (engine T_DIRT/T_LEAF/T_WATER/T_ROCK/T_NEST). Colors mirror the Canvas
 // renderer's TCOL table.
+// Darker, lower-saturation, FLAT colors per terrain type. Flat (not the per-tile
+// atlas texture) means adjacent same-type tiles merge into one solid block — no
+// repeating grid/seam pattern — and the calmer palette keeps the ground from
+// dominating so units (esp. red) read clearly. (user feedback: uniform, no gridlines)
 export const TERRAIN = [
-  { frame: 'dirt_0.png',  color: 0x5f4634 }, // 0 dirt
-  { frame: 'leaf_0.png',  color: 0x48762c }, // 1 leaf
-  { frame: 'water_0.png', color: 0x1e416e }, // 2 water
-  { frame: 'rock_0.png',  color: 0x646464 }, // 3 rock
-  { frame: 'nest_0.png',  color: 0x412d20 }, // 4 nest
+  { frame: 'dirt_0.png',  color: 0x342c24 }, // 0 dirt  (dark warm gray-brown)
+  { frame: 'leaf_0.png',  color: 0x2c4322 }, // 1 leaf
+  { frame: 'water_0.png', color: 0x1b2e47 }, // 2 water
+  { frame: 'rock_0.png',  color: 0x44423f }, // 3 rock
+  { frame: 'nest_0.png',  color: 0x271a12 }, // 4 nest
 ];
+
+// Render terrain as flat color blocks (ignore the per-tile atlas texture) so there
+// are no tile seams/grid. Set false to restore textured tiles.
+const FLAT_TERRAIN = true;
 
 const CHUNK_TILES = 32; // tiles per chunk edge -> 32*32px = 1024px chunks
 
@@ -27,7 +35,9 @@ export class TileGrid {
   }
 
   destroy() {
-    for (const s of this.sprites) { s.destroy(); }
+    // Each chunk sprite is backed by a UNIQUE RenderTexture; destroy the texture +
+    // its GPU source too (plain destroy() leaks them — caused the long-run OOM).
+    for (const s of this.sprites) { s.destroy({ texture: true, textureSource: true }); }
     this.sprites = [];
   }
 
@@ -60,7 +70,7 @@ export class TileGrid {
             const t = terrain[(ty0 + ty) * mw + (tx0 + tx)] || 0;
             const def = TERRAIN[t] || TERRAIN[0];
             let node;
-            const tex = atlas?.textures?.[def.frame];
+            const tex = FLAT_TERRAIN ? null : atlas?.textures?.[def.frame];
             if (tex) {
               node = new PIXI.Sprite(tex);
               node.width = TS; node.height = TS;

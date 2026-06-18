@@ -29,7 +29,8 @@ export class Hud {
     // Selection ring (drawn in WORLD space — added to the camera-transformed
     // world so it tracks the selected ant). We keep a handle + a selected id.
     this.selectionRing = new PIXI.Graphics();
-    this.selectedId = null;
+    this.selectedId = null;          // selected ant id (mutually exclusive with struct)
+    this.selectedStructKey = null;   // selected structure key
 
     // Hover tooltip (screen space).
     this.tooltip = new PIXI.Container();
@@ -95,8 +96,10 @@ export class Hud {
       // Minimap click recenters.
       if (this._minimapHit(sx, sy)) { this._minimapClick(sx, sy); return; }
       const w = this.camera.toWorld(sx, sy);
+      // Ant first; if none under the cursor, try a structure; empty space deselects.
       const id = this._pickAnt(w.x, w.y);
-      this.selectedId = id;
+      if (id != null) { this.selectedId = id; this.selectedStructKey = null; }
+      else { this.selectedId = null; this.selectedStructKey = this._pickStructure(w.x, w.y); }
     });
   }
 
@@ -130,6 +133,18 @@ export class Hud {
     return best;
   }
 
+  // Nearest structure within ~1.4 tiles of (wx, wy). Returns its key|null.
+  _pickStructure(wx, wy) {
+    let best = null, bestD = (TS * 1.4) * (TS * 1.4);
+    for (const [k, e] of this.store.structures) {
+      const ex = e.x * TS + TS / 2, ey = e.y * TS + TS / 2;
+      const dx = ex - wx, dy = ey - wy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD) { bestD = d2; best = k; }
+    }
+    return best;
+  }
+
   // Per-frame update: selection ring follows the selected ant; tooltip on hover;
   // minimap dots + viewport rect. Cheap; called from the Loop ticker.
   update() {
@@ -139,41 +154,68 @@ export class Hud {
   }
 
   _updateSelection() {
-    const PIXI = window.PIXI;
-    if (this.selectedId == null || !this.store.ants.has(this.selectedId)) {
-      if (this.selectionRing.parent) this.selectionRing.parent.removeChild(this.selectionRing);
-      this.selectedId = this.store.ants.has(this.selectedId) ? this.selectedId : null;
+    // Ant selection (takes priority while the ant is alive).
+    if (this.selectedId != null && this.store.ants.has(this.selectedId)) {
+      if (!this.selectionRing.parent) this.camera.world.addChild(this.selectionRing);
+      const e = this.store.ants.get(this.selectedId);
+      const t = this.store.interp(performance.now());
+      const wx = (e.from.x + (e.to.x - e.from.x) * t) * TS + TS / 2;
+      const wy = (e.from.y + (e.to.y - e.from.y) * t) * TS + TS / 2;
+      this.selectionRing.clear();
+      this.selectionRing.circle(wx, wy, TS * 0.55).stroke({ color: 0xffffff, width: 2, alpha: 0.9 });
+      this.selectionRing.circle(wx, wy, TS * 0.7).stroke({ color: tintFor(e.colony), width: 1.5, alpha: 0.6 });
       return;
     }
-    // Draw the ring in WORLD space so it tracks the ant under camera transform.
-    if (!this.selectionRing.parent) this.camera.world.addChild(this.selectionRing);
-    const e = this.store.ants.get(this.selectedId);
-    const t = this.store.interp(performance.now());
-    const wx = (e.from.x + (e.to.x - e.from.x) * t) * TS + TS / 2;
-    const wy = (e.from.y + (e.to.y - e.from.y) * t) * TS + TS / 2;
-    this.selectionRing.clear();
-    this.selectionRing.circle(wx, wy, TS * 0.55).stroke({ color: 0xffffff, width: 2, alpha: 0.9 });
-    this.selectionRing.circle(wx, wy, TS * 0.7).stroke({ color: tintFor(e.colony), width: 1.5, alpha: 0.6 });
+    // Structure selection (square outline around its footprint).
+    if (this.selectedStructKey != null && this.store.structures.has(this.selectedStructKey)) {
+      if (!this.selectionRing.parent) this.camera.world.addChild(this.selectionRing);
+      const e = this.store.structures.get(this.selectedStructKey);
+      const fw = (e.type === 'nest' ? 5 : 1) * TS;          // nest spans 5 tiles
+      const cx = e.x * TS + TS / 2, cy = e.y * TS + TS / 2;
+      this.selectionRing.clear();
+      this.selectionRing.rect(cx - fw / 2, cy - fw / 2, fw, fw)
+        .stroke({ color: 0xffffff, width: 2, alpha: 0.9 });
+      this.selectionRing.rect(cx - fw / 2 - 3, cy - fw / 2 - 3, fw + 6, fw + 6)
+        .stroke({ color: tintFor(e.colony), width: 1.5, alpha: 0.6 });
+      return;
+    }
+    // Nothing valid selected: hide the ring + clear any stale ids.
+    if (this.selectionRing.parent) this.selectionRing.parent.removeChild(this.selectionRing);
+    if (this.selectedId != null && !this.store.ants.has(this.selectedId)) this.selectedId = null;
+    if (this.selectedStructKey != null && !this.store.structures.has(this.selectedStructKey)) this.selectedStructKey = null;
   }
 
   _updateTooltip() {
     const h = this._hoverScreen;
     if (!h) { this.tooltip.visible = false; return; }
     const w = this.camera.toWorld(h.x, h.y);
+    // Ant tooltip; else structure tooltip; else hide.
+    let txt = null, color = 0xffffff;
     const id = this._pickAnt(w.x, w.y);
-    if (id == null) { this.tooltip.visible = false; return; }
-    const e = this.store.ants.get(id);
-    if (!e) { this.tooltip.visible = false; return; }
-    const tier = this.store.tierForAnt(e.colony, e.type);
-    const name = TYPE_NAME[e.type] || '?';
-    const st = STATE_NAME[e.state] || '?';
-    const txt = `${name} T${tier}\n${st}  HP ${e.hp}/${e.maxHp}${e.carrying ? '\ncarrying' : ''}`;
+    if (id != null && this.store.ants.has(id)) {
+      const e = this.store.ants.get(id);
+      const tier = this.store.tierForAnt(e.colony, e.type);
+      txt = `${TYPE_NAME[e.type] || '?'} T${tier}\n${STATE_NAME[e.state] || '?'}  HP ${e.hp}/${e.maxHp}${e.carrying ? '\ncarrying' : ''}`;
+      color = tintFor(e.colony);
+    } else {
+      const sk = this._pickStructure(w.x, w.y);
+      if (sk != null && this.store.structures.has(sk)) {
+        const e = this.store.structures.get(sk);
+        const nm = String(e.type || 'structure').replace(/_/g, ' ');
+        const status = (!e.active && e.buildRequired)
+          ? `building ${Math.round(100 * (e.buildProgress / Math.max(1, e.buildRequired)))}%`
+          : (e.hp < e.maxHp ? 'damaged' : 'active');
+        txt = `${nm}\n${status}  HP ${e.hp}/${e.maxHp}`;
+        color = tintFor(e.colony);
+      }
+    }
+    if (!txt) { this.tooltip.visible = false; return; }
     this.tooltipText.text = txt;
     const b = this.tooltipText.getLocalBounds();
     this.tooltipBg.clear();
     this.tooltipBg.rect(0, 0, b.width + 12, b.height + 8)
                   .fill({ color: 0x000000, alpha: 0.7 })
-                  .stroke({ color: tintFor(e.colony), width: 1, alpha: 0.8 });
+                  .stroke({ color, width: 1, alpha: 0.8 });
     this.tooltip.position.set(h.x + 14, h.y + 14);
     this.tooltip.visible = true;
   }

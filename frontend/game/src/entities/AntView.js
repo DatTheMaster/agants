@@ -15,7 +15,9 @@ import { TS } from '../scene/Camera.js';
 // --- constants (parity with the Canvas renderer, index.html) -----------------
 
 // Colony id -> tint. Looked up, never computed, to avoid an off-by-one (spec §3.2).
-const COLONY_TINT = { 0: 0xff3c3c, 1: 0x3c3cff };
+// Brighter/more saturated (paired with the antLayer brightness lift in main.js) so
+// RED especially pops against the warm ground. (user feedback)
+const COLONY_TINT = { 0: 0xff5555, 1: 0x5577ff };
 function tintFor(colony) { return COLONY_TINT[colony] ?? 0xffffff; }
 
 // Per-tier scale multiplier (spec §2.4 "kept"; index.html:1502).
