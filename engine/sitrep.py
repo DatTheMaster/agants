@@ -138,5 +138,50 @@ def _standing(colony, world):
     }
 
 
+def _lane(y):
+    return "north" if y < 34 else ("center" if y <= 66 else "south")
+
+
+def _field(colony, world):
+    from engine.constants import MAP_W
+    vis = getattr(colony, "fog_visible", set())
+
+    def visible(x, y):
+        return (y * MAP_W + x) in vis
+
+    # currently-visible enemy units (fog-compliant)
+    seen_enemies = []
+    if colony.enemy:
+        seen_enemies = [a for a in colony.enemy.ants if a.type != A_QUEEN and visible(a.x, a.y)]
+
+    if seen_enemies:
+        cx = sum(a.x for a in seen_enemies) / len(seen_enemies)
+        cy = sum(a.y for a in seen_enemies) / len(seen_enemies)
+        enemy_army = {"seen": True, "size": len(seen_enemies), "pos": [round(cx), round(cy)],
+                      "seen_tick": world.tick, "age_ticks": 0}
+    else:
+        enemy_army = {"seen": False}
+
+    # front line per lane: furthest-forward own soldier in contact (<=2 tiles) with a visible enemy
+    front = {"north": None, "center": None, "south": None}
+    if colony.enemy and seen_enemies:
+        for a in colony.ants:
+            if a.type != A_SOLDIER:
+                continue
+            if any(abs(a.x - e.x) + abs(a.y - e.y) <= 2 for e in seen_enemies):
+                lane = _lane(a.y)
+                # "furthest forward" = nearest the enemy nest along x
+                better = front[lane] is None or (abs(a.x - colony.enemy.nx) < abs(front[lane] - colony.enemy.nx))
+                if better:
+                    front[lane] = a.x
+
+    enemy_structs = [{"type": st.get("type", "guard_post"), "x": st["x"], "y": st["y"], "seen_tick": world.tick}
+                     for st in world.structures
+                     if st["colony"] != colony.id and visible(st["x"], st["y"])]
+
+    return {"front_line": front, "enemy_army": enemy_army, "enemy_structures": enemy_structs}
+
+
 def build_sitrep(colony, world):
-    return {"standing": _standing(colony, world), "orders": _orders(colony, world)}
+    return {"standing": _standing(colony, world), "orders": _orders(colony, world),
+            "field": _field(colony, world)}

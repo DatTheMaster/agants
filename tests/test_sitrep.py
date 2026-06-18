@@ -73,10 +73,34 @@ def test_standing_enemy_scouted_value_and_staleness():
     assert st["military"]["enemy_stale_ticks"] == 20
     assert st["military"]["verdict"] == "leading"   # you 100 > enemy 88
 
+def test_field_enemy_unseen_then_seen():
+    w, me, enemy = _fresh()
+    me.fog_visible = set()
+    enemy.ants.append(Ant(120, 50, 1, A_SOLDIER, born_tick=0))
+    f = build_sitrep(me, w)["field"]
+    assert f["enemy_army"]["seen"] is False, f["enemy_army"]
+    # now make that tile visible
+    from engine.constants import MAP_W
+    me.fog_visible = {50 * MAP_W + 120}
+    w.tick = 200
+    f = build_sitrep(me, w)["field"]
+    assert f["enemy_army"]["seen"] is True
+    assert f["enemy_army"]["pos"] == [120, 50]
+
+def test_field_front_line_per_lane():
+    w, me, enemy = _fresh()
+    me.ants.append(Ant(74, 50, 0, A_SOLDIER, born_tick=0))   # center lane
+    enemy.ants.append(Ant(76, 50, 1, A_SOLDIER, born_tick=0))
+    from engine.constants import MAP_W
+    me.fog_visible = {50 * MAP_W + 76}
+    f = build_sitrep(me, w)["field"]
+    assert f["front_line"]["center"] == 74, f["front_line"]
+    assert f["front_line"]["north"] is None
+
 if __name__ == "__main__":
-    test_com_history_tracks_soldiers()
-    test_orders_attack_no_effect_when_frozen()
-    test_orders_attack_advancing()
-    test_standing_enemy_unknown_until_scouted()
-    test_standing_enemy_scouted_value_and_staleness()
-    print("Task 3 PASS")
+    for fn in (test_com_history_tracks_soldiers, test_orders_attack_no_effect_when_frozen,
+               test_orders_attack_advancing, test_standing_enemy_unknown_until_scouted,
+               test_standing_enemy_scouted_value_and_staleness,
+               test_field_enemy_unseen_then_seen, test_field_front_line_per_lane):
+        fn()
+    print("Task 4 PASS")
