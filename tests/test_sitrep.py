@@ -97,10 +97,19 @@ def test_field_front_line_per_lane():
     assert f["front_line"]["center"] == 74, f["front_line"]
     assert f["front_line"]["north"] is None
 
+def test_advisor_has_no_imperatives():
+    import re, pathlib
+    src = pathlib.Path("server.py").read_text()
+    # the advisor block must not push tool-call syntax at the agent
+    block = src[src.index("advisor = []"): src.index("\"viable_food_nodes\"")]
+    for bad in ("buy_upgrade(", "redistribute_workers(", "build_structure available"):
+        assert bad not in block, f"advisor still prescriptive: {bad!r}"
+
 if __name__ == "__main__":
     for fn in (test_com_history_tracks_soldiers, test_orders_attack_no_effect_when_frozen,
                test_orders_attack_advancing, test_standing_enemy_unknown_until_scouted,
                test_standing_enemy_scouted_value_and_staleness,
-               test_field_enemy_unseen_then_seen, test_field_front_line_per_lane):
+               test_field_enemy_unseen_then_seen, test_field_front_line_per_lane,
+               test_advisor_has_no_imperatives):
         fn()
-    print("Task 4 PASS")
+    print("Task 5 PASS")

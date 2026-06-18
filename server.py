@@ -40,6 +40,7 @@ from aiohttp import web
 from engine.constants import *
 from engine.colony import Ant, DirectiveEngine, Colony, _apply_upgrade_effects
 from engine.world import gen_terrain, Predator, World
+from engine.sitrep import build_sitrep
 from bot import update_bot_strategy
 
 # ── Load .env into os.environ (no external dependency) ─────────────────────
@@ -2660,11 +2661,10 @@ class Server:
                            ("watchtower", WATCHTOWER_COST, WATCHTOWER_MAX), ("barracks", BARRACKS_COST, BARRACKS_MAX)]
                           if c.dirt >= co and _struct_counts.get(s, 0) < mx]
             if affordable:
-                advisor.append(f"{int(c.dirt)}◆ dirt unspent — build_structure available: {', '.join(affordable)}")
+                advisor.append(f"{int(c.dirt)}◆ dirt unspent; affordable structures: {', '.join(affordable)}")
         idle_workers = sum(1 for a in c.ants if a.type == A_WORKER and a.state == S_IDLE)
         if counts[0] >= 8 and idle_workers > counts[0] * 0.3:
-            advisor.append(f"{idle_workers}/{counts[0]} workers idle — check viable_food_nodes; "
-                           f"clear economy.priority_food if set to a depleted node")
+            advisor.append(f"{idle_workers}/{counts[0]} workers idle")
         _next_costs = [(u, costs[t]) for u, t, costs in
                        [("worker", c.worker_tier, WORKER_UPGRADE_COSTS),
                         ("scout", c.scout_tier, SCOUT_UPGRADE_COSTS),
@@ -2672,8 +2672,7 @@ class Server:
         affordable_upg = [(u, co) for u, co in _next_costs if c.food >= co * 1.1]
         if affordable_upg:
             u, co = min(affordable_upg, key=lambda x: x[1])
-            advisor.append(f"food {int(c.food)} covers {u} upgrade ({co}♦) — buy_upgrade('{u}') "
-                           f"(permanent, usually beats more units)")
+            advisor.append(f"{u} upgrade affordable: {co}◆ (you have {int(c.food)})")
         if (w.tick > 250 and _struct_counts.get("larder", 0) < LARDER_MAX
                 and c.dirt >= LARDER_COST
                 and not any(v["amt"] > 100 and v["tier"] in ("home", "approach")
@@ -2714,7 +2713,7 @@ class Server:
                                f"consider placing structures within 35 tiles of nest")
             elif assigned == 0 and pct < 100:
                 advisor.append(f"{st['type']} at ({st['x']},{st['y']}) stalled at {pct}% — "
-                               f"no workers assigned; use command_type('{cid}','worker','build',x={st['x']},y={st['y']})")
+                               f"no workers assigned to build it")
         # Warn when home/approach food nodes are nearly depleted (< 50♦ left)
         _w_income = max(0.0, c.income_per_s)
         for (fx, fy), info in c.food_intel.items():
@@ -2723,7 +2722,7 @@ class Server:
             if _fn.get("tier", "") not in ("home", "approach"): continue
             if _fn["amt"] < 50:
                 advisor.append(f"FOOD NODE ({fx},{fy}) {_fn['tier']} nearly empty ({int(_fn['amt'])}♦ left) — "
-                               f"workers will idle soon; redistribute_workers() or expand to frontline")
+                               f"workers will idle soon; frontline nodes available to expand to")
         # Food depletion ETA. Sum the *discovered* food in each tier band.
         _home_appr_food = sum(
             f["amt"] for f in w.foods
@@ -2794,6 +2793,7 @@ class Server:
                    if (soldiers_in_siege >= 3 and c.queen_dps_actual == 0
                        and c.directive["military"].get("siege_priority") != "queen") else {}),
             },
+            "sitrep": build_sitrep(c, w),
             "advisor": advisor,
             "queen_hp": queen_hp,
             "queen_alive": c.alive,
