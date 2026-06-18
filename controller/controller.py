@@ -376,8 +376,9 @@ TOOLS: patch_directive(patches) sets standing orders. send_command(command_type,
 buy_upgrade/build/convert/cancel_spawn/unit_command. get_units(type) grabs unit IDs/positions
 cheaply. get_chat(since_tick) reads incoming messages. get_intel_map() for a spatial picture.
 send_chat(message) to taunt. Be decisive: usually 1-2 tool calls per tick.
-For unit_command: data is flat — {{\"ant_id\":N,\"command\":\"move_to\",\"x\":X,\"y\":Y}}.
-Do NOT nest command inside an \"override\" dict.
+For unit_command: data is flat — {{\"ant_id\":N,\"command\":\"attack_move\",\"x\":X,\"y\":Y}}.
+Use attack_move to send a unit somewhere AND fight through; move_to is a pure reposition
+(no attacking — for retreating/regrouping). Do NOT nest command inside an \"override\" dict.
 Use ant IDs from the state's unit lists or get_units(type) — never guess or increment IDs.
 Ants die frequently; IDs become stale within 1-2 ticks. If you see 400 errors, stop retrying and use directives instead.
 
