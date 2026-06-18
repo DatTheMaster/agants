@@ -2680,8 +2680,8 @@ class Server:
             advisor.append("home/approach food nearly gone — larders (6♦/t passive) sustain the late game")
         if (counts[1] >= 10 and not c.directive["military"].get("rally_point")
                 and not c.directive["military"].get("auto_attack")):
-            advisor.append(f"{counts[1]} soldiers without rally or auto_attack — they trickle in 1-by-1 and die; "
-                           f"set military.rally_point + rally_release_at to attack as a mass")
+            advisor.append(f"{counts[1]} soldiers without rally_point or auto_attack — "
+                           f"no staging point set; soldiers advancing individually")
         _rally = c.directive["military"].get("rally_point")
         _release_at = c.directive["military"].get("rally_release_at")
         if _rally and _release_at:
@@ -2696,8 +2696,8 @@ class Server:
         for _unit in ("worker", "soldier"):
             _max = c.directive["spawn"].get(_unit, {}).get("max", 999)
             if isinstance(_max, (int, float)) and _max < 15:
-                advisor.append(f"CRITICAL: spawn.{_unit}.max={int(_max)} — this hard-caps you to {int(_max)} {_unit}s forever; "
-                               f"patch spawn.{_unit}.max to at least 25 immediately")
+                advisor.append(f"CRITICAL: spawn.{_unit}.max={int(_max)} — hard-capped at {int(_max)} {_unit}s; "
+                               f"current cap is below recommended minimum of 25")
         # Warn about incomplete structures with workers assigned but far from nest
         for st in w.structures:
             if st["colony"] != cid or st.get("active", True): continue
@@ -2710,7 +2710,7 @@ class Server:
             if dist > 40 and assigned > 0:
                 advisor.append(f"{st['type']} at ({st['x']},{st['y']}) is {dist} tiles from nest — "
                                f"workers may be killed en route ({pct}% built, {assigned} assigned); "
-                               f"consider placing structures within 35 tiles of nest")
+                               f"nearest safe build range is within 35 tiles of nest")
             elif assigned == 0 and pct < 100:
                 advisor.append(f"{st['type']} at ({st['x']},{st['y']}) stalled at {pct}% — "
                                f"no workers assigned to build it")
@@ -2788,8 +2788,8 @@ class Server:
                 # Compare with queen_dps_actual — a large gap means soldiers are fighting defenders.
                 "siege_dps_potential": round(soldiers_in_siege * (SOLDIER_DMG + c.dmg_bonus) / c.soldier_fast_cd * TPS, 1) if soldiers_in_siege > 0 else 0,
                 "ttk_s": round(enemy_queen_hp / (soldiers_in_siege * (SOLDIER_DMG + c.dmg_bonus) / c.soldier_fast_cd * TPS), 1) if (soldiers_in_siege > 0 and enemy_queen_hp) else None,
-                **({"siege_hint": "soldiers are engaging defenders, not the queen — "
-                                  "set military.siege_priority='queen' to focus her"}
+                **({"siege_hint": f"{soldiers_in_siege} soldiers in siege range; "
+                                  f"queen_dps_actual=0 — soldiers are engaging defenders, not the queen"}
                    if (soldiers_in_siege >= 3 and c.queen_dps_actual == 0
                        and c.directive["military"].get("siege_priority") != "queen") else {}),
             },
