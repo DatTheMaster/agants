@@ -651,6 +651,8 @@ class World:
 
         self._check_rally_stall()
 
+        self._check_idle_workers()
+
         self._check_win()
 
     def _check_rally_stall(self):
@@ -688,6 +690,33 @@ class World:
                     f"— count hasn't grown in {self.tick - c._rally_stall_since} ticks. "
                     f"Lower rally_release_at to {max(1, staged)} to release now, "
                     f"or check if soldiers are dying before reaching the rally point."
+                )
+
+    def _check_idle_workers(self):
+        """Alert when a meaningful share of workers sit idle for a sustained stretch.
+        Idle workers gather nothing — it's wasted economy the agent should notice and
+        fix (priority_food / gather_dirt / expand). Mirrors _check_rally_stall."""
+        IDLE_TICKS = 40
+        for c in self.colonies:
+            workers = [a for a in c.ants if a.type == A_WORKER]
+            idle = sum(1 for a in workers if a.state == S_IDLE and not a.unit_override)
+            # Only meaningful once there's an economy to mismanage.
+            if len(workers) < 6 or idle < max(3, int(len(workers) * 0.3)):
+                c._idle_workers_since = None
+                continue
+            if c._idle_workers_since is None:
+                c._idle_workers_since = self.tick
+            elif (self.tick - c._idle_workers_since >= IDLE_TICKS
+                  and (self.tick - c._idle_workers_since) % IDLE_TICKS == 0):
+                idle_ticks = self.tick - c._idle_workers_since
+                c.push_notification("workers_idle", {
+                    "idle": idle, "workers": len(workers), "idle_ticks": idle_ticks,
+                    "label": f"{idle}/{len(workers)} workers idle for {idle_ticks}t — assign them",
+                }, tick=self.tick)
+                c.push_event(
+                    f"⚠ {idle}/{len(workers)} WORKERS IDLE for {idle_ticks} ticks — wasted income. "
+                    f"Set economy.priority_food to a viable node, economy.gather_dirt=true, or send idle "
+                    f"workers to gather; expand to a frontline food node if home/approach is depleted."
                 )
 
     def _check_win(self):

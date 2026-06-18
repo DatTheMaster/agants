@@ -408,6 +408,7 @@ class Colony:
 
         self._rally_staged_prev = 0
         self._rally_stall_since = None
+        self._idle_workers_since = None
 
     # ── Serialization ──────────────────────────────────────────────────────────
 
