@@ -10,7 +10,10 @@ import { TileGrid } from './scene/TileGrid.js';
 import { Overlays } from './scene/Overlays.js';
 import { StructureView } from './entities/StructureView.js';
 import { AntViews } from './entities/AntView.js';
+import { NodeViews } from './entities/NodeView.js';
 import { ViewPool } from './entities/ViewPool.js';
+import { Effects } from './fx/Effects.js';
+import { Hud } from './ui/Hud.js';
 import { Loop } from './render/Loop.js';
 
 export async function main() {
@@ -28,6 +31,9 @@ export async function main() {
 
   const camera = new Camera(stage.world, stageEl, app);
   camera.attachInput();
+
+  // In-world UI (selection ring, hover tooltip, minimap). DOM #panel HUD is kept.
+  // store is constructed below; Hud only reads it per frame so the order is fine.
 
   const tileGrid = new TileGrid(stage.terrainLayer);
   const overlays = new Overlays(stage.territoryLayer, stage.fogLayer);
@@ -56,11 +62,41 @@ export async function main() {
   } catch (e) {
     console.warn('[pixi] ants atlas not loaded, using placeholder ants:', e?.message || e);
   }
-  const antPool = new ViewPool();
-  // M4 will pass a real Effects death-FX hook; M3 leaves it null (no FX yet).
-  const antViews = new AntViews(stage.antLayer, antsAtlas, antPool, null);
+  // Optional nodes atlas — falls back to colored shapes if missing (spec).
+  let nodesAtlas = null;
+  try {
+    nodesAtlas = await PIXI.Assets.load('./assets/nodes.json');
+  } catch (e) {
+    console.warn('[pixi] nodes atlas not loaded, using placeholder nodes:', e?.message || e);
+  }
+
+  // Optional fx atlas — falls back to procedural FX if missing (spec §6.5).
+  let fxAtlas = null;
+  try {
+    fxAtlas = await PIXI.Assets.load('./assets/fx.json');
+  } catch (e) {
+    console.warn('[pixi] fx atlas not loaded, using procedural FX:', e?.message || e);
+  }
 
   const store = new SnapshotStore();
+
+  // FX layer: hit rings, death dissolve, build dust, guard-post beam, build-
+  // complete flash, queen-attack warning, win-state grade. (spec M4)
+  const effects = new Effects(
+    { ground: stage.groundFxLayer, air: stage.airFxLayer }, stage.world, store, fxAtlas);
+
+  const antPool = new ViewPool();
+  // AntViews fires effects.deathFx on despawn (death dissolve).
+  const antViews = new AntViews(stage.antLayer, antsAtlas, antPool,
+    { deathFx: (x, y, typeIdx, colony) => effects.deathFx(x, y, typeIdx, colony) });
+
+  // Resource nodes: food / dirt / corpses with glow halos. (spec M4)
+  const nodePool = new ViewPool();
+  const nodeViews = new NodeViews(stage.dirtFoodLayer, nodesAtlas, nodePool);
+
+  // In-world UI overlay (screen-space uiLayer). DOM #panel HUD stays.
+  const hud = new Hud(stage.uiLayer, camera, store, app, stageEl);
+
   let mapBuilt = false;
 
   // POV toggle: 0 spectator, 1 RED, 2 BLUE. Reuse the existing DOM #pov-btn by
@@ -86,6 +122,7 @@ export async function main() {
     tileGrid.build(app, mw, mh, terrain, terrainAtlas);
     overlays.setMapSize(mw, mh);
     camera.setWorldSize(mw, mh);
+    hud.setWorldSize(mw * 32, mh * 32);
     mapBuilt = true;
     window.__lastMap = m;
     console.log(`[pixi] map baked: ${mw}x${mh} (${terrain.length} tiles)`);
@@ -93,7 +130,10 @@ export async function main() {
 
   const url = resolveWsUrl(window.location, window.AGANTS_BACKEND);
   const conn = new Connection(url, {
-    onReset: () => { store.reset(); antViews.reset(); antPool.clear(); },
+    onReset: () => {
+      store.reset(); antViews.reset(); antPool.clear();
+      nodeViews.reset(); nodePool.clear(); effects.reset(); hud.reset();
+    },
     onMap:   (m) => { buildMap(m); },
     onTick:  (snap) => {
       store.applyTick(snap, performance.now());
@@ -105,6 +145,11 @@ export async function main() {
       }
       // Structures + nests: non-positional, synced once per tick.
       structureView.sync(store);
+      // Resource nodes (food/dirt/corpses): static, id-diffed once per tick.
+      nodeViews.sync(store);
+      // FX events (hit rings, beams, build flash/dust, queen warning, win grade)
+      // are derived from this tick's store deltas.
+      effects.onTick(store);
       // Reuse the existing DOM HUD.
       try { window.state = snap; window.updateSidebar?.(snap); } catch (e) { /* HUD optional */ }
     },
@@ -115,11 +160,16 @@ export async function main() {
   // their positions over the measured tick interval (`t` from store.interp).
   // (spec §6 — positional lerp from prev_x/prev_y -> x/y.)
   new Loop().start(app, store, (t) => {
-    structureView.refreshPulse(app.ticker.deltaMS);
+    const dt = app.ticker.deltaMS;
+    structureView.refreshPulse(dt);
+    nodeViews.refreshPulse(dt);
     antViews.sync(store, t);
+    effects.update(dt);
+    hud.update();
   });
 
-  window.__agants = { app, stage, store, conn, camera, tileGrid, overlays, structureView, antViews, antPool };
+  window.__agants = { app, stage, store, conn, camera, tileGrid, overlays,
+    structureView, antViews, antPool, nodeViews, nodePool, effects, hud };
   console.log('[pixi] client mounted; ws=', url);
 }
 main();

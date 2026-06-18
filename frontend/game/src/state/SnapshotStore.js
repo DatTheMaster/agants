@@ -23,6 +23,13 @@ export const COLONY = { ID: 0, NEST_X: 1, NEST_Y: 2, ALIVE: 10, TIERS: 11 };
 // Mirrors the Canvas renderer's TYPE_TIER_IDX = [0, 2, 1] (index.html:1461).
 export const TYPE_TIER_IDX = [0, 2, 1];
 
+// food[]   = [x, y, amt, kind, tier]
+// dirt[]   = [x, y, amt, tier]
+// corpses[]= [x, y, amt]
+export const FOOD = { X: 0, Y: 1, AMT: 2, KIND: 3, TIER: 4 };
+export const DIRT = { X: 0, Y: 1, AMT: 2, TIER: 3 };
+export const CORPSE = { X: 0, Y: 1, AMT: 2 };
+
 export class SnapshotStore {
   constructor() {
     this.ants = new Map();
@@ -34,6 +41,19 @@ export class SnapshotStore {
     this.removedStructKeys = [];
     // Colonies, keyed by colony id (for nests + alive state).
     this.colonies = new Map();
+    // Resource nodes — raw row arrays from the latest tick (static; no interp).
+    // NodeView (M4) id-diffs these by an "x,y" key and pools its sprites.
+    this.food = [];
+    this.dirt = [];
+    this.corpses = [];
+    // Hit events emitted this tick: ants whose hp dropped vs the previous tick.
+    // Each: { id, x, y, colony, type, prevHp, hp }. Drives hit-ring FX + the
+    // inferred guard-post beam (spec §3.2). Reset each applyTick.
+    this.hitEvents = [];
+    // Win-state grade hook: the colony id that died this tick (alive 1->0), or
+    // null. Effects (M4) reads this to fire a win-state ColorMatrix once.
+    this.winnerDelta = null;
+    this.winner = null;
     this.tick = 0;
     this.phase = 'lobby';
     this.tickStartMs = 0;
@@ -47,6 +67,12 @@ export class SnapshotStore {
     this.structures.clear();
     this.removedStructKeys = [];
     this.colonies.clear();
+    this.food = [];
+    this.dirt = [];
+    this.corpses = [];
+    this.hitEvents = [];
+    this.winnerDelta = null;
+    this.winner = null;
     this.tick = 0;
     this.tickStartMs = 0;
     this._lastStartMs = 0;
@@ -68,11 +94,13 @@ export class SnapshotStore {
     this._lastStartMs = nowMs;
     this.tickStartMs = nowMs;
 
+    this.hitEvents = [];
     const seen = new Set();
     for (const t of (snap.ants || [])) {
       const id = t[ANT.ID];
       seen.add(id);
       const existing = this.ants.get(id);
+      const prevHp = existing ? existing.hp : null;
       const entry = existing || { justAdded: true };
       entry.from = { x: t[ANT.PX], y: t[ANT.PY] };
       entry.to = { x: t[ANT.X], y: t[ANT.Y] };
@@ -84,6 +112,13 @@ export class SnapshotStore {
       entry.maxHp = t[ANT.MAXHP];
       if (existing) entry.justAdded = false;
       this.ants.set(id, entry);
+      // Hit event: hp dropped vs the previous tick (drives hit FX + beam).
+      if (prevHp != null && entry.hp < prevHp) {
+        this.hitEvents.push({
+          id, x: entry.to.x, y: entry.to.y, colony: entry.colony,
+          type: entry.type, prevHp, hp: entry.hp,
+        });
+      }
     }
     this.removedAntIds = [];
     for (const id of this.ants.keys()) {
@@ -117,17 +152,28 @@ export class SnapshotStore {
     for (const key of this.removedStructKeys) this.structures.delete(key);
 
     // --- colonies (keyed by id; nests + alive state + per-class tiers) ---
+    this.winnerDelta = null;
     for (const c of (snap.colonies || [])) {
       const id = c[COLONY.ID];
+      const alive = c[COLONY.ALIVE] !== 0;
+      const prev = this.colonies.get(id);
+      // Colony died this tick (alive 1->0): fire the win-state grade once.
+      if (prev && prev.alive && !alive) this.winnerDelta = id;
       this.colonies.set(id, {
         id,
         nestX: c[COLONY.NEST_X],
         nestY: c[COLONY.NEST_Y],
-        alive: c[COLONY.ALIVE] !== 0,
+        alive,
         // [worker_tier, scout_tier, soldier_tier]; default flat if absent.
         tiers: Array.isArray(c[COLONY.TIERS]) ? c[COLONY.TIERS] : [0, 0, 0],
       });
     }
+
+    // --- resource nodes (static; NodeView id-diffs them itself) ---
+    this.food = snap.food || [];
+    this.dirt = snap.dirt || [];
+    this.corpses = snap.corpses || [];
+    this.winner = snap.winner ?? null;
   }
 
   // Tier for an ant, derived from its colony's per-class tiers (tier is NOT in
