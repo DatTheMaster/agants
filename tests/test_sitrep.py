@@ -59,6 +59,7 @@ def test_standing_enemy_unknown_until_scouted():
     assert st["military"]["enemy"] == "unknown", st["military"]
     assert st["military"]["verdict"] == "unknown"
     assert st["economy"]["enemy"] == "not_observable"
+    assert st["economy"]["enemy_proxy"] == "unknown", st["economy"]
     assert st["military"]["you"] == 5 * 20      # 5 soldiers * 20
 
 def test_standing_enemy_scouted_value_and_staleness():

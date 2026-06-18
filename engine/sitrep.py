@@ -106,7 +106,8 @@ def _standing(colony, world):
     # economy: enemy not directly observable; honest proxy from scouted counts
     economy = {"you": {"food": int(colony.food), "income_per_s": round(colony.income_per_s, 1)},
                "enemy": "not_observable",
-               "enemy_proxy": {"scouted_workers": sc[A_WORKER], "scouted_soldiers": sc[A_SOLDIER]}}
+               "enemy_proxy": ({"scouted_workers": sc[A_WORKER], "scouted_soldiers": sc[A_SOLDIER]}
+                               if seen_tick >= 0 else "unknown")}
 
     # territory: your owned tiles (full); enemy fog-gated -> unknown
     you_tiles = sum(1 for o in getattr(world, "territory", b"") if o == colony.id)
