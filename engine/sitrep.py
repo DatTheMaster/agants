@@ -34,9 +34,6 @@ def _orders(colony, world):
                 status = "no_effect"
                 detail = (f"army center-of-mass x {x_old:.0f}->{x_now:.0f} over last {len(hist)}t "
                           f"(not advancing toward {target})")
-                rp = mil.get("rally_point")
-                if rp and not mil.get("rally_release_at"):
-                    detail += " — a rally_point with no rally_release_at is holding the army"
         else:
             status, detail = "unknown", "no soldiers yet"
         out.append({"intent": "attack_target", "target": list(target), "status": status, "detail": detail})
