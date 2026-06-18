@@ -2669,9 +2669,12 @@ class Server:
                           if c.dirt >= co and _struct_counts.get(s, 0) < mx]
             if affordable:
                 advisor.append(f"{int(c.dirt)}◆ dirt unspent; affordable structures: {', '.join(affordable)}")
-        idle_workers = sum(1 for a in c.ants if a.type == A_WORKER and a.state == S_IDLE)
+        # Count SUSTAINED idle only — a worker idle ≥3 ticks is genuinely unassigned,
+        # vs the harmless 1-tick churn of the deliver→re-target gather cycle.
+        idle_workers = sum(1 for a in c.ants if a.type == A_WORKER
+                           and a.state == S_IDLE and getattr(a, "_idle_ticks", 0) >= 3)
         if counts[0] >= 8 and idle_workers > counts[0] * 0.3:
-            advisor.append(f"{idle_workers}/{counts[0]} workers idle")
+            advisor.append(f"{idle_workers}/{counts[0]} workers idle (unassigned ≥3t)")
         _next_costs = [(u, costs[t]) for u, t, costs in
                        [("worker", c.worker_tier, WORKER_UPGRADE_COSTS),
                         ("scout", c.scout_tier, SCOUT_UPGRADE_COSTS),
@@ -2811,7 +2814,10 @@ class Server:
                 "total": len(c.ants),
                 "workers": counts[0], "soldiers": counts[1], "scouts": counts[2],
                 "with_override": sum(1 for a in c.ants if a.unit_override),
-                "idle": sum(1 for a in c.ants if a.state == S_IDLE),
+                # Sustained idle only (workers idle ≥3t) — excludes the harmless 1-tick
+                # churn of the gather cycle so this reads as truly-unassigned economy.
+                "idle": sum(1 for a in c.ants if a.state == S_IDLE
+                            and (a.type != A_WORKER or getattr(a, "_idle_ticks", 0) >= 3)),
             },
             "military_summary": {
                 "total_soldiers": counts[1],

@@ -826,11 +826,62 @@ class World:
         elif ant.type == A_SCOUT:   self._behavior_scout(ant)
         elif ant.type == A_QUEEN:   self._behavior_queen(ant)
 
+        # Track consecutive idle ticks so the agent can be shown SUSTAINED idle (truly
+        # unassigned workers) rather than the transient 1-tick churn of the gather cycle
+        # (deliver / re-target), which is harmless and would otherwise read as a scary
+        # idle count. Transient attr — fine to reset to 0 on reload.
+        if ant.type == A_WORKER:
+            ant._idle_ticks = (getattr(ant, "_idle_ticks", 0) + 1) if ant.state == S_IDLE else 0
+
         c = self.colonies[ant.colony]
         if c.enemy and abs(ant.x - c.enemy.nx) + abs(ant.y - c.enemy.ny) <= 18:
             c.enemy_scouted_tick = self.tick
             c.enemy_scouted_counts = [sum(1 for a in c.enemy.ants if a.type == t)
                                       for t in range(4)]
+
+    def _assign_food_target(self, ant, c):
+        """Pick the best known food node for this worker, set it as recruit_target and
+        step toward it. Returns True if a target was assigned (worker now foraging),
+        False if there is no known food. Shared by the main forage fallthrough AND the
+        post-delivery re-acquire, so a worker that just dropped off food heads straight
+        back out instead of bouncing through a 1-tick S_IDLE (which spikes the idle
+        count the agent sees and wastes a tick of travel)."""
+        if not c.known_food:
+            return False
+
+        def _node_amt(pos):
+            f = next((fd for fd in self.foods if (fd["x"], fd["y"]) == pos), None)
+            return f["amt"] if f else 0
+
+        pf = c.directive["economy"]["priority_food"]
+        pf_t = tuple(pf) if isinstance(pf, (list, tuple)) and len(pf) == 2 else None
+        if pf is not None and pf_t is None:
+            c.directive["economy"]["priority_food"] = None
+        if pf_t and pf_t in c.known_food and _node_amt(pf_t) <= 10:
+            c.directive["economy"]["priority_food"] = None
+            pf_t = None
+            c.push_event(f"priority_food ({pf[0]},{pf[1]}) depleted — cleared, workers spreading")
+            c.push_notification("priority_food_cleared",
+                                {"x": pf[0], "y": pf[1], "reason": "depleted"}, tick=self.tick)
+        if pf_t and pf_t in c.known_food:
+            target = pf_t
+        else:
+            def _workers_near(pos):
+                return sum(1 for a in c.ants if a.type == A_WORKER
+                           and (a.recruit_target == pos
+                                or abs(a.x - pos[0]) + abs(a.y - pos[1]) <= 5))
+            viable = [p for p in c.known_food if _node_amt(p) > 10]
+            pool = viable if viable else c.known_food
+            close = [p for p in pool if abs(ant.x - p[0]) + abs(ant.y - p[1]) <= 35]
+            use_pool = close if close else pool
+            unsaturated = [p for p in use_pool
+                           if _workers_near(p) < FOOD_NODE_WORKER_CAP.get(
+                               c.food_intel.get(p, {}).get("tier", "approach"), 6)]
+            target = random.choice(unsaturated if unsaturated else (close if close else pool))
+        ant.recruit_target = target
+        ant.state = S_FORAGING
+        self._move_to(ant, target[0], target[1], 0)
+        return True
 
     def _behavior_worker(self, ant):
         c = self.colonies[ant.colony]
@@ -923,9 +974,12 @@ class World:
                     c.food_earned_tick += earned
                     if ov and ov.get("cmd") == "gather":
                         ant.recruit_target = (int(ov["x"]), int(ov["y"]))
+                        ant.state = S_IDLE
                     else:
                         ant.recruit_target = None
-                    ant.state = S_IDLE
+                        # Re-acquire the next node THIS tick instead of a 1-tick idle bounce.
+                        if not self._assign_food_target(ant, c):
+                            ant.state = S_IDLE
                     self._dep(ant.x, ant.y, 0, 1.0)
                 else:
                     self._move_to(ant, c.nx, c.ny, 0)
@@ -957,8 +1011,21 @@ class World:
                             c.known_dirt.append((dn["x"], dn["y"]))
                             if len(c.known_dirt) > 12: c.known_dirt.pop(0)
                     else:
-                        ant.recruit_target = None
-                        ant.state = S_IDLE
+                        # The arrival radius (4) is wider than the pickup radius (3): a
+                        # worker that stops at dist 4 has "arrived" but is still too far to
+                        # pick up. If the target is a food node that still has food, step
+                        # the last tile IN instead of going idle — otherwise it re-rolls a
+                        # random node and abandons a full node it's standing right next to
+                        # (the "finish a node and stand there / wander off" idle churn).
+                        tgt_food = next((fn for fn in self.foods
+                                         if fn["x"] == fx and fn["y"] == fy and fn["amt"] > 10), None)
+                        if tgt_food and dist_to_target > 2 and not targeting_dirt:
+                            self._move_to(ant, fx, fy, 0)
+                            ant.state = S_FORAGING
+                            self._dep(ant.x, ant.y, 0, 0.6)
+                        else:
+                            ant.recruit_target = None
+                            ant.state = S_IDLE
                 elif abs(ant.x - fx) + abs(ant.y - fy) > 50:
                     ant.recruit_target = None
                     ant.state = S_IDLE
@@ -990,7 +1057,9 @@ class World:
                     c.food += earned
                     c.food_collected += earned
                     c.food_earned_tick += earned
-                ant.state = S_IDLE
+                # Re-acquire the next node THIS tick instead of a 1-tick idle bounce.
+                if not self._assign_food_target(ant, c):
+                    ant.state = S_IDLE
             else:
                 self._move_to(ant, c.nx, c.ny, 0)
                 if c.worker_fast:
@@ -1049,38 +1118,7 @@ class World:
                 ant.state = S_BUILDING
                 return
 
-        if c.known_food:
-            def _node_amt(pos):
-                f = next((fd for fd in self.foods if (fd["x"], fd["y"]) == pos), None)
-                return f["amt"] if f else 0
-            pf = c.directive["economy"]["priority_food"]
-            pf_t = tuple(pf) if isinstance(pf, (list, tuple)) and len(pf) == 2 else None
-            if pf is not None and pf_t is None:
-                c.directive["economy"]["priority_food"] = None
-            if pf_t and pf_t in c.known_food and _node_amt(pf_t) <= 10:
-                c.directive["economy"]["priority_food"] = None
-                pf_t = None
-                c.push_event(f"priority_food ({pf[0]},{pf[1]}) depleted — cleared, workers spreading")
-                c.push_notification("priority_food_cleared",
-                                    {"x": pf[0], "y": pf[1], "reason": "depleted"}, tick=self.tick)
-            if pf_t and pf_t in c.known_food:
-                target = pf_t
-            else:
-                def _workers_near(pos):
-                    return sum(1 for a in c.ants if a.type == A_WORKER
-                               and (a.recruit_target == pos
-                                    or abs(a.x - pos[0]) + abs(a.y - pos[1]) <= 5))
-                viable = [p for p in c.known_food if _node_amt(p) > 10]
-                pool = viable if viable else c.known_food
-                close = [p for p in pool if abs(ant.x - p[0]) + abs(ant.y - p[1]) <= 35]
-                use_pool = close if close else pool
-                unsaturated = [p for p in use_pool
-                               if _workers_near(p) < FOOD_NODE_WORKER_CAP.get(
-                                   c.food_intel.get(p, {}).get("tier", "approach"), 6)]
-                target = random.choice(unsaturated if unsaturated else (close if close else pool))
-            ant.recruit_target = target
-            ant.state = S_FORAGING
-            self._move_to(ant, target[0], target[1], 0)
+        if self._assign_food_target(ant, c):
             return
 
         for site in self.structures:
