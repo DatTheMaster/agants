@@ -3,7 +3,6 @@
 // M1: terrain baking, camera (pan/zoom/clamp/zoom-to-cursor), territory + fog
 // overlays, POV toggle. M2+ add structures/ants/FX in the Loop callback.
 import { SnapshotStore } from './state/SnapshotStore.js';
-import { Connection, resolveWsUrl } from './net/Connection.js';
 import { Stage } from './scene/Stage.js';
 import { Camera } from './scene/Camera.js';
 import { TileGrid } from './scene/TileGrid.js';
@@ -161,14 +160,18 @@ export async function main() {
     console.log(`[pixi] map baked: ${mw}x${mh} (${terrain.length} tiles)`);
   }
 
-  const url = resolveWsUrl(window.location, window.AGANTS_BACKEND);
-  const conn = new Connection(url, {
+  // Pixi is RENDER-ONLY. It does NOT open its own WebSocket — the Canvas client's
+  // connect() is the single socket and owns the full game lifecycle + all DOM
+  // (lobby/START, placement, winner screen, info panel, legend, chat, controls).
+  // index.html forwards the parsed map/tick/reset to this renderer object; we never
+  // touch those DOM concerns here (the Canvas render() Pixi-branch drives the panel).
+  const renderer = {
+    onMap: (m) => { buildMap(m); },
     onReset: () => {
       store.reset(); antViews.reset(); antPool.clear();
       nodeViews.reset(); nodePool.clear(); effects.reset(); hud.reset();
     },
-    onMap:   (m) => { buildMap(m); },
-    onTick:  (snap) => {
+    onTick: (snap) => {
       store.applyTick(snap, performance.now());
       store._lastSnap = snap;
       // Overlays update only when the grid changes (cheap key compare).
@@ -176,22 +179,14 @@ export async function main() {
         overlays.updateTerritory(app, snap.territory);
         overlays.updateFog(app, snap.fog);
       }
-      // Structures + nests: non-positional, synced once per tick.
-      structureView.sync(store);
-      // Resource nodes (food/dirt/corpses): static, id-diffed once per tick.
-      nodeViews.sync(store);
-      // FX events (hit rings, beams, build flash/dust, queen warning, win grade)
-      // are derived from this tick's store deltas.
-      effects.onTick(store);
-      // Reuse the existing DOM HUD.
-      try { window.state = snap; window.updateSidebar?.(snap); } catch (e) { /* HUD optional */ }
+      structureView.sync(store);   // structures + nests, once per tick
+      nodeViews.sync(store);       // food / dirt / corpses, id-diffed
+      effects.onTick(store);       // hit rings, beams, flashes, win grade
     },
-  });
-  conn.connect();
+  };
 
   // Single ticker: structures pulse their procedural auras; ants interpolate
   // their positions over the measured tick interval (`t` from store.interp).
-  // (spec §6 — positional lerp from prev_x/prev_y -> x/y.)
   new Loop().start(app, store, (t) => {
     const dt = app.ticker.deltaMS;
     structureView.refreshPulse(dt);
@@ -201,10 +196,14 @@ export async function main() {
     hud.update();
   });
 
-  window.__agants = { app, stage, store, conn, camera, tileGrid, overlays,
+  window.__agants = { app, stage, store, camera, tileGrid, overlays,
     structureView, antViews, antPool, nodeViews, nodePool, effects, hud };
-  window.__pixiMounted = true;   // tells index.html the fallback is no longer needed
-  console.log('[pixi] client mounted; ws=', url);
+  // Register the renderer and replay the init/map the Canvas client already received
+  // while Pixi was loading (so a reconnect into a running game still bakes the map).
+  window.__pixiRenderer = renderer;
+  window.__pixiMounted = true;   // tells index.html Pixi is live (suppress fallback)
+  if (window.__lastInit) renderer.onMap(window.__lastInit);
+  console.log('[pixi] renderer ready (fed by Canvas WS)');
 }
 // On any init failure (incl. the intermittent Pixi crash), degrade to the Canvas
 // renderer rather than leaving a blank screen for the live player.

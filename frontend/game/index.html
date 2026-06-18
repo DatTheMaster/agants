@@ -242,10 +242,13 @@ canvas { display: block; }
   display: flex; align-items: center; gap: 6px;
   margin: 2px 0; font-size: 10px; color: #555; line-height: 1.4;
 }
-.ico-worker  { width:8px;height:8px;background:#3a7;border-radius:2px;display:inline-block;flex-shrink:0; }
-.ico-soldier { width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #733;display:inline-block;flex-shrink:0; }
-.ico-scout   { width:8px;height:8px;background:#357;border-radius:50%;display:inline-block;flex-shrink:0; }
-.ico-queen   { width:10px;height:10px;background:#996;border-radius:50%;box-shadow:0 0 3px #aa6;display:inline-block;flex-shrink:0; }
+/* Ant-type icons are NEUTRAL gray — color denotes TEAM (red/blue), type is shown by
+   shape & size (smallest scout → largest queen), matching the pixel-art sprites. */
+.ico-worker  { width:7px;height:7px;background:#9a9a9a;border-radius:2px;display:inline-block;flex-shrink:0; }
+.ico-soldier { width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #bdbdbd;display:inline-block;flex-shrink:0; }
+.ico-scout   { width:6px;height:6px;background:#888;border-radius:50%;display:inline-block;flex-shrink:0; }
+.ico-queen   { width:11px;height:11px;background:#cfcfcf;border-radius:50%;box-shadow:0 0 3px #999;display:inline-block;flex-shrink:0; }
+.ico-team    { width:9px;height:9px;border-radius:2px;display:inline-block;flex-shrink:0; }
 .ico-bldg    { width:16px;height:14px;border:1px solid #333;display:inline-flex;align-items:center;justify-content:center;font-size:8px;color:#666;border-radius:2px;flex-shrink:0; }
 .ico-dot     { width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0; }
 
@@ -679,7 +682,12 @@ canvas { display: block; }
       </button>
       <div id="legend-body">
         <div class="lgnd-section">
-          <div class="lgnd-title">Ant Types</div>
+          <div class="lgnd-title">Teams</div>
+          <div class="lgnd-row"><span class="ico-team" style="background:#ff5555"></span> RED colony</div>
+          <div class="lgnd-row"><span class="ico-team" style="background:#5577ff"></span> BLUE colony</div>
+        </div>
+        <div class="lgnd-section">
+          <div class="lgnd-title">Ant Types <span style="color:#444">(color = team; shape/size = type)</span></div>
           <div class="lgnd-row"><span class="ico-worker"></span> Worker — gather food &amp; dirt</div>
           <div class="lgnd-row"><span class="ico-soldier"></span> Soldier — melee combat</div>
           <div class="lgnd-row"><span class="ico-scout"></span> Scout — fast, reveals map</div>
@@ -848,30 +856,31 @@ canvas { display: block; }
 </div>
 
 <script>
-  // Pixi is OPT-IN via ?pixi=1. The Canvas client is the default because it is the
-  // only renderer that currently drives the full game-flow UI (lobby + START button,
-  // placement overlay, winner/finished screen) via its connect()/onmessage handler.
-  // The Pixi client (src/main.js) is a renderer only and does NOT yet reproduce that
-  // control flow, so defaulting to it leaves players with no way to start a game and
-  // no end-of-game screen. Re-enable Pixi-by-default ONLY after that flow is ported.
-  window.__USE_PIXI = new URLSearchParams(location.search).get('pixi') === '1';
+  // Pixi is the DEFAULT renderer (opt OUT with ?pixi=0). IMPORTANT: the Canvas client
+  // — connect()/onmessage + render() — ALWAYS runs; it owns the entire game lifecycle
+  // and ALL DOM (lobby + START, placement, winner screen, info panel, legend, chat,
+  // controls). When Pixi is active it is purely the WORLD renderer (src/main.js), fed
+  // the parsed map/tick/reset by this client; render() then skips its 2D world drawing
+  // but still updates the info panel + winner screen. So the lifecycle is identical in
+  // both renderers — only how the world is drawn differs.
+  window.__USE_PIXI = new URLSearchParams(location.search).get('pixi') !== '0';
   window.__pixiMounted = false;
 
-  // Start the legacy Canvas renderer. Idempotent; safe to call from the fallback
-  // paths and from the normal ?pixi=0 path. connect() is defined further down, by
-  // the time any of these callers fire.
-  window.__startCanvas = function (reason) {
-    if (window.__canvasStarted) return;
-    window.__canvasStarted = true;
+  // If Pixi was requested but fails to load / init / mount, fall back to 2D Canvas
+  // drawing: re-show #c and clear the flag so render() resumes drawing the world.
+  // (connect() already runs regardless, so the game itself never depends on Pixi.)
+  window.__fallbackToCanvas = function (reason) {
+    if (!window.__USE_PIXI || window.__pixiMounted || window.__canvasFellBack) return;
+    window.__canvasFellBack = true;
     window.__USE_PIXI = false;
-    if (reason) console.warn('[render] using Canvas renderer:', reason);
-    try { connect(); } catch (e) { console.error('[render] canvas start failed', e); }
+    const c = document.getElementById('c'); if (c) c.style.display = '';
+    try { if (typeof MW !== 'undefined' && MW) resizeCanvas(); } catch (e) {}
+    console.warn('[render] Pixi unavailable — using Canvas renderer:', reason);
   };
 </script>
 <script>
   if (window.__USE_PIXI) {
-    // Fall back to Canvas only if Pixi has not already mounted successfully.
-    const fallback = (why) => { if (!window.__pixiMounted) window.__startCanvas(why); };
+    const fail = (why) => { if (!window.__pixiMounted) window.__fallbackToCanvas(why); };
     const load = (src, mod) => new Promise((res, rej) => {
       const s = document.createElement('script');
       s.src = src; if (mod) s.type = 'module';
@@ -880,13 +889,13 @@ canvas { display: block; }
     load('./vendor/pixi.min.js')
       .then(() => load('./vendor/pixi-filters.min.js').catch(() => {}))  // filters optional
       .then(() => load('./src/main.js', true))
-      .catch((e) => { console.error('[pixi] failed to load renderer', e); fallback('pixi load error'); });
-    // Watchdog: if Pixi has not mounted shortly after load, use Canvas instead.
-    setTimeout(() => fallback('pixi did not mount within 8s'), 8000);
+      .catch((e) => { console.error('[pixi] failed to load renderer', e); fail('pixi load error'); });
+    // Watchdog: if Pixi has not mounted shortly after load, use Canvas drawing instead.
+    setTimeout(() => fail('pixi did not mount within 8s'), 8000);
     // The intermittent crash ("...reading 'split'") fires during init — catch any
     // pre-mount error/rejection and degrade to the working Canvas renderer.
-    window.addEventListener('error', (ev) => { if (!window.__pixiMounted) fallback('error before mount: ' + (ev.message || '')); });
-    window.addEventListener('unhandledrejection', () => { if (!window.__pixiMounted) fallback('rejection before mount'); });
+    window.addEventListener('error', (ev) => { if (!window.__pixiMounted) fail('error before mount: ' + (ev.message || '')); });
+    window.addEventListener('unhandledrejection', () => { if (!window.__pixiMounted) fail('rejection before mount'); });
   }
 </script>
 
@@ -1159,6 +1168,10 @@ function onInit(d) {
 
   MW = d.map.w; MH = d.map.h; TS = d.map.tile;
   terrain = d.terrain;
+  // Hand the map/terrain to the Pixi renderer (or stash it so a late-loading Pixi
+  // can replay it). Reset its world first so a NEW GAME clears the old one.
+  window.__lastInit = d;
+  if (window.__pixiRenderer) { window.__pixiRenderer.onReset(); window.__pixiRenderer.onMap(d); }
   resizeCanvas();
 
   terrainBuf = document.createElement("canvas");
@@ -1472,6 +1485,8 @@ function onTick(d) {
   const now = performance.now();
   if (state) tickInterval = Math.max(50, Math.min(2000, now - lastTickMs));
   lastTickMs = now;
+  // Feed the Pixi world renderer (no-op until it has loaded; null while on Canvas).
+  if (window.__pixiRenderer) window.__pixiRenderer.onTick(d);
   // Sync controls if we reconnected to a running game without a lobby/paused message
   if (d.phase === "running" && _gamePhase !== "running") {
     _updateGameControls("running");
@@ -1777,6 +1792,19 @@ function drawAnt(wx, wy, ant, angle, now) {
 
 function render() {
   requestAnimationFrame(render);
+  // Pixi renderer active: it draws the world. This loop then only runs the renderer-
+  // independent DOM that has always lived here — the info panel and the winner screen.
+  // (Lobby / placement / paused overlays are driven by their own message handlers.)
+  if (window.__USE_PIXI) {
+    if (state) {
+      updateSidebar(performance.now() - startTime);
+      if (state.winner !== null && state.winner !== undefined && !gameOver) {
+        gameOver = true;
+        showWinner(state.winner, state);
+      }
+    }
+    return;
+  }
   if (!terrainBuf) return;
 
   const now     = performance.now();
@@ -2762,11 +2790,10 @@ function cyclePov() {
 // ─── Window resize ───────────────────────────────────────────────────────────
 window.addEventListener("resize", resizeCanvas);
 
-// Canvas is the default; Pixi only runs under ?pixi=1. When Pixi is opted in, the
-// fallback paths above still start Canvas via __startCanvas if Pixi fails to mount.
-if (!window.__USE_PIXI) {
-  window.__startCanvas('canvas default');
-}
+// The Canvas client (WS + control/DOM + render loop) ALWAYS runs — it owns the game
+// lifecycle for both renderers. When ?pixi=1, render() skips 2D world drawing and the
+// Pixi renderer (fed via window.__pixiRenderer) draws the world instead.
+connect();
 </script>
 </body>
 </html>

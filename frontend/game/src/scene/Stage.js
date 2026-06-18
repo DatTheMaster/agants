@@ -25,5 +25,13 @@ export class Stage {
     this.uiLayer = new Container();      // screen space, never camera-transformed
   }
   attach(app) { app.stage.addChild(this.world, this.uiLayer); }
-  mount(app, el) { el.innerHTML = ''; el.appendChild(app.canvas); }
+  // Mount WITHOUT wiping #stage — the lobby / placement / winner / status overlays
+  // and the 2D canvas (#c, kept hidden for the Canvas fallback) live inside #stage
+  // and are driven by the Canvas client. Insert the Pixi canvas as the first child
+  // so those absolutely-positioned overlays paint on top of it.
+  mount(app, el) {
+    const c2d = el.querySelector('#c');
+    if (c2d) c2d.style.display = 'none';
+    el.insertBefore(app.canvas, el.firstChild);
+  }
 }

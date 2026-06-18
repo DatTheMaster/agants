@@ -2,24 +2,29 @@
 
 A PixiJS v8 (WebGL) pixel-art renderer that re-skins the existing game. It consumes the
 **unchanged** server WebSocket stream (`World.serialize_tick()`), so the Python sim is untouched.
-The legacy Canvas-2D renderer in `index.html` is the **default**; the Pixi client is **opt-in**.
+Pixi is the **default** renderer; the Canvas-2D renderer is the opt-out and the auto-fallback.
 
-> ⚠️ **Pixi is opt-in, NOT the default.** It is a *renderer only* — the game-flow UI (lobby +
-> START button, placement overlay, winner/finished screen) lives in the Canvas client's
-> `connect()`/`onmessage` handler, which the Pixi path skips. Defaulting to Pixi (briefly shipped
-> in session 50, then reverted) left players with no way to start a game and no end screen.
-> **Do not make Pixi the default again until that control flow is ported into the Pixi path.**
+> **Architecture (important).** The Canvas client — `connect()` / `onmessage` + `render()` —
+> **ALWAYS runs and owns the entire game lifecycle and ALL DOM**: lobby + START button, placement
+> overlay, winner/finished screen, info panel, legend, chat, and the control buttons. There is ONE
+> WebSocket. When Pixi is active it is purely the **world renderer** (`src/main.js`): `index.html`
+> forwards the parsed map/tick/reset to `window.__pixiRenderer`, and `render()` skips its 2D world
+> drawing but still updates the info panel + winner screen. So the lifecycle is identical in both
+> renderers — only how the world is drawn differs. (Session 50 first shipped Pixi as a *standalone*
+> renderer with its own socket; it had none of the lifecycle DOM, which broke the live game — that
+> is why the control flow now lives in the always-on Canvas client.)
 
 ## How to view
 
 The `?pixi` URL flag controls the renderer (see `index.html`):
 
-- **No flag** → the Canvas renderer runs (default; full game flow).
-- **`?pixi=1`** → Pixi loads (`vendor/pixi.min.js` + `vendor/pixi-filters.min.js`, then `src/main.js`)
-  and mounts into `#stage`; the Canvas draw path is skipped.
-- **Automatic fallback** → when Pixi is opted in, if it fails to load, throws during init, or hasn't
-  mounted within ~8s (e.g. the intermittent `reading 'split'` crash), `__startCanvas()` brings up
-  the Canvas renderer so the player never sees a blank screen (only before a successful Pixi mount).
+- **No flag** → Pixi (default): `vendor/pixi.min.js` + `vendor/pixi-filters.min.js` + `src/main.js`
+  load and the Pixi canvas mounts into `#stage` (beneath the DOM overlays); `render()` skips 2D drawing.
+- **`?pixi=0`** → forces the legacy Canvas-2D renderer.
+- **Automatic fallback** → if Pixi fails to load, throws during init, or hasn't mounted within ~8s
+  (e.g. the intermittent `reading 'split'` crash), `__fallbackToCanvas()` re-shows `#c` and resumes
+  Canvas drawing so the player never sees a blank screen (only before a successful Pixi mount).
+  The game itself never depends on Pixi — `connect()` runs regardless.
 
 ### Local viewing against the replay harness (no production contact)
 
@@ -145,10 +150,11 @@ scaffold frames are lowest priority (placeholders read fine). Add the clip name 
 
 ## Deployment
 
-**Deployed (session 50)** to `agants.datthemaster.com` — the Pixi renderer code, atlases, the
-GlowFilter leak fix, and the Canvas auto-fallback are all live. Pixi is **opt-in** (`?pixi=1`);
-Canvas is the default after the Pixi-default rollback (see the ⚠️ note above). Deploy is the CF
-Worker: `source .env && CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN npx wrangler deploy --config
+**Deployed (session 50)** to `agants.datthemaster.com` — Pixi is the live **default** after the
+lifecycle control flow was ported into the always-on Canvas client (see Architecture above), so the
+full lobby → START → placement → running → winner flow works under Pixi. Verified end-to-end against
+a real local game with `tools/replay/verify_lifecycle.py`. Deploy is the CF Worker:
+`source .env && CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN npx wrangler deploy --config
 frontend-worker/wrangler.toml`. The Python game server is unchanged by the graphics work, so
 `deploy.sh` is not needed for a graphics-only deploy.
 After deploy, verify each atlas with `curl -I https://agants.datthemaster.com/game/assets/<name>.png`
