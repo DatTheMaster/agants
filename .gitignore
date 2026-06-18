@@ -17,6 +17,9 @@ logs/
 # Data
 data/
 
+# Replay capture (large local artifact, not source)
+tools/replay/match.jsonl
+
 # Agent workspaces
 .hermes/
 HERMES_TESTS/
