@@ -66,10 +66,24 @@ export class Hud {
   }
 
   _layoutMinimap() {
-    const sw = this.app.renderer.width / this.app.renderer.resolution;
-    const sh = this.app.renderer.height / this.app.renderer.resolution;
     const pad = 12;
-    this.minimap.position.set(sw - this.miniW - pad, sh - this.miniH - pad);
+    // The canvas is sized to the whole WINDOW (resizeTo: window) but #stage clips it
+    // and the side panel covers its right edge, so the renderer's right/bottom edge is
+    // NOT the visible edge (the canvas is even centered/overflowing -> negative left).
+    // Anchor the minimap to the VISIBLE stage rect, mapped into canvas-local coords, so
+    // it always sits just inside the viewport regardless of panel width. (user feedback)
+    const canvas = this.app.canvas || this.app.renderer?.canvas;
+    const cRect = canvas && canvas.getBoundingClientRect();
+    const sRect = this.el && this.el.getBoundingClientRect();
+    let right, bottom;
+    if (cRect && sRect && cRect.width) {
+      right = sRect.right - cRect.left;
+      bottom = sRect.bottom - cRect.top;
+    } else {
+      right = this.app.renderer.width / this.app.renderer.resolution;
+      bottom = this.app.renderer.height / this.app.renderer.resolution;
+    }
+    this.minimap.position.set(right - this.miniW - pad, bottom - this.miniH - pad);
     this.miniBg.clear();
     this.miniBg.rect(0, 0, this.miniW, this.miniH).fill({ color: 0x000000, alpha: 0.45 });
     this.miniBg.rect(0, 0, this.miniW, this.miniH).stroke({ color: 0x555555, width: 1, alpha: 0.8 });
