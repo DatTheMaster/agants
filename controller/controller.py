@@ -222,17 +222,6 @@ class GameClient:
             return {"error": f"request failed: {e}"}
 
     async def patch_directive(self, patches: dict) -> dict:
-        # Guard: a leftover rally_point with rally_release_at=null pins the whole army
-        # at the rally point — the engine holds soldiers there and IGNORES attack_target
-        # (they never advance to the queen). The directive guidance says "to attack,
-        # clear rally_point in one call", but the model frequently forgets, so the army
-        # masses and stalls. Whenever a patch sets a real attack_target and does NOT
-        # itself (re)set a rally_point, auto-clear the rally so the army actually moves
-        # out. Deliberate staging (rally_point set in the SAME patch) is left untouched.
-        mil = patches.get("military") if isinstance(patches, dict) else None
-        if isinstance(mil, dict) and mil.get("attack_target") and "rally_point" not in mil:
-            mil["rally_point"] = None
-            mil["rally_release_at"] = None
         return await self._tool_request("POST", self._mpath(f"/directive/{self.colony_id}"), patches)
 
     async def send_command(self, command_type: str, data: dict) -> dict:
@@ -435,23 +424,26 @@ def format_state_message(state: dict, notifs: list[dict]) -> str:
     if state.get("income_per_s", 0) == 0 and state.get("food_collected", 0) > 50 and state["tick"] > 80:
         lines.append("NOTE: income_per_s reads 0 but food_collected shows workers ARE delivering — "
                      "the income sensor may be delayed or unreliable; do NOT over-react to 0-income.")
-    units = state.get("units", [])
-    if units:
-        idle_workers = [u for u in units if u["type"] == "worker" and u.get("state") == "idle" and not u.get("override")]
-        workers_total = sum(1 for u in units if u["type"] == "worker")
-        if idle_workers:
-            ids = ", ".join(f"id={u['id']}@({u['x']},{u['y']})" for u in idle_workers[:8])
-            lines.append(
-                f"⚠ IDLE WORKERS: {len(idle_workers)}/{workers_total} workers sitting idle "
-                f"= wasted economy/income. ACT THIS TURN to put them to work: set "
-                f"economy.priority_food=[x,y] toward a viable food node (see food_nodes above), "
-                f"set economy.gather_dirt=true to mine dirt, and/or per-worker "
-                f"send_command('unit_command',{{ant_id,command:'gather',x,y}}). If home/approach "
-                f"food is depleted, push priority_food to a FRONTLINE node or expand. idle: {ids}")
     if state.get("advisor"):
         lines.append("ADVISOR: " + " | ".join(state["advisor"]))
     if state.get("events"):
         lines.append("events: " + " | ".join(str(e) for e in state["events"][:5]))
+    sr = state.get("sitrep")
+    if sr:
+        st = sr.get("standing", {})
+        m = st.get("military", {}); e = st.get("economy", {}).get("you", {}); q = st.get("queen", {})
+        lines.append(f"SITREP standing: military you {m.get('you')} vs enemy {m.get('enemy')} "
+                     f"({m.get('verdict')}); food {e.get('food')} income {e.get('income_per_s')}/s; "
+                     f"queen {q.get('your_hp_pct')}% threat {q.get('threat_soldiers_near_nest')}")
+        for o in sr.get("orders", []):
+            lines.append(f"SITREP order [{o['intent']}]: {o['status']} — {o['detail']}")
+        fld = sr.get("field", {})
+        ea = fld.get("enemy_army", {})
+        if ea.get("seen"):
+            lines.append(f"SITREP field: enemy army ~{ea['size']} @ {ea['pos']} (age {ea['age_ticks']}t); "
+                         f"front_line {fld.get('front_line')}")
+        else:
+            lines.append(f"SITREP field: enemy army not currently in sight; front_line {fld.get('front_line')}")
     if notifs:
         lines.append("NOTIFICATIONS: " + " | ".join(
             n.get("data", {}).get("label", n.get("type", str(n))) if isinstance(n, dict) else str(n)
