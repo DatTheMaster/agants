@@ -652,6 +652,7 @@ class World:
         self._check_rally_stall()
 
         self._check_idle_workers()
+        self._track_army_com()
 
         self._check_win()
 
@@ -718,6 +719,14 @@ class World:
                     f"Set economy.priority_food to a viable node, economy.gather_dirt=true, or send idle "
                     f"workers to gather; expand to a frontline food node if home/approach is depleted."
                 )
+
+    def _track_army_com(self):
+        """Record each colony's soldier center-of-mass this tick (for sitrep order-effect)."""
+        for c in self.colonies:
+            xs = [a.x for a in c.ants if a.type == A_SOLDIER]
+            ys = [a.y for a in c.ants if a.type == A_SOLDIER]
+            if xs:
+                c._army_com_history.append((self.tick, sum(xs) / len(xs), sum(ys) / len(ys)))
 
     def _check_win(self):
         if self.winner is not None: return
