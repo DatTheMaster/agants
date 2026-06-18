@@ -3887,6 +3887,13 @@ class Server:
             return web.json_response({"host": "datthemaster", "projects": ["/agants"]})
         app.router.add_get("/", _root)
 
+        # A bare "/agants" (no trailing slash) does NOT match the subapp mount point —
+        # aiohttp subapps only resolve at "/agants/…". Without this, a human typing the
+        # natural URL gets a confusing 404. Redirect it to the canonical "/agants/".
+        async def _agants_redirect(_req):
+            raise web.HTTPMovedPermanently("/agants/")
+        app.router.add_get("/agants", _agants_redirect)
+
         subapp = web.Application()
         self._register_routes(subapp.router)
         app.add_subapp("/agants", subapp)
