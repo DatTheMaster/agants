@@ -20,7 +20,7 @@ def _orders(colony, world):
         hist = colony._army_com_history
         soldiers_in_siege = sum(
             1 for a in colony.ants if a.type == A_SOLDIER and colony.enemy
-            and abs(a.x - colony.enemy.nx) + abs(a.y - colony.enemy.ny) <= 5)
+            and abs(a.x - colony.enemy.nx) + abs(a.y - colony.enemy.ny) <= 12)
         if soldiers_in_siege > 0:
             status, detail = "engaged", f"{soldiers_in_siege} soldiers in siege range of the objective"
         elif len(hist) >= 2:

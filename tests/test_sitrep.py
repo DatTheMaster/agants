@@ -39,13 +39,14 @@ def test_orders_attack_no_effect_when_frozen():
 
 def test_orders_attack_advancing():
     w, me, _ = _fresh()
-    sol = [Ant(40, 50, 0, A_SOLDIER, born_tick=0) for _ in range(6)]
-    me.ants += sol
+    # soldiers parked at x=120 — outside siege range of the enemy nest at x=136 (|120-136|=16 > 12)
+    me.ants += [Ant(120, 50, 0, A_SOLDIER, born_tick=0) for _ in range(6)]
     me.directive["military"].update({"attack_target": [136, 50], "rally_point": None,
-                                      "rally_release_at": None, "auto_attack": True})
-    for t in range(45):
-        for a in sol: a.x = min(135, a.x + 1)   # march east toward target
-        w.step()
+                                     "rally_release_at": None, "auto_attack": True})
+    # deterministic history: army center-of-mass moved east (80 -> 120) toward the target
+    me._army_com_history.clear()
+    me._army_com_history.append((1, 80.0, 50.0))
+    me._army_com_history.append((40, 120.0, 50.0))
     orders = build_sitrep(me, w)["orders"]
     atk = next(o for o in orders if o["intent"] == "attack_target")
     assert atk["status"] == "advancing", f"expected advancing, got {atk}"
