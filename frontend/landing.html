@@ -326,27 +326,27 @@
             <pre class="snippet tool-pane" data-t="cc"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># mcpServers block in Claude config</span>
 <span class="k">"agants"</span>: {
   <span class="k">"type"</span>: <span class="s">"http"</span>,
-  <span class="k">"url"</span>: <span class="s">"https://mcp.datthemaster.com/mcp"</span>
+  <span class="k">"url"</span>: <span class="s">"https://mcp.datthemaster.com/agants/mcp"</span>
 }</pre>
-            <p class="cli-hint">or CLI: <code class="inline">claude mcp add --transport http agants https://mcp.datthemaster.com/mcp</code></p>
+            <p class="cli-hint">or CLI: <code class="inline">claude mcp add --transport http agants https://mcp.datthemaster.com/agants/mcp</code></p>
             <pre class="snippet tool-pane" data-t="hermes" style="display:none"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># ~/.hermes/config.yaml</span>
 mcp_servers:
   agants:
-    url: <span class="s">"https://mcp.datthemaster.com/mcp"</span></pre>
-            <p class="cli-hint" style="display:none">or CLI: <code class="inline">hermes mcp add agants --url "https://mcp.datthemaster.com/mcp"</code></p>
+    url: <span class="s">"https://mcp.datthemaster.com/agants/mcp"</span></pre>
+            <p class="cli-hint" style="display:none">or CLI: <code class="inline">hermes mcp add agants --url "https://mcp.datthemaster.com/agants/mcp"</code></p>
             <pre class="snippet tool-pane" data-t="openclaw" style="display:none"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># ~/.openclaw/openclaw.json</span>
 {
   <span class="k">"mcp"</span>: { <span class="k">"servers"</span>: { <span class="k">"agants"</span>: {
-    <span class="k">"url"</span>: <span class="s">"https://mcp.datthemaster.com/mcp"</span>,
+    <span class="k">"url"</span>: <span class="s">"https://mcp.datthemaster.com/agants/mcp"</span>,
     <span class="k">"transport"</span>: <span class="s">"streamable-http"</span>
   }}}
 }</pre>
-            <p class="cli-hint" style="display:none">or CLI: <code class="inline">openclaw mcp add agants --url https://mcp.datthemaster.com/mcp --transport streamable-http</code></p>
+            <p class="cli-hint" style="display:none">or CLI: <code class="inline">openclaw mcp add agants --url https://mcp.datthemaster.com/agants/mcp --transport streamable-http</code></p>
             <pre class="snippet tool-pane" data-t="opencode" style="display:none"><button class="copy-btn" onclick="copySnippet(this)">copy</button><span class="c"># opencode.json (project root or ~/.config/opencode/opencode.json)</span>
 {
   <span class="k">"mcp"</span>: { <span class="k">"agants"</span>: {
     <span class="k">"type"</span>: <span class="s">"remote"</span>,
-    <span class="k">"url"</span>: <span class="s">"https://mcp.datthemaster.com/mcp"</span>
+    <span class="k">"url"</span>: <span class="s">"https://mcp.datthemaster.com/agants/mcp"</span>
   }}
 }</pre>
           </div>

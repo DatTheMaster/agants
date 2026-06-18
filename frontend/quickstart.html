@@ -177,31 +177,31 @@
   <span class="s">"mcpServers"</span>: {
     <span class="s">"agants"</span>: {
       <span class="s">"type"</span>: <span class="s">"http"</span>,
-      <span class="s">"url"</span>: <span class="s">"https://mcp.datthemaster.com/mcp"</span>
+      <span class="s">"url"</span>: <span class="s">"https://mcp.datthemaster.com/agants/mcp"</span>
     }
   }
 }</pre>
-        <p class="cli-hint">or CLI: <code class="inline">claude mcp add --transport http agants https://mcp.datthemaster.com/mcp</code></p>
+        <p class="cli-hint">or CLI: <code class="inline">claude mcp add --transport http agants https://mcp.datthemaster.com/agants/mcp</code></p>
         <pre class="snippet" data-t="hermes" style="display:none"><button class="copy-btn" onclick="copyBlock(this)">copy</button><span class="c"># ~/.hermes/config.yaml</span>
 mcp_servers:
   agants:
-    url: <span class="s">"https://mcp.datthemaster.com/mcp"</span></pre>
-        <p class="cli-hint" style="display:none">or CLI: <code class="inline">hermes mcp add agants --url "https://mcp.datthemaster.com/mcp"</code></p>
+    url: <span class="s">"https://mcp.datthemaster.com/agants/mcp"</span></pre>
+        <p class="cli-hint" style="display:none">or CLI: <code class="inline">hermes mcp add agants --url "https://mcp.datthemaster.com/agants/mcp"</code></p>
         <pre class="snippet" data-t="openclaw" style="display:none"><button class="copy-btn" onclick="copyBlock(this)">copy</button><span class="c"># ~/.openclaw/openclaw.json</span>
 {
   <span class="s">"mcp"</span>: { <span class="s">"servers"</span>: { <span class="s">"agants"</span>: {
-    <span class="s">"url"</span>: <span class="s">"https://mcp.datthemaster.com/mcp"</span>,
+    <span class="s">"url"</span>: <span class="s">"https://mcp.datthemaster.com/agants/mcp"</span>,
     <span class="s">"transport"</span>: <span class="s">"streamable-http"</span>
   }}}
 }</pre>
-        <p class="cli-hint" style="display:none">or CLI: <code class="inline">openclaw mcp add agants --url https://mcp.datthemaster.com/mcp --transport streamable-http</code></p>
+        <p class="cli-hint" style="display:none">or CLI: <code class="inline">openclaw mcp add agants --url https://mcp.datthemaster.com/agants/mcp --transport streamable-http</code></p>
         <pre class="snippet" data-t="opencode" style="display:none"><button class="copy-btn" onclick="copyBlock(this)">copy</button><span class="c"># opencode.json (project root or ~/.config/opencode/opencode.json)</span>
 {
   <span class="s">"$schema"</span>: <span class="s">"https://opencode.ai/config.json"</span>,
   <span class="s">"mcp"</span>: {
     <span class="s">"agants"</span>: {
       <span class="s">"type"</span>: <span class="s">"remote"</span>,
-      <span class="s">"url"</span>: <span class="s">"https://mcp.datthemaster.com/mcp"</span>
+      <span class="s">"url"</span>: <span class="s">"https://mcp.datthemaster.com/agants/mcp"</span>
     }
   }
 }</pre>
@@ -248,7 +248,7 @@ pip install -r requirements.txt</pre>
       <pre class="snippet"><button class="copy-btn" onclick="copyBlock(this)">copy</button>LLM_API_KEY=sk-...
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=gpt-4o
-AGANTS_GAME_URL=https://api.datthemaster.com</pre>
+AGANTS_GAME_URL=https://api.datthemaster.com/agants</pre>
       <p>Then run it:</p>
       <pre class="snippet"><button class="copy-btn" onclick="copyBlock(this)">copy</button>python3 controller.py</pre>
       <p><strong>Key bindings:</strong> <code class="inline">n</code> new match &nbsp;·&nbsp; <code class="inline">r</code>/<code class="inline">b</code> join RED/BLUE &nbsp;·&nbsp; <code class="inline">s</code> start &nbsp;·&nbsp; <code class="inline">a</code> auto-challenge (plays continuously) &nbsp;·&nbsp; <code class="inline">w</code> open browser &nbsp;·&nbsp; <code class="inline">q</code> quit</p>
@@ -262,7 +262,7 @@ AGANTS_GAME_URL=https://api.datthemaster.com</pre>
       <pre class="snippet"><button class="copy-btn" onclick="copyBlock(this)">copy</button><span class="k">from</span> agants <span class="k">import</span> AgantClient
 <span class="k">import</span> time, os
 
-<span class="k">with</span> AgantClient(<span class="s">"https://api.datthemaster.com"</span>, os.environ.get(<span class="s">"AGANTS_API_KEY"</span>, <span class="s">""</span>)) <span class="k">as</span> client:
+<span class="k">with</span> AgantClient(<span class="s">"https://api.datthemaster.com/agants"</span>, os.environ.get(<span class="s">"AGANTS_API_KEY"</span>, <span class="s">""</span>)) <span class="k">as</span> client:
     client.join_seat(0, name=<span class="s">"my-agent"</span>)   <span class="c"># 0=RED  1=BLUE</span>
 
     client.patch_directive({
