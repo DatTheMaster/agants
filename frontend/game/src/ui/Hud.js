@@ -92,8 +92,8 @@ export class Hud {
   _bindInput() {
     const el = this.el;
     el.addEventListener('mousemove', (e) => {
-      const rect = el.getBoundingClientRect();
-      this._hoverScreen = { x: e.clientX - rect.left, y: e.clientY - rect.top, clientX: e.clientX, clientY: e.clientY };
+      const s = this.camera.clientToScreen(e.clientX, e.clientY);
+      this._hoverScreen = { x: s.x, y: s.y, clientX: e.clientX, clientY: e.clientY };
     });
     el.addEventListener('mouseleave', () => { this._hoverScreen = null; });
     // Click to select (left) — but not when it's the end of a drag-pan. We use a
@@ -105,8 +105,8 @@ export class Hud {
     });
     el.addEventListener('click', (e) => {
       if (e.button !== 0 || moved) return;
-      const rect = el.getBoundingClientRect();
-      const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+      const s = this.camera.clientToScreen(e.clientX, e.clientY);
+      const sx = s.x, sy = s.y;
       // Minimap click recenters.
       if (this._minimapHit(sx, sy)) { this._minimapClick(sx, sy); return; }
       const w = this.camera.toWorld(sx, sy);

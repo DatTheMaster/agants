@@ -139,13 +139,32 @@ export class Camera {
     return worldToScreen(wx, wy, this.world.position.x, this.world.position.y, this.world.scale.x);
   }
 
+  // Map DOM client coords -> the renderer's screen space (the space the camera
+  // transform, uiLayer, tooltip and minimap all live in). The Pixi canvas is
+  // window-sized and CENTERED inside #stage, so its left/top edge is offset (often
+  // NEGATIVE) from #stage. Using #stage's rect for input put every pick a constant
+  // ~(#stage.left - canvas.left)px to the side — which reads as "click to the right
+  // of the unit", and feels worse zoomed out because the sprites shrink while the
+  // px offset stays fixed. The canvas rect + resolution is the correct basis.
+  clientToScreen(clientX, clientY) {
+    const canvas = this.app.canvas || this.app.renderer?.canvas;
+    if (!canvas) return { x: clientX, y: clientY };
+    const r = canvas.getBoundingClientRect();
+    const res = this.app.renderer?.resolution || 1;
+    const sw = canvas.width / res, sh = canvas.height / res;
+    return {
+      x: r.width ? (clientX - r.left) * sw / r.width : clientX - r.left,
+      y: r.height ? (clientY - r.top) * sh / r.height : clientY - r.top,
+    };
+  }
+
   attachInput() {
     const el = this.el;
     el.addEventListener('wheel', (e) => {
       e.preventDefault();
-      const rect = el.getBoundingClientRect();
+      const s = this.clientToScreen(e.clientX, e.clientY);
       const f = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-      this.zoom(e.clientX - rect.left, e.clientY - rect.top, f);
+      this.zoom(s.x, s.y, f);
     }, { passive: false });
 
     el.addEventListener('mousedown', (e) => {
