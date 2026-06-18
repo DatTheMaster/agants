@@ -848,10 +848,13 @@ canvas { display: block; }
 </div>
 
 <script>
-  // Pixi is the DEFAULT renderer. Opt OUT with ?pixi=0 to force the legacy Canvas
-  // renderer. Canvas is ALSO the automatic fallback if Pixi fails to load or never
-  // mounts (covers the intermittent init crash that breaks the Pixi render).
-  window.__USE_PIXI = new URLSearchParams(location.search).get('pixi') !== '0';
+  // Pixi is OPT-IN via ?pixi=1. The Canvas client is the default because it is the
+  // only renderer that currently drives the full game-flow UI (lobby + START button,
+  // placement overlay, winner/finished screen) via its connect()/onmessage handler.
+  // The Pixi client (src/main.js) is a renderer only and does NOT yet reproduce that
+  // control flow, so defaulting to it leaves players with no way to start a game and
+  // no end-of-game screen. Re-enable Pixi-by-default ONLY after that flow is ported.
+  window.__USE_PIXI = new URLSearchParams(location.search).get('pixi') === '1';
   window.__pixiMounted = false;
 
   // Start the legacy Canvas renderer. Idempotent; safe to call from the fallback
@@ -2759,10 +2762,10 @@ function cyclePov() {
 // ─── Window resize ───────────────────────────────────────────────────────────
 window.addEventListener("resize", resizeCanvas);
 
-// Pixi (the default) drives the render; only start Canvas when Pixi is off
-// (?pixi=0). The fallback paths above start Canvas via __startCanvas if Pixi fails.
+// Canvas is the default; Pixi only runs under ?pixi=1. When Pixi is opted in, the
+// fallback paths above still start Canvas via __startCanvas if Pixi fails to mount.
 if (!window.__USE_PIXI) {
-  window.__startCanvas('canvas mode (?pixi=0)');
+  window.__startCanvas('canvas default');
 }
 </script>
 </body>
