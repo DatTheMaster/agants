@@ -66,9 +66,10 @@ SCOUT_HP    = 45
 # shreds an advancing army into a 40-tile smear of 1v1 duels (the army never
 # masses or sieges). Keep these tight so soldiers advance toward the OBJECTIVE as
 # a body and only fight what is right in front of them.
-SOLDIER_ENGAGE_ADVANCE = 3   # while advancing to a rally / attack_target / auto_attack push
-SOLDIER_ENGAGE_HOLD    = 6   # while defending / patrolling near home (was effectively 15)
-SOLDIER_ENGAGE_SIEGE   = 15  # once at the enemy nest — lock onto the queen
+SOLDIER_ENGAGE_ADVANCE   = 3   # en route to a rally point (don't break formation for far foes)
+SOLDIER_ENGAGE_ATTACKMOVE = 8  # while attacking toward an objective — acquire & close on foes
+SOLDIER_ENGAGE_HOLD      = 6   # while defending / patrolling near home (was effectively 15)
+SOLDIER_ENGAGE_SIEGE     = 15  # once at the enemy nest — lock onto the queen
 
 # ── Guard Post ─────────────────────────────────────────────────────────────────
 GUARD_POST_COST  = 150

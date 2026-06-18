@@ -273,7 +273,7 @@ TOOLS = [
                        "'build' (data {\"build\":{\"type\":\"larder|watchtower|guard_post|barracks|wall\",\"x\":N,\"y\":M}}), "
                        "'convert' (data {\"convert\":{\"id\":antId,\"to\":\"soldier\"}}), "
                        "'cancel_spawn' (data {\"unit_type\":\"worker|soldier|scout|all\"}), "
-                       "'unit_command' (data {\"ant_id\":N,\"command\":\"move_to|attack_xy|gather|hold|patrol|clear\",\"x\":X,\"y\":Y}). "
+                       "'unit_command' (data {\"ant_id\":N,\"command\":\"move_to|attack_move|attack_xy|gather|hold|patrol|clear\",\"x\":X,\"y\":Y}). move_to is a PURE move (no attacking); attack_move advances AND fights through; attack_xy is queen-focused. "
                        "For unit_command: command is a flat key alongside ant_id, x, y — do NOT nest inside an 'override' dict. "
                        "gather (workers only): sends worker to collect food at the given food node — do NOT use on scouts or soldiers, do NOT use on dirt deposit coords.",
         "parameters": {"type": "object", "properties": {

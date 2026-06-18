@@ -11,7 +11,7 @@ from engine.constants import (
     S_FIGHTING, S_PATROLLING, S_RECRUITED, S_BUILDING,
     WORKER_HP, SOLDIER_HP, SCOUT_HP, QUEEN_HP,
     SOLDIER_DMG, SOLDIER_CD, QUEEN_DMG, QUEEN_CD,
-    SOLDIER_ENGAGE_ADVANCE, SOLDIER_ENGAGE_HOLD, SOLDIER_ENGAGE_SIEGE,
+    SOLDIER_ENGAGE_ADVANCE, SOLDIER_ENGAGE_ATTACKMOVE, SOLDIER_ENGAGE_HOLD, SOLDIER_ENGAGE_SIEGE,
     FOOD_DELIVER, FOOD_PICK, FOOD_MAX_APPROACH, FOOD_REGROW,
     FOOD_INIT_HOME_MIN, FOOD_INIT_HOME_MAX, FOOD_MAX_HOME,
     FOOD_INIT_APPR_MIN, FOOD_INIT_APPR_MAX,
@@ -1177,7 +1177,17 @@ class World:
         ov = ant.unit_override
         if ov:
             cmd = ov.get("cmd")
-            if cmd in ("move_to", "attack_xy"):
+            if cmd == "move_to":
+                # Pure reposition: go to the point, do NOT divert to chase enemies (use it to
+                # retreat/regroup). The adjacent-enemy strike below still fires, so the soldier
+                # defends itself if something is right next to it — it just won't hunt.
+                tx, ty = int(ov["x"]), int(ov["y"])
+                self._move_to(ant, tx, ty, 1)
+                ant.state = S_PATROLLING
+                self._dep(ant.x, ant.y, 1, 0.5)
+            elif cmd in ("attack_move", "attack_xy"):
+                # Attack-move: advance to the point but divert to engage and KILL any enemy
+                # within range, then resume. Soldiers defend themselves and fight through.
                 tx, ty = int(ov["x"]), int(ov["y"])
                 near = self._nearest_enemy(ant, 8, queen_focus=(cmd == "attack_xy"))
                 if near:
@@ -1212,7 +1222,10 @@ class World:
                         self._move_to(ant, wx, wy, 1)
                         ant.state = S_PATROLLING
                     self._dep(ant.x, ant.y, 1, 0.3)
-            adj = self._nearest_enemy(ant, 1, siege=True, queen_focus=(cmd == "attack_xy"))
+            # A plain move_to is a PURE reposition: it does not attack at all (use it to
+            # retreat/regroup without being drawn into a fight). Every other override
+            # (attack_move/attack_xy/hold/patrol) strikes the adjacent enemy.
+            adj = None if cmd == "move_to" else self._adjacent_enemy(ant)
             if adj and ant.cooldown <= 0:
                 dmg = SOLDIER_DMG + c.dmg_bonus
                 old_hp = int(adj.hp)
@@ -1283,8 +1296,10 @@ class World:
         _advancing = bool(_mil.get("attack_target")) or (_mil.get("auto_attack") and c.enemy)
         if in_siege:
             detect_range = SOLDIER_ENGAGE_SIEGE
-        elif _en_route_to_rally or _advancing:
+        elif _en_route_to_rally:
             detect_range = SOLDIER_ENGAGE_ADVANCE
+        elif _advancing:
+            detect_range = SOLDIER_ENGAGE_ATTACKMOVE
         elif _at_rally:
             detect_range = 5
         else:
@@ -1320,17 +1335,20 @@ class World:
         enemy = self._nearest_enemy(ant, detect_range, siege=in_siege, queen_focus=queen_focus)
         if enemy:
             ant.state = S_FIGHTING
-            _adjacent = abs(ant.x - enemy.x) <= 1 and abs(ant.y - enemy.y) <= 1
-            # Strike the adjacent enemy FIRST (before moving), so a soldier that then flows
-            # forward through the line still deals its blow this tick.
-            if _adjacent and ant.cooldown <= 0:
+            # Strike whatever enemy is ADJACENT (Chebyshev — orthogonal OR diagonal, any
+            # type) — NOT just the move-target. A soldier sieging the queen but ringed by
+            # enemy workers kills the workers blocking it (opening a path) instead of vainly
+            # pathing around the ring; and an advancing soldier never marches past an
+            # adjacent foe taking free hits.
+            adj = self._adjacent_enemy(ant)
+            if adj is not None and ant.cooldown <= 0:
                 dmg = SOLDIER_DMG + c.dmg_bonus
-                old_hp = int(enemy.hp)
-                enemy.hp -= dmg; ant.cooldown = c.soldier_fast_cd
-                new_hp = max(0, int(enemy.hp))
-                if enemy.type == A_QUEEN:
+                old_hp = int(adj.hp)
+                adj.hp -= dmg; ant.cooldown = c.soldier_fast_cd
+                new_hp = max(0, int(adj.hp))
+                if adj.type == A_QUEEN:
                     c.queen_dmg_dealt_tick += dmg
-                    ec = self.colonies[enemy.colony]
+                    ec = self.colonies[adj.colony]
                     ec.push_event(f"★ QUEEN UNDER ATTACK! HP: {old_hp}→{new_hp} (dealt {dmg})")
                     ec.push_notification("queen_under_attack", {"hp": int(new_hp), "old_hp": int(old_hp), "dmg": dmg}, tick=self.tick)
                     c.push_event(f"★ SIEGE — striking enemy queen! HP: {old_hp}→{new_hp} (dealt {dmg})")
@@ -1339,29 +1357,21 @@ class World:
                     for ec in self.colonies:
                         if ec.id == ant.colony: continue
                         for stgt in list(ec.ants):
-                            if stgt is enemy: continue
-                            if abs(stgt.x - enemy.x) + abs(stgt.y - enemy.y) <= 1:
+                            if stgt is adj: continue
+                            if abs(stgt.x - adj.x) + abs(stgt.y - adj.y) <= 1:
                                 stgt.hp -= splash_dmg
                                 if stgt.hp <= 0: self._kill(stgt)
-                if enemy.hp <= 0:
-                    ec = self.colonies[enemy.colony]
-                    ec.push_event(f"{['worker','soldier','scout','queen'][enemy.type]} killed in battle!")
-                    c.push_event(f"killed enemy {['worker','soldier','scout','queen'][enemy.type]}")
-                    self._kill(enemy)
-            self._dep(ant.x, ant.y, 1, 1.0)
-            steps = max(1, abs(ant.x - c.nx) + abs(ant.y - c.ny))
-            for i in range(min(steps, 20)):
-                t = i / min(steps, 20)
-                x = int(ant.x + (c.nx - ant.x) * t)
-                y = int(ant.y + (c.ny - ant.y) * t)
-                self._dep(x, y, 1, 0.9 * (1 - t * 0.5))
-            # Movement: when advancing toward an objective, keep pressing toward it — the
-            # army grinds FORWARD through the enemy line so a numerical edge becomes a
-            # breakthrough instead of an endless front-line stalemate. Holding/defending
-            # soldiers close on the enemy, or stand and fight if already adjacent.
-            if _advancing and advance_goal is not None:
-                self._move_to(ant, advance_goal[0], advance_goal[1], 1)
-            elif not _adjacent:
+                if adj.hp <= 0:
+                    ec = self.colonies[adj.colony]
+                    ec.push_event(f"{['worker','soldier','scout','queen'][adj.type]} killed in battle!")
+                    c.push_event(f"killed enemy {['worker','soldier','scout','queen'][adj.type]}")
+                    self._kill(adj)
+            # Movement (attack-move): if ANY enemy is adjacent, STAND and fight it — defend,
+            # never march past, and grind down a blocking worker ring. Otherwise CLOSE on the
+            # target (the queen while sieging, else the nearest foe within the engage window)
+            # to actually engage it. Rear ranks with no foe in the engage window fall to the
+            # else-branch below and flow toward the objective, bringing numbers to the front.
+            if adj is None:
                 self._move_to(ant, enemy.x, enemy.y, 1)
         else:
             rally = c.directive["military"]["rally_point"]
@@ -1779,6 +1789,21 @@ class World:
                 else:
                     effective_d = d + (12 if o.type == A_QUEEN else 0)
                 if effective_d < best_d: best_d = effective_d; best = o
+        return best
+
+    def _adjacent_enemy(self, ant):
+        """Nearest enemy within Chebyshev distance 1 (orthogonally OR diagonally adjacent),
+        any type — what a melee soldier can actually strike this tick. Prefers the enemy
+        queen when she is adjacent, so a soldier that breaks the ring finishes the siege."""
+        best, best_d = None, 99
+        for c in self.colonies:
+            if c.id == ant.colony: continue
+            for o in c.ants:
+                if abs(ant.x - o.x) <= 1 and abs(ant.y - o.y) <= 1:
+                    if o.type == A_QUEEN:
+                        return o
+                    d = abs(ant.x - o.x) + abs(ant.y - o.y)
+                    if d < best_d: best_d = d; best = o
         return best
 
     def _nearest_enemy_struct(self, ant, radius, only_type=None):

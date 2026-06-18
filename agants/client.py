@@ -258,7 +258,9 @@ class AgantClient:
             unit clear:    {"type": "unit_command", "ant_id": <id>, "command": "clear"}
             batch:         {"type": "unit_command_batch", "commands": [ {...}, {...} ]}
 
-        Valid unit ``command`` values: move_to, attack_xy, gather, build, hold, patrol, clear.
+        Valid unit ``command`` values: move_to (pure move, no attacking), attack_move
+        (advance + fight), attack_xy (attack toward point, queen-focused), gather, build, hold,
+        patrol, clear.
         Prefer the typed helpers (buy_upgrade/build/convert/command_unit) over raw dicts.
         """
         path = self._match_path(f"/command/{self._colony_id}")
@@ -274,8 +276,9 @@ class AgantClient:
 
     def command_unit(self, ant_id: int, command: str, **kwargs) -> dict:
         """
-        Order a single ant. command: move_to|attack_xy|gather|build|hold|patrol|clear.
-        Pass x/y for move_to/attack_xy/gather/build, or waypoints=[...] for patrol.
+        Order a single ant. command: move_to|attack_move|attack_xy|gather|build|hold|patrol|clear.
+        move_to is a PURE move (no attacking); attack_move advances AND fights through.
+        Pass x/y for move_to/attack_move/attack_xy/gather/build, or waypoints=[...] for patrol.
         """
         return self.send_command({"type": "unit_command", "ant_id": ant_id, "command": command, **kwargs})
 

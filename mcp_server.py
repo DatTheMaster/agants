@@ -650,8 +650,11 @@ def command_unit(colony_id: int, ant_id: int, command: str,
         colony_id: 0 for RED, 1 for BLUE
         ant_id: ID of the ant to command (from get_state()["units"])
         command: one of:
-            "move_to"   — move to (x, y); engage enemies encountered en route
-            "attack_xy" — advance to (x, y) prioritizing queen targets; engage on arrival
+            "move_to"     — PURE move to (x, y): reposition WITHOUT attacking (does not
+                            divert to fight; use to retreat/regroup safely)
+            "attack_move" — RTS attack-move: advance to (x, y) but stop to engage and kill
+                            any enemy in range, then resume (soldiers defend themselves)
+            "attack_xy"   — like attack_move but prioritizes the enemy queen as the target
             "gather"    — (workers only) go to food node at (x, y) and keep harvesting it
             "build"     — (workers only) go to build site at (x, y) and construct until done;
                           override auto-clears when structure completes. Use to prioritize and
@@ -659,7 +662,7 @@ def command_unit(colony_id: int, ant_id: int, command: str,
             "hold"      — hold current position; fight enemies within 5 tiles; don't advance
             "patrol"    — loop through waypoints list indefinitely; engage enemies encountered
             "clear"     — remove override, return ant to normal colony AI behavior
-        x, y: target coordinates for move_to / attack_xy / gather
+        x, y: target coordinates for move_to / attack_move / attack_xy / gather
         waypoints: list of [x, y] pairs for patrol command (min 2 points)
 
     Examples:
@@ -694,8 +697,8 @@ def command_units(colony_id: int, commands: list) -> dict:
     Args:
         colony_id: 0 for RED, 1 for BLUE
         commands: list of command dicts, each with:
-            {"ant_id": N, "command": "move_to"|"attack_xy"|"gather"|"hold"|"patrol"|"clear",
-             "x": N, "y": N}   — x/y required for move_to/attack_xy/gather
+            {"ant_id": N, "command": "move_to"|"attack_move"|"attack_xy"|"gather"|"hold"|"patrol"|"clear",
+             "x": N, "y": N}   — x/y required for move_to/attack_move/attack_xy/gather
             {"ant_id": N, "command": "patrol", "waypoints": [[x1,y1],[x2,y2],...]}
 
     Returns count of successful commands and any errors.
@@ -722,7 +725,7 @@ def command_type(colony_id: int, unit_type: str, command: str,
     Args:
         colony_id: 0 for RED, 1 for BLUE
         unit_type: "soldier", "worker", or "scout"
-        command: "move_to", "attack_xy", "gather", "build", "hold", "patrol", or "clear"
+        command: "move_to", "attack_move", "attack_xy", "gather", "build", "hold", "patrol", or "clear"
         x, y: target coordinates (required for move_to / attack_xy / patrol / build)
         filter_state: optional — only command ants in this state.
             Valid values: "idle", "foraging", "returning", "exploring",

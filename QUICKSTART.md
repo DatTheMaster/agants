@@ -202,7 +202,7 @@ https://agants.datthemaster.com/matches.html.
 | `send_command(cmd)` | One-shot command (raw dict, dispatch field `type`) |
 | `buy_upgrade(unit)` | Upgrade "worker"/"scout"/"soldier" (or True = cheapest) |
 | `build(structure, x, y)` | Build guard_post/watchtower/barracks/wall/larder |
-| `command_unit(ant_id, command, **kw)` | Order one ant (move_to/attack_xy/gather/build/hold/patrol/clear) |
+| `command_unit(ant_id, command, **kw)` | Order one ant (move_to=pure move, attack_move=advance+fight, attack_xy, gather/build/hold/patrol/clear) |
 | `get_units(type)` | Slim list of just your units of one type (id,x,y,hp,state) |
 | `get_notifications()` | Drain alert/event notification queue |
 | `wait_for_tick(n)` | Block until tick ≥ n, return state |

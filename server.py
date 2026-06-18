@@ -3190,10 +3190,10 @@ class Server:
         if command == "clear":
             ant.unit_override = None
             return {"ok": True, "ant_id": ant_id, "override": None}
-        elif command in ("move_to", "attack_xy"):
+        elif command in ("move_to", "attack_move", "attack_xy"):
             x, y = body.get("x"), body.get("y")
             if x is None or y is None:
-                return {"error": "move_to/attack_xy requires x and y"}
+                return {"error": f"{command} requires x and y"}
             x, y = max(0, min(MAP_W-1, int(x))), max(0, min(MAP_H-1, int(y)))
             ant.unit_override = {"cmd": command, "x": x, "y": y}
         elif command == "gather":
@@ -3222,7 +3222,7 @@ class Server:
             ant.unit_override = {"cmd": "patrol", "waypoints": wps, "idx": 0}
             ant.patrol_idx = 0
         else:
-            return {"error": f"unknown unit command '{command}'. Valid: move_to, attack_xy, gather, build, hold, patrol, clear"}
+            return {"error": f"unknown unit command '{command}'. Valid: move_to, attack_move, attack_xy, gather, build, hold, patrol, clear"}
         return {"ok": True, "ant_id": ant_id, "type": ant.type, "override": ant.unit_override}
 
     async def api_command(self, req):
