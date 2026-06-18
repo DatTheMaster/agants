@@ -6,15 +6,16 @@
 // display object => one draw call, and nothing to leak. (user feedback: no gridlines)
 import { TS } from './Camera.js';
 
-// Flat color per terrain type. The ground is a NEUTRAL DARK gray (not warm brown) so
-// RED units read clearly against it; non-dirt types stay dark + low-saturation so the
-// ground never dominates. (user feedback: ground + red ants were too similar)
+// Flat color per terrain type — the ORIGINAL warm brown ground (user liked it; only
+// the old gridlines/seams ruined it, and those are gone now that terrain is vector).
+// Red-unit legibility comes from the faint territory tint (Overlays alpha) + the
+// brightened red ant tint, not from desaturating the ground.
 export const TERRAIN = [
-  { color: 0x222529 }, // 0 dirt  (neutral dark gray)
-  { color: 0x2b4324 }, // 1 leaf  (dim green)
-  { color: 0x1b2e47 }, // 2 water (dim blue)
-  { color: 0x4a4845 }, // 3 rock  (gray, walls)
-  { color: 0x17120d }, // 4 nest  (near-black)
+  { color: 0x5f4634 }, // 0 dirt  (warm brown)
+  { color: 0x48762c }, // 1 leaf  (green)
+  { color: 0x1e416e }, // 2 water (blue)
+  { color: 0x646464 }, // 3 rock  (gray, walls)
+  { color: 0x412d20 }, // 4 nest  (dark brown)
 ];
 
 export class TileGrid {
