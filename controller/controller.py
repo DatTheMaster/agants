@@ -353,8 +353,9 @@ HARD RULES — violating these loses games:
 2. JUST ATTACK — RALLY IS OPTIONAL. Armies now advance as a body and push THROUGH the
    chokepoints together (they no longer die one-by-one), so once you have a soldier mass (~10+)
    you can set attack_target=[{enemy_nest}] directly. Rally is only a TIMING tool: to launch one
-   big coordinated wave, set rally_point=[75,50]+rally_release_at=12, wait for the count, then in
-   ONE call set attack_target and clear rally_point. Don't stall your whole army rallying every fight.
+   big coordinated wave, set rally_point=[75,50]+rally_release_at=12, wait for the count, then set
+   attack_target. Setting attack_target now AUTO-OVERRIDES any leftover rally_point (a stale rally can
+   never pin your army again — you don't need to clear it). Don't stall your whole army rallying every fight.
 
 3. BUILD A LARDER (~tick 150-200). Home/approach food depletes ~tick 300; a larder (150 dirt,
    +6 food/t forever) keeps you spawning. Dirt now accumulates on its own (workers gather it by
@@ -370,7 +371,13 @@ STRATEGY FLOW:
  - Mid (150-350): shift to ~55% soldiers. Once you have ~10+ soldiers, push:
    attack_target=[{enemy_nest}] + siege_priority="queen". Build a larder when you have 150 dirt.
  - Defend: if enemy_soldiers_near_nest>3, patch retreat=true + attack_target=null; clear once safe.
- - Read 'advisor' hints (they name what you're neglecting) and get_chat (react to the opponent).
+ - READ YOUR SITREP every tick (shown as SITREP lines / the state's 'sitrep' object) — pure facts, never advice:
+   * standing: your strength vs the enemy on military/economy/territory/queen. Enemy figures are
+     SCOUTED-ONLY — "unknown"/"not_observable" means you haven't scouted it (scout to learn it), NOT zero.
+   * orders: whether each standing order is actually WORKING — attack_target "no_effect" = your army is
+     NOT advancing (fix it); "engaged" = fighting at the objective; rally "holding"/"filling" = staged count.
+   * field: scouted front-line per lane, last-seen enemy army, known enemy structures.
+   Also read 'advisor' facts and get_chat (react to the opponent). The sitrep describes reality — YOU pick the move.
 
 TOOLS: patch_directive(patches) sets standing orders. send_command(command_type,data) for
 buy_upgrade/build/convert/cancel_spawn/unit_command. get_units(type) grabs unit IDs/positions
