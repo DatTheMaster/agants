@@ -23,6 +23,12 @@ function tintFor(colony) { return COLONY_TINT[colony] ?? 0xffffff; }
 // Per-tier scale multiplier (spec §2.4 "kept"; index.html:1502).
 export const TIER_SCALE = [1.0, 1.25, 1.5, 1.8];
 
+// The ant art is drawn facing UP (north). The movement heading is atan2(dy,dx),
+// which is 0 for east — so an up-facing sprite must be turned +90° to lead with its
+// head in the travel direction (a real ant leads with its head, not its side).
+// (user feedback: ants were moving "like humans", head up while sliding sideways)
+const ART_FACING_OFFSET = Math.PI / 2;
+
 // Type idx -> atlas subject name.
 const TYPE_NAME = ['worker', 'soldier', 'scout', 'queen'];
 
@@ -121,9 +127,10 @@ export class AntView {
     const PIXI = window.PIXI;
     const g = new PIXI.Graphics();
     const c = PLACEHOLDER_COLOR[typeIdx] ?? 0xcccccc;
-    // A little teardrop-ish body so rotation is legible: a circle + a nose.
+    // A little teardrop-ish body so rotation is legible: a circle + a nose pointing
+    // UP, matching the real art's facing convention (see ART_FACING_OFFSET).
     g.circle(0, 0, 6).fill({ color: c });
-    g.moveTo(6, 0).lineTo(12, 0).stroke({ color: c, width: 3 });
+    g.moveTo(0, -6).lineTo(0, -12).stroke({ color: c, width: 3 });
     g.pivot.set(0, 0);
     g._isPlaceholder = true;
     return g;
@@ -254,7 +261,7 @@ export class AntView {
     if (angle !== null && angle !== undefined) {
       this._lastAngle = angle;
     }
-    this.container.rotation = this._lastAngle;
+    this.container.rotation = this._lastAngle + ART_FACING_OFFSET;
 
     this._setHpBar(entry.hp, entry.maxHp, entry.type, tier);
   }
