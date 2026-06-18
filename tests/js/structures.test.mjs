@@ -69,8 +69,8 @@ test('removed structure is reported and dropped', () => {
 test('colonies are keyed by id with nest + alive state', () => {
   const st = new SnapshotStore();
   st.applyTick(tick(1, [], [col(0, 14, 50, 1), col(1, 135, 50, 0)]), 1000);
-  assert.deepEqual(st.colonies.get(0), { id: 0, nestX: 14, nestY: 50, alive: true });
-  assert.deepEqual(st.colonies.get(1), { id: 1, nestX: 135, nestY: 50, alive: false });
+  assert.deepEqual(st.colonies.get(0), { id: 0, nestX: 14, nestY: 50, alive: true, tiers: [0, 0, 0] });
+  assert.deepEqual(st.colonies.get(1), { id: 1, nestX: 135, nestY: 50, alive: false, tiers: [0, 0, 0] });
 });
 
 test('reset clears structures and colonies', () => {
