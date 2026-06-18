@@ -165,9 +165,23 @@ class DirectiveEngine:
             ],
         }
 
+    # Leaf keys that live inside a directive SECTION but are commonly patched flat by
+    # agents (e.g. {"auto_attack": true} instead of {"military": {"auto_attack": true}}
+    # or "military.auto_attack"). Without routing, a flat key lands at the directive
+    # top level where NOTHING reads it — the patch silently no-ops. That single failure
+    # mode looks like "rally never staged / auto_attack did nothing / my changes didn't
+    # take effect". Auto-route known leaves to their real section (forgiving-API policy).
+    _FLAT_KEY_SECTION = {
+        "stance": "military", "formation": "military", "rally_point": "military",
+        "rally_release_at": "military", "rally_mode": "military", "auto_attack": "military",
+        "attack_target": "military", "retreat": "military", "siege_priority": "military",
+        "priority_food": "economy", "gather_dirt": "economy",
+    }
+
     @staticmethod
     def patch(colony, partial):
-        """Deep-merge partial into colony.directive. Supports dot-notation keys.
+        """Deep-merge partial into colony.directive. Supports dot-notation keys, and
+        auto-routes known flat leaf keys (e.g. "auto_attack") into their section.
         Empty dict {} replaces rather than merges (allows clearing upgrade_reserve etc.)."""
         d = colony.directive
         for key, value in partial.items():
@@ -179,6 +193,12 @@ class DirectiveEngine:
                         target[part] = {}
                     target = target[part]
                 target[parts[-1]] = value
+            elif key in DirectiveEngine._FLAT_KEY_SECTION and not (
+                    isinstance(value, dict) and key in d and isinstance(d[key], dict)):
+                # Flat leaf key (none of these are valid top-level directive keys) →
+                # route into its real section so the engine actually reads it.
+                section = DirectiveEngine._FLAT_KEY_SECTION[key]
+                d.setdefault(section, {})[key] = value
             elif isinstance(value, dict) and value and key in d and isinstance(d[key], dict):
                 DirectiveEngine._merge(d[key], value)
             else:

@@ -516,8 +516,9 @@ def patch_directive(colony_id: int, patches: dict) -> dict:
                        "priority": 3, "cooldown": 500}]}
             ← triggers can fire buy_upgrade directly — no need to poll
 
-    Dot-notation (flat keys also supported):
-        {"military.rally_point": [75, 50], "military.rally_release_at": 20}
+    Dot-notation (flat leaf keys like {"auto_attack": true} are also accepted and
+    auto-routed into their section — but prefer the explicit form to be safe):
+        {"military.rally_point": [45, 50], "military.rally_release_at": 12}
 
     Triggers replace the entire triggers array when provided.
 
@@ -531,6 +532,11 @@ def patch_directive(colony_id: int, patches: dict) -> dict:
       Sieged soldiers will finish their current engagement, then retreat on the next tick.
 
     RALLY POINT (massing before an attack):
+    - STAGE ON YOUR OWN SIDE of the front line. A rally in contested/enemy territory
+      NEVER fills — reinforcing soldiers fight and die en route and never reach it
+      (staged stays 0). Pick a tile between your nest and the midline, then push from
+      there (set attack_target / auto_attack on release). The advisor flags a contested
+      rally and suggests a safe tile.
     - Soldiers travel to the rally_point ONE AT A TIME as they are spawned/freed — they
       do not teleport; expect them to trickle in over many ticks.
     - rally_release_at is the MINIMUM COUNT needed before the rally releases. If you set it

@@ -2719,8 +2719,18 @@ class Server:
             _staged = sum(1 for a in c.ants if a.type == A_SOLDIER
                           and abs(a.x - _rx) + abs(a.y - _ry) <= 4)
             if _staged < _release_at:
-                advisor.append(f"RALLY: {_staged}/{_release_at} soldiers at ({_rx},{_ry}) — "
-                               f"release triggers at {_release_at}; {_release_at - _staged} more needed")
+                # A rally on the enemy's half never fills — reinforcing soldiers fight and
+                # die en route and never reach it. Tell the agent to stage on its own side.
+                _contested = c.enemy and abs(_rx - c.enemy.nx) < abs(_rx - c.nx)
+                if _contested and _staged == 0 and counts[1] >= 3:
+                    _safe_x = int(c.nx + ((c.nx + c.enemy.nx) / 2.0 - c.nx) * 0.5)
+                    advisor.append(
+                        f"RALLY at ({_rx},{_ry}) is in CONTESTED/enemy territory — soldiers die "
+                        f"en route and never stage (0/{_release_at}). Move rally_point to YOUR side "
+                        f"of the front (e.g. ~[{_safe_x},{c.ny}]), then push.")
+                else:
+                    advisor.append(f"RALLY: {_staged}/{_release_at} soldiers at ({_rx},{_ry}) — "
+                                   f"release triggers at {_release_at}; {_release_at - _staged} more needed")
         # Warn when spawn max caps are so low they hard-ceiling the colony
         for _unit in ("worker", "soldier"):
             _max = c.directive["spawn"].get(_unit, {}).get("max", 999)
