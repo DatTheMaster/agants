@@ -74,6 +74,26 @@ export class NodeViews {
     this.pool = pool;
     this.views = new Map();   // "x,y,kind" -> NodeSprite
     this._elapsed = 0;
+    // Shared GlowFilter cache. gfx.destroy() does NOT dispose attached filters and
+    // Pixi filters hold GPU render-textures, so allocating one per halo and pooling
+    // the sprite (reset() destroys the halo, _buildFood rebuilds it) leaked a filter
+    // per food-node respawn over a long match. Reuse a bounded set keyed by color.
+    this._glowCache = new Map();
+  }
+
+  // Bounded, reusable GlowFilter (one instance can drive many halos concurrently).
+  _glow(color, distance, outerStrength) {
+    const PIXI = window.PIXI;
+    const GlowFilter = PIXI.filters?.GlowFilter || PIXI.GlowFilter;
+    if (!GlowFilter) return null;
+    const key = `${color}|${distance}|${outerStrength}`;
+    let f = this._glowCache.get(key);
+    if (!f) {
+      try { f = new GlowFilter({ distance, outerStrength, color }); }
+      catch (e) { return null; }
+      this._glowCache.set(key, f);
+    }
+    return f;
   }
 
   _key(x, y, kind) { return x + ',' + y + ',' + kind; }
@@ -91,11 +111,8 @@ export class NodeViews {
     v.halo = new PIXI.Graphics();
     v.halo.circle(0, 0, TS * 1.4).fill({ color, alpha: 0.10 });
     v.halo.circle(0, 0, TS * 0.85).fill({ color, alpha: 0.14 });
-    const GlowFilter = PIXI.filters?.GlowFilter || PIXI.GlowFilter;
-    if (GlowFilter) {
-      try { v.halo.filters = [new GlowFilter({ distance: 10, outerStrength: 1.4, color })]; }
-      catch (e) { /* optional */ }
-    }
+    const glow = this._glow(color, 10, 1.4);
+    if (glow) v.halo.filters = [glow];
     v.container.addChild(v.halo);
 
     // Core sprite (atlas) or a colored disc placeholder.
@@ -275,5 +292,7 @@ export class NodeViews {
       v.destroy();
     }
     this.views.clear();
+    for (const f of this._glowCache.values()) f.destroy?.();
+    this._glowCache.clear();
   }
 }

@@ -57,6 +57,29 @@ export class Effects {
     // Build-complete tracking: remember which structures were active so we fire
     // the flash on the active 0->1 transition.
     this._wasActive = new Map();   // structKey -> bool
+
+    // Shared GlowFilter cache. Pixi filters hold GPU render-textures and gfx.destroy()
+    // does NOT dispose attached filters, so allocating one per buildFlash/queenWarning
+    // (queenWarning fires every queen hit) leaked GPU memory without bound during a
+    // siege. Reuse a bounded set keyed by params — mirrors Overlays' single _blur.
+    this._glowCache = new Map();   // "color|distance|outerStrength" -> GlowFilter
+    this._winFilter = null;        // the win-grade ColorMatrixFilter (disposed on reset)
+  }
+
+  // Bounded, reusable GlowFilter. The same instance can drive many display objects
+  // (and many concurrent FX) since its uniforms are constant for a given param set.
+  _glow(color, distance, outerStrength) {
+    const PIXI = window.PIXI;
+    const GlowFilter = PIXI.filters?.GlowFilter || PIXI.GlowFilter;
+    if (!GlowFilter) return null;
+    const key = `${color}|${distance}|${outerStrength}`;
+    let f = this._glowCache.get(key);
+    if (!f) {
+      try { f = new GlowFilter({ distance, outerStrength, color }); }
+      catch (e) { return null; }
+      this._glowCache.set(key, f);
+    }
+    return f;
   }
 
   _makeParticleContainer() {
@@ -162,11 +185,8 @@ export class Effects {
     const g = new PIXI.Graphics();
     g.position.set(x, y);
     g.circle(0, 0, TS * 0.7).fill({ color: 0xffffff, alpha: 0.5 });
-    const GlowFilter = PIXI.filters?.GlowFilter || PIXI.GlowFilter;
-    if (GlowFilter) {
-      try { g.filters = [new GlowFilter({ distance: 14, outerStrength: 2.2, color })]; }
-      catch (e) { /* optional */ }
-    }
+    const glow = this._glow(color, 14, 2.2);
+    if (glow) g.filters = [glow];
     this.air.addChild(g);
     this.active.push({ kind: 'flash', gfx: g, age: 0, life: 450 });
   }
@@ -180,11 +200,8 @@ export class Effects {
     g.position.set(x, y);
     const tint = tintFor(colony);
     g.circle(0, 0, TS * 2.4).stroke({ color: 0xff3030, width: 3, alpha: 0.8 });
-    const GlowFilter = PIXI.filters?.GlowFilter || PIXI.GlowFilter;
-    if (GlowFilter) {
-      try { g.filters = [new GlowFilter({ distance: 18, outerStrength: 2.5, color: 0xff3030 })]; }
-      catch (e) { /* optional */ }
-    }
+    const glow = this._glow(0xff3030, 18, 2.5);
+    if (glow) g.filters = [glow];
     this.air.addChild(g);
     this.active.push({ kind: 'warn', gfx: g, age: 0, life: 600, r0: TS * 1.8, r1: TS * 3.0, tint });
   }
@@ -222,6 +239,7 @@ export class Effects {
       f.desaturate();
       f.brightness(0.75, true);
       this.world.filters = [f];
+      this._winFilter = f;
       this._winGraded = true;
       this._winColony = colony;
     } catch (e) { /* grade optional */ }
@@ -292,6 +310,12 @@ export class Effects {
     }
     this.particles = [];
     this._wasActive.clear();
-    if (this._winGraded) { this.world.filters = []; this._winGraded = false; this._winColony = null; }
+    if (this._winGraded) {
+      this.world.filters = [];
+      this._winFilter?.destroy?.();
+      this._winFilter = null;
+      this._winGraded = false;
+      this._winColony = null;
+    }
   }
 }

@@ -64,6 +64,26 @@ export class StructureView {
     // over walls so range rings show; bodies on top.
     this.layer.addChild(this.nestContainer, this.overlayContainer,
                         this.wallContainer, this.bodyContainer);
+    // Shared GlowFilter cache. gfx.destroy({children:true}) does NOT dispose child
+    // filters and Pixi filters hold GPU render-textures, so allocating one per
+    // structure body/overlay leaked a filter per structure built or destroyed over
+    // a long match. Reuse a bounded set keyed by params (one drives many bodies).
+    this._glowCache = new Map();
+  }
+
+  // Bounded, reusable GlowFilter (the same instance can drive many display objects).
+  _glow(color, distance, outerStrength) {
+    const PIXI = window.PIXI;
+    const GlowFilter = PIXI.filters?.GlowFilter || PIXI.GlowFilter;
+    if (!GlowFilter) return null;
+    const key = `${color}|${distance}|${outerStrength}`;
+    let f = this._glowCache.get(key);
+    if (!f) {
+      try { f = new GlowFilter({ distance, outerStrength, color }); }
+      catch (e) { return null; }
+      this._glowCache.set(key, f);
+    }
+    return f;
   }
 
   destroy() {
@@ -71,6 +91,8 @@ export class StructureView {
     for (const n of this.nests.values()) n.destroy({ children: true });
     this.views.clear();
     this.nests.clear();
+    for (const f of this._glowCache.values()) f.destroy?.();
+    this._glowCache.clear();
   }
 
   // ---- sprite/placeholder creation -----------------------------------------
@@ -133,11 +155,8 @@ export class StructureView {
       return null;
     }
     // Soft glow on the overlay if pixi-filters is present.
-    const GlowFilter = PIXI.filters?.GlowFilter || PIXI.GlowFilter;
-    if (GlowFilter) {
-      try { g.filters = [new GlowFilter({ distance: 6, outerStrength: 1.2, color: type === 'larder' ? 0xffdc50 : tint })]; }
-      catch (e) { /* filter optional */ }
-    }
+    const glow = this._glow(type === 'larder' ? 0xffdc50 : tint, 6, 1.2);
+    if (glow) g.filters = [glow];
     return g;
   }
 
@@ -302,9 +321,9 @@ export class StructureView {
 
     // Soft glow halo (alive only).
     const glow = new PIXI.Graphics().circle(0, 0, TS * 2).fill({ color: tint, alpha: 0.12 });
-    const GlowFilter = PIXI.filters?.GlowFilter || PIXI.GlowFilter;
-    if (GlowFilter) {
-      try { glow.filters = [new GlowFilter({ distance: 12, outerStrength: 1.5, color: tint })]; }
+    const glowFx = this._glow(tint, 12, 1.5);
+    if (glowFx) {
+      try { glow.filters = [glowFx]; }
       catch (e) { /* optional */ }
     }
     container.addChildAt(glow, 0);
