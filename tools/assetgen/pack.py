@@ -26,15 +26,19 @@ PAD = 2
 
 # Atlas -> list of frame-key stems (filename without .png). Keys match clip names
 # in the design spec §3.3 so sheet.animations[<clip>] resolves.
+def _clip(name, n=4):
+    return [f"{name}_{i}" for i in range(n)]
+
 ATLASES = {
-    "ants": [
-        "worker_idle_0",
-        "worker_walk_0", "worker_walk_1", "worker_walk_2", "worker_walk_3",
-        "soldier_idle_0",
-        "soldier_walk_0", "soldier_walk_1", "soldier_walk_2", "soldier_walk_3",
-        "scout_idle_0",
-        "queen_idle_0",
-    ],
+    "ants": (
+        ["worker_idle_0"] + _clip("worker_walk") + _clip("worker_carry")
+        + _clip("worker_dig") + _clip("worker_attack") + _clip("worker_death")
+        + ["soldier_idle_0"] + _clip("soldier_walk") + _clip("soldier_attack")
+        + _clip("soldier_death")
+        + ["scout_idle_0"] + _clip("scout_walk") + _clip("scout_attack")
+        + _clip("scout_death")
+        + ["queen_idle_0", "food_pellet_0"]
+    ),
     "structures": [
         "guard_post_active", "guard_post_damaged",
         "watchtower_active",

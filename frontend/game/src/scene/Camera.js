@@ -46,11 +46,15 @@ export function zoomToCursor(cursorX, cursorY, posX, posY, scale, zoomFactor, mi
 // a small over-scroll margin. Mirrors the Canvas renderer's clampCamera()
 // semantics (margin in screen px). Returns the clamped {posX, posY}.
 export function clampOffset(posX, posY, scale, screenW, screenH, worldW, worldH, margin = 80) {
-  const mapW = worldW * scale;
-  const mapH = worldH * scale;
-  const px = Math.max(-(mapW - margin), Math.min(screenW - margin, posX));
-  const py = Math.max(-(mapH - margin), Math.min(screenH - margin, posY));
-  return { x: px, y: py };
+  // Per-axis: if the world is SMALLER than the viewport on this axis, center-lock it
+  // (matches fitView's centering) — without this the world slides into a black void with
+  // no snap-back. If it's larger, clamp so the world covers the viewport, allowing only a
+  // small `margin` of over-scroll at each edge.
+  const clamp1D = (pos, screen, map) => {
+    if (map <= screen) return (screen - map) / 2;
+    return Math.max(screen - map - margin, Math.min(margin, pos));
+  };
+  return { x: clamp1D(posX, screenW, worldW * scale), y: clamp1D(posY, screenH, worldH * scale) };
 }
 
 // Centered fit-to-world offset (resetCamera equivalent). Returns {posX,posY,scale}.

@@ -120,7 +120,7 @@
     "h": 64
    }
   },
-  "soldier_idle_0.png": {
+  "worker_carry_0.png": {
    "frame": {
     "x": 2,
     "y": 132,
@@ -140,7 +140,7 @@
     "h": 64
    }
   },
-  "soldier_walk_0.png": {
+  "worker_carry_1.png": {
    "frame": {
     "x": 68,
     "y": 132,
@@ -160,7 +160,7 @@
     "h": 64
    }
   },
-  "soldier_walk_1.png": {
+  "worker_carry_2.png": {
    "frame": {
     "x": 134,
     "y": 132,
@@ -180,7 +180,7 @@
     "h": 64
    }
   },
-  "soldier_walk_2.png": {
+  "worker_carry_3.png": {
    "frame": {
     "x": 200,
     "y": 132,
@@ -200,7 +200,7 @@
     "h": 64
    }
   },
-  "soldier_walk_3.png": {
+  "worker_dig_0.png": {
    "frame": {
     "x": 266,
     "y": 132,
@@ -220,7 +220,7 @@
     "h": 64
    }
   },
-  "scout_idle_0.png": {
+  "worker_dig_1.png": {
    "frame": {
     "x": 332,
     "y": 132,
@@ -239,6 +239,746 @@
     "w": 64,
     "h": 64
    }
+  },
+  "worker_dig_2.png": {
+   "frame": {
+    "x": 398,
+    "y": 132,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "worker_dig_3.png": {
+   "frame": {
+    "x": 2,
+    "y": 198,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "worker_attack_0.png": {
+   "frame": {
+    "x": 68,
+    "y": 198,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "worker_attack_1.png": {
+   "frame": {
+    "x": 134,
+    "y": 198,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "worker_attack_2.png": {
+   "frame": {
+    "x": 200,
+    "y": 198,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "worker_attack_3.png": {
+   "frame": {
+    "x": 266,
+    "y": 198,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "worker_death_0.png": {
+   "frame": {
+    "x": 332,
+    "y": 198,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "worker_death_1.png": {
+   "frame": {
+    "x": 398,
+    "y": 198,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "worker_death_2.png": {
+   "frame": {
+    "x": 2,
+    "y": 264,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "worker_death_3.png": {
+   "frame": {
+    "x": 68,
+    "y": 264,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "soldier_idle_0.png": {
+   "frame": {
+    "x": 134,
+    "y": 264,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "soldier_walk_0.png": {
+   "frame": {
+    "x": 200,
+    "y": 264,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "soldier_walk_1.png": {
+   "frame": {
+    "x": 266,
+    "y": 264,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "soldier_walk_2.png": {
+   "frame": {
+    "x": 332,
+    "y": 264,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "soldier_walk_3.png": {
+   "frame": {
+    "x": 398,
+    "y": 264,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "soldier_attack_0.png": {
+   "frame": {
+    "x": 2,
+    "y": 330,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "soldier_attack_1.png": {
+   "frame": {
+    "x": 68,
+    "y": 330,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "soldier_attack_2.png": {
+   "frame": {
+    "x": 134,
+    "y": 330,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "soldier_attack_3.png": {
+   "frame": {
+    "x": 200,
+    "y": 330,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "soldier_death_0.png": {
+   "frame": {
+    "x": 266,
+    "y": 330,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "soldier_death_1.png": {
+   "frame": {
+    "x": 332,
+    "y": 330,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "soldier_death_2.png": {
+   "frame": {
+    "x": 398,
+    "y": 330,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "soldier_death_3.png": {
+   "frame": {
+    "x": 2,
+    "y": 396,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "scout_idle_0.png": {
+   "frame": {
+    "x": 68,
+    "y": 396,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "scout_walk_0.png": {
+   "frame": {
+    "x": 134,
+    "y": 396,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "scout_walk_1.png": {
+   "frame": {
+    "x": 200,
+    "y": 396,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "scout_walk_2.png": {
+   "frame": {
+    "x": 266,
+    "y": 396,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "scout_walk_3.png": {
+   "frame": {
+    "x": 332,
+    "y": 396,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "scout_attack_0.png": {
+   "frame": {
+    "x": 398,
+    "y": 396,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "scout_attack_1.png": {
+   "frame": {
+    "x": 2,
+    "y": 462,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "scout_attack_2.png": {
+   "frame": {
+    "x": 68,
+    "y": 462,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "scout_attack_3.png": {
+   "frame": {
+    "x": 134,
+    "y": 462,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "scout_death_0.png": {
+   "frame": {
+    "x": 200,
+    "y": 462,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "scout_death_1.png": {
+   "frame": {
+    "x": 266,
+    "y": 462,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "scout_death_2.png": {
+   "frame": {
+    "x": 332,
+    "y": 462,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "scout_death_3.png": {
+   "frame": {
+    "x": 398,
+    "y": 462,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   }
+  },
+  "food_pellet_0.png": {
+   "frame": {
+    "x": 464,
+    "y": 462,
+    "w": 32,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 32,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 32,
+    "h": 32
+   }
   }
  },
  "animations": {
@@ -254,6 +994,30 @@
    "worker_walk_2.png",
    "worker_walk_3.png"
   ],
+  "worker_carry": [
+   "worker_carry_0.png",
+   "worker_carry_1.png",
+   "worker_carry_2.png",
+   "worker_carry_3.png"
+  ],
+  "worker_dig": [
+   "worker_dig_0.png",
+   "worker_dig_1.png",
+   "worker_dig_2.png",
+   "worker_dig_3.png"
+  ],
+  "worker_attack": [
+   "worker_attack_0.png",
+   "worker_attack_1.png",
+   "worker_attack_2.png",
+   "worker_attack_3.png"
+  ],
+  "worker_death": [
+   "worker_death_0.png",
+   "worker_death_1.png",
+   "worker_death_2.png",
+   "worker_death_3.png"
+  ],
   "soldier_idle": [
    "soldier_idle_0.png"
   ],
@@ -263,8 +1027,41 @@
    "soldier_walk_2.png",
    "soldier_walk_3.png"
   ],
+  "soldier_attack": [
+   "soldier_attack_0.png",
+   "soldier_attack_1.png",
+   "soldier_attack_2.png",
+   "soldier_attack_3.png"
+  ],
+  "soldier_death": [
+   "soldier_death_0.png",
+   "soldier_death_1.png",
+   "soldier_death_2.png",
+   "soldier_death_3.png"
+  ],
   "scout_idle": [
    "scout_idle_0.png"
+  ],
+  "scout_walk": [
+   "scout_walk_0.png",
+   "scout_walk_1.png",
+   "scout_walk_2.png",
+   "scout_walk_3.png"
+  ],
+  "scout_attack": [
+   "scout_attack_0.png",
+   "scout_attack_1.png",
+   "scout_attack_2.png",
+   "scout_attack_3.png"
+  ],
+  "scout_death": [
+   "scout_death_0.png",
+   "scout_death_1.png",
+   "scout_death_2.png",
+   "scout_death_3.png"
+  ],
+  "food_pellet": [
+   "food_pellet_0.png"
   ]
  },
  "meta": {
@@ -274,7 +1071,7 @@
   "format": "RGBA8888",
   "size": {
    "w": 512,
-   "h": 256
+   "h": 1024
   },
   "scale": "1"
  }

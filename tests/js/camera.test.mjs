@@ -49,20 +49,29 @@ test('zoomToCursor respects the zoom clamp', () => {
   assert.equal(z.scale, 4);
 });
 
-test('clampOffset keeps world edges within viewport + margin', () => {
-  // world 4800x3200 at scale 1, screen 800x600, margin 80.
-  // posX upper bound = screenW - margin = 720; lower = -(4800 - 80) = -4720.
+test('clampOffset keeps a larger-than-viewport world covering the viewport (only margin over-scroll)', () => {
+  // world 4800x3200 > screen 800x600, margin 80. World must always cover the screen,
+  // allowing only `margin` px of void at an edge: posX in [screenW-mapW-margin, margin].
   const a = clampOffset(5000, 0, 1, 800, 600, 4800, 3200, 80);
-  assert.equal(a.x, 720);
+  assert.equal(a.x, 80);                 // upper bound = margin (80px void on left, max)
   const b = clampOffset(-9999, 0, 1, 800, 600, 4800, 3200, 80);
-  assert.equal(b.x, -4720);
+  assert.equal(b.x, 800 - 4800 - 80);    // lower bound = -4080 (80px void on right, max)
   const c = clampOffset(-9999, 9999, 1, 800, 600, 4800, 3200, 80);
-  assert.equal(c.y, 600 - 80);          // upper y bound
+  assert.equal(c.y, 80);                 // upper y bound = margin
   const d = clampOffset(100, -9999, 1, 800, 600, 4800, 3200, 80);
-  assert.equal(d.y, -(3200 - 80));      // lower y bound
+  assert.equal(d.y, 600 - 3200 - 80);    // lower y bound = -2680
   // in-range value passes through
   const e = clampOffset(-100, -100, 1, 800, 600, 4800, 3200, 80);
   assert.deepEqual(e, { x: -100, y: -100 });
+});
+
+test('clampOffset center-locks a world SMALLER than the viewport (the void-pan bug fix)', () => {
+  // world 400x300 < screen 800x600: must snap to centered regardless of input offset,
+  // so the map can never be dragged off into a black void.
+  const expected = { x: (800 - 400) / 2, y: (600 - 300) / 2 }; // {200, 150}
+  assert.deepEqual(clampOffset(9999, -9999, 1, 800, 600, 400, 300, 80), expected);
+  assert.deepEqual(clampOffset(-5000, 5000, 1, 800, 600, 400, 300, 80), expected);
+  assert.deepEqual(clampOffset(0, 0, 1, 800, 600, 400, 300, 80), expected);
 });
 
 test('fitView centers the world in the viewport', () => {

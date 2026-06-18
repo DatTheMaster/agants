@@ -24,6 +24,22 @@ export async function main() {
   // Crisp 32px pixel art: nearest-neighbor scaling globally.
   if (PIXI.TextureSource?.defaultOptions) PIXI.TextureSource.defaultOptions.scaleMode = 'nearest';
 
+  // WebGL context-loss resilience: by default a lost GL context is permanent — the canvas
+  // freezes silently while SnapshotStore keeps advancing (observed under software-GL during
+  // heavy combat). preventDefault on loss lets the browser restore the context; on restore
+  // Pixi v8 re-uploads GPU resources, and we nudge one render so the frozen frame clears.
+  const _canvas = app.canvas;
+  if (_canvas && _canvas.addEventListener) {
+    _canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      console.warn('[pixi] WebGL context lost — awaiting restore');
+    }, false);
+    _canvas.addEventListener('webglcontextrestored', () => {
+      console.warn('[pixi] WebGL context restored');
+      try { app.renderer.render(app.stage); } catch (_) { /* renderer rebuilds on next tick */ }
+    }, false);
+  }
+
   const stage = new Stage();
   stage.attach(app);
   const stageEl = document.getElementById('stage');

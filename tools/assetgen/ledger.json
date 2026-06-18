@@ -1,5 +1,5 @@
 {
-  "generations": 26.0,
+  "generations": 36.0,
   "calls": [
     {
       "label": "pre-existing anchor (worker_anchor.png)",
@@ -161,6 +161,111 @@
       "endpoint": "animate-with-text",
       "generations": 1.0,
       "latency_s": 15.8
+    },
+    {
+      "label": "anim worker_carry",
+      "status": 422,
+      "error": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"description\"],\"msg\":\"Field required\",\"input\":{\"action\":\"walking while carrying a green leaf in its mandibles\",\"image_size\":{\"width\":64,\"height\":64},\"referen"
+    },
+    {
+      "label": "anim worker_dig",
+      "status": 422,
+      "error": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"description\"],\"msg\":\"Field required\",\"input\":{\"action\":\"digging into the ground with its front legs\",\"image_size\":{\"width\":64,\"height\":64},\"reference_image\""
+    },
+    {
+      "label": "anim worker_attack",
+      "status": 422,
+      "error": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"description\"],\"msg\":\"Field required\",\"input\":{\"action\":\"lunging forward biting with mandibles, attacking\",\"image_size\":{\"width\":64,\"height\":64},\"reference_i"
+    },
+    {
+      "label": "anim worker_death",
+      "status": 422,
+      "error": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"description\"],\"msg\":\"Field required\",\"input\":{\"action\":\"collapsing and dying, legs curling up\",\"image_size\":{\"width\":64,\"height\":64},\"reference_image\":{\"typ"
+    },
+    {
+      "label": "anim soldier_attack",
+      "status": 422,
+      "error": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"description\"],\"msg\":\"Field required\",\"input\":{\"action\":\"lunging forward attacking with large mandibles\",\"image_size\":{\"width\":64,\"height\":64},\"reference_ima"
+    },
+    {
+      "label": "anim soldier_death",
+      "status": 422,
+      "error": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"description\"],\"msg\":\"Field required\",\"input\":{\"action\":\"collapsing and dying, legs curling up\",\"image_size\":{\"width\":64,\"height\":64},\"reference_image\":{\"typ"
+    },
+    {
+      "label": "anim scout_walk",
+      "status": 422,
+      "error": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"description\"],\"msg\":\"Field required\",\"input\":{\"action\":\"scurrying quickly forward\",\"image_size\":{\"width\":64,\"height\":64},\"reference_image\":{\"type\":\"base64\","
+    },
+    {
+      "label": "anim scout_attack",
+      "status": 422,
+      "error": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"description\"],\"msg\":\"Field required\",\"input\":{\"action\":\"lunging forward attacking\",\"image_size\":{\"width\":64,\"height\":64},\"reference_image\":{\"type\":\"base64\","
+    },
+    {
+      "label": "anim scout_death",
+      "status": 422,
+      "error": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"description\"],\"msg\":\"Field required\",\"input\":{\"action\":\"collapsing and dying\",\"image_size\":{\"width\":64,\"height\":64},\"reference_image\":{\"type\":\"base64\",\"base"
+    },
+    {
+      "label": "still food_pellet",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 19.1
+    },
+    {
+      "label": "anim worker_carry",
+      "endpoint": "animate-with-text",
+      "generations": 1.0,
+      "latency_s": 17.2
+    },
+    {
+      "label": "anim worker_dig",
+      "endpoint": "animate-with-text",
+      "generations": 1.0,
+      "latency_s": 27.7
+    },
+    {
+      "label": "anim worker_attack",
+      "endpoint": "animate-with-text",
+      "generations": 1.0,
+      "latency_s": 31.6
+    },
+    {
+      "label": "anim worker_death",
+      "endpoint": "animate-with-text",
+      "generations": 1.0,
+      "latency_s": 29.6
+    },
+    {
+      "label": "anim soldier_attack",
+      "endpoint": "animate-with-text",
+      "generations": 1.0,
+      "latency_s": 25.2
+    },
+    {
+      "label": "anim soldier_death",
+      "endpoint": "animate-with-text",
+      "generations": 1.0,
+      "latency_s": 14.3
+    },
+    {
+      "label": "anim scout_walk",
+      "endpoint": "animate-with-text",
+      "generations": 1.0,
+      "latency_s": 29.8
+    },
+    {
+      "label": "anim scout_attack",
+      "endpoint": "animate-with-text",
+      "generations": 1.0,
+      "latency_s": 16.1
+    },
+    {
+      "label": "anim scout_death",
+      "endpoint": "animate-with-text",
+      "generations": 1.0,
+      "latency_s": 30.6
     }
   ]
 }
