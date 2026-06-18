@@ -222,6 +222,17 @@ class GameClient:
             return {"error": f"request failed: {e}"}
 
     async def patch_directive(self, patches: dict) -> dict:
+        # Guard: a leftover rally_point with rally_release_at=null pins the whole army
+        # at the rally point — the engine holds soldiers there and IGNORES attack_target
+        # (they never advance to the queen). The directive guidance says "to attack,
+        # clear rally_point in one call", but the model frequently forgets, so the army
+        # masses and stalls. Whenever a patch sets a real attack_target and does NOT
+        # itself (re)set a rally_point, auto-clear the rally so the army actually moves
+        # out. Deliberate staging (rally_point set in the SAME patch) is left untouched.
+        mil = patches.get("military") if isinstance(patches, dict) else None
+        if isinstance(mil, dict) and mil.get("attack_target") and "rally_point" not in mil:
+            mil["rally_point"] = None
+            mil["rally_release_at"] = None
         return await self._tool_request("POST", self._mpath(f"/directive/{self.colony_id}"), patches)
 
     async def send_command(self, command_type: str, data: dict) -> dict:
