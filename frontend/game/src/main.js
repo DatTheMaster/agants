@@ -9,6 +9,8 @@ import { Camera } from './scene/Camera.js';
 import { TileGrid } from './scene/TileGrid.js';
 import { Overlays } from './scene/Overlays.js';
 import { StructureView } from './entities/StructureView.js';
+import { AntViews } from './entities/AntView.js';
+import { ViewPool } from './entities/ViewPool.js';
 import { Loop } from './render/Loop.js';
 
 export async function main() {
@@ -47,6 +49,17 @@ export async function main() {
   }
   const structureView = new StructureView(stage.structureLayer, structAtlas);
 
+  // Optional ants atlas — falls back to placeholder ant shapes if missing (spec).
+  let antsAtlas = null;
+  try {
+    antsAtlas = await PIXI.Assets.load('./assets/ants.json');
+  } catch (e) {
+    console.warn('[pixi] ants atlas not loaded, using placeholder ants:', e?.message || e);
+  }
+  const antPool = new ViewPool();
+  // M4 will pass a real Effects death-FX hook; M3 leaves it null (no FX yet).
+  const antViews = new AntViews(stage.antLayer, antsAtlas, antPool, null);
+
   const store = new SnapshotStore();
   let mapBuilt = false;
 
@@ -80,7 +93,7 @@ export async function main() {
 
   const url = resolveWsUrl(window.location, window.AGANTS_BACKEND);
   const conn = new Connection(url, {
-    onReset: () => { store.reset(); },
+    onReset: () => { store.reset(); antViews.reset(); antPool.clear(); },
     onMap:   (m) => { buildMap(m); },
     onTick:  (snap) => {
       store.applyTick(snap, performance.now());
@@ -98,14 +111,15 @@ export async function main() {
   });
   conn.connect();
 
-  // Single ticker: M1/M2 have no per-frame positional interpolation (terrain,
-  // overlays, structures are static between ticks); structures only need their
-  // procedural auras pulsed. M3 adds ant lerping here.
-  new Loop().start(app, store, (_t) => {
+  // Single ticker: structures pulse their procedural auras; ants interpolate
+  // their positions over the measured tick interval (`t` from store.interp).
+  // (spec §6 — positional lerp from prev_x/prev_y -> x/y.)
+  new Loop().start(app, store, (t) => {
     structureView.refreshPulse(app.ticker.deltaMS);
+    antViews.sync(store, t);
   });
 
-  window.__agants = { app, stage, store, conn, camera, tileGrid, overlays, structureView };
+  window.__agants = { app, stage, store, conn, camera, tileGrid, overlays, structureView, antViews, antPool };
   console.log('[pixi] client mounted; ws=', url);
 }
 main();

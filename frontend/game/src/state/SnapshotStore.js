@@ -13,8 +13,15 @@ export const ANT = { ID: 0, X: 1, Y: 2, PX: 3, PY: 4, COLONY: 5, TYPE: 6, STATE:
 export const STRUCT = { X: 0, Y: 1, COLONY: 2, HP: 3, MAXHP: 4, TYPE: 5, ACTIVE: 6, BUILD_PROGRESS: 7, BUILD_REQUIRED: 8 };
 
 // Colony tuple layout (subset used by the renderer):
-//   [id, nest_x, nest_y, ... , alive(idx 10), ...]
-export const COLONY = { ID: 0, NEST_X: 1, NEST_Y: 2, ALIVE: 10 };
+//   [id, nest_x, nest_y, ... , alive(idx 10), tiers(idx 11), ...]
+// `tiers` (idx 11) is [worker_tier, scout_tier, soldier_tier] per the sim
+// (engine/world.py colonies serialization; verified against replay data).
+export const COLONY = { ID: 0, NEST_X: 1, NEST_Y: 2, ALIVE: 10, TIERS: 11 };
+
+// Ant type idx -> index into a colony's `tiers` triple. worker(0)->0,
+// soldier(1)->2, scout(2)->1. Queen(3) is always tier 3 (handled separately).
+// Mirrors the Canvas renderer's TYPE_TIER_IDX = [0, 2, 1] (index.html:1461).
+export const TYPE_TIER_IDX = [0, 2, 1];
 
 export class SnapshotStore {
   constructor() {
@@ -109,7 +116,7 @@ export class SnapshotStore {
     }
     for (const key of this.removedStructKeys) this.structures.delete(key);
 
-    // --- colonies (keyed by id; nests + alive state) ---
+    // --- colonies (keyed by id; nests + alive state + per-class tiers) ---
     for (const c of (snap.colonies || [])) {
       const id = c[COLONY.ID];
       this.colonies.set(id, {
@@ -117,8 +124,19 @@ export class SnapshotStore {
         nestX: c[COLONY.NEST_X],
         nestY: c[COLONY.NEST_Y],
         alive: c[COLONY.ALIVE] !== 0,
+        // [worker_tier, scout_tier, soldier_tier]; default flat if absent.
+        tiers: Array.isArray(c[COLONY.TIERS]) ? c[COLONY.TIERS] : [0, 0, 0],
       });
     }
+  }
+
+  // Tier for an ant, derived from its colony's per-class tiers (tier is NOT in
+  // the ant tuple). Queen (type 3) is always tier 3. Returns 0..3. (spec §3.2)
+  tierForAnt(colony, type) {
+    if (type === 3) return 3;
+    const c = this.colonies.get(colony);
+    if (!c || !c.tiers) return 0;
+    return c.tiers[TYPE_TIER_IDX[type] ?? 0] || 0;
   }
 
   interp(nowMs) {
