@@ -46,3 +46,19 @@ Thumbs.db
 # Wrangler
 .wrangler/
 NOTES.md
+
+# Node (browser verification uses Python playwright; these are scratch)
+package.json
+package-lock.json
+
+# Local scratch / one-off probe scripts (not part of the toolset)
+screenshot.bmp
+screenshot.png
+tools/replay/match-thin.jsonl
+tools/replay/test_*.py
+tools/replay/shoot*.py
+tools/replay/scan.py
+tools/replay/probe_fog.py
+tools/replay/trace_err.py
+tools/replay/capture_rich.py
+tools/verify_structures*.py

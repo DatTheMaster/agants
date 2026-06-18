@@ -2,16 +2,19 @@
 
 A PixiJS v8 (WebGL) pixel-art renderer that re-skins the existing game. It consumes the
 **unchanged** server WebSocket stream (`World.serialize_tick()`), so the Python sim is untouched.
-The legacy Canvas-2D renderer in `index.html` is the default and remains fully functional; the
-Pixi client is **opt-in** and never loads unless you ask for it.
+Pixi is now the **default** renderer; the legacy Canvas-2D renderer in `index.html` remains fully
+functional as an opt-out and as the **automatic fallback** if Pixi fails to load or mount.
 
 ## How to view
 
-The Pixi renderer is gated behind the `?pixi=1` URL flag (see `index.html:851`):
+Pixi is the default. The `?pixi` URL flag controls the renderer (see `index.html`):
 
-- **No flag** → the original Canvas renderer runs (default, production-safe).
-- **`?pixi=1`** → `vendor/pixi.min.js` + `vendor/pixi-filters.min.js` load, then `src/main.js`
-  mounts the Pixi canvas into `#stage` and the Canvas draw path is skipped.
+- **No flag** → Pixi loads (`vendor/pixi.min.js` + `vendor/pixi-filters.min.js`, then `src/main.js`)
+  and mounts into `#stage`; the Canvas draw path is skipped.
+- **`?pixi=0`** → forces the legacy Canvas renderer.
+- **Automatic fallback** → if Pixi fails to load, throws during init, or hasn't mounted within ~8s
+  (e.g. the intermittent `reading 'split'` crash), `__startCanvas()` brings up the Canvas renderer
+  so the player never sees a blank screen. Fallback triggers only before a successful Pixi mount.
 
 ### Local viewing against the replay harness (no production contact)
 
@@ -137,7 +140,9 @@ scaffold frames are lowest priority (placeholders read fine). Add the clip name 
 
 ## Deployment
 
-Out of scope here and **not done**. Deploy is the CF Worker
-(`npx wrangler deploy --config frontend-worker/wrangler.toml`), gated on explicit user approval.
+**Shipped (session 50)** — Pixi is the live default at `agants.datthemaster.com`. Deploy is the CF
+Worker: `source .env && CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN npx wrangler deploy --config
+frontend-worker/wrangler.toml`. The Python game server is unchanged by the graphics work, so
+`deploy.sh` is not needed for a graphics-only deploy.
 After deploy, verify each atlas with `curl -I https://agants.datthemaster.com/game/assets/<name>.png`
 (expect 200 + image content-type).
