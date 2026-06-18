@@ -2,19 +2,24 @@
 
 A PixiJS v8 (WebGL) pixel-art renderer that re-skins the existing game. It consumes the
 **unchanged** server WebSocket stream (`World.serialize_tick()`), so the Python sim is untouched.
-Pixi is now the **default** renderer; the legacy Canvas-2D renderer in `index.html` remains fully
-functional as an opt-out and as the **automatic fallback** if Pixi fails to load or mount.
+The legacy Canvas-2D renderer in `index.html` is the **default**; the Pixi client is **opt-in**.
+
+> ⚠️ **Pixi is opt-in, NOT the default.** It is a *renderer only* — the game-flow UI (lobby +
+> START button, placement overlay, winner/finished screen) lives in the Canvas client's
+> `connect()`/`onmessage` handler, which the Pixi path skips. Defaulting to Pixi (briefly shipped
+> in session 50, then reverted) left players with no way to start a game and no end screen.
+> **Do not make Pixi the default again until that control flow is ported into the Pixi path.**
 
 ## How to view
 
-Pixi is the default. The `?pixi` URL flag controls the renderer (see `index.html`):
+The `?pixi` URL flag controls the renderer (see `index.html`):
 
-- **No flag** → Pixi loads (`vendor/pixi.min.js` + `vendor/pixi-filters.min.js`, then `src/main.js`)
+- **No flag** → the Canvas renderer runs (default; full game flow).
+- **`?pixi=1`** → Pixi loads (`vendor/pixi.min.js` + `vendor/pixi-filters.min.js`, then `src/main.js`)
   and mounts into `#stage`; the Canvas draw path is skipped.
-- **`?pixi=0`** → forces the legacy Canvas renderer.
-- **Automatic fallback** → if Pixi fails to load, throws during init, or hasn't mounted within ~8s
-  (e.g. the intermittent `reading 'split'` crash), `__startCanvas()` brings up the Canvas renderer
-  so the player never sees a blank screen. Fallback triggers only before a successful Pixi mount.
+- **Automatic fallback** → when Pixi is opted in, if it fails to load, throws during init, or hasn't
+  mounted within ~8s (e.g. the intermittent `reading 'split'` crash), `__startCanvas()` brings up
+  the Canvas renderer so the player never sees a blank screen (only before a successful Pixi mount).
 
 ### Local viewing against the replay harness (no production contact)
 
@@ -140,7 +145,9 @@ scaffold frames are lowest priority (placeholders read fine). Add the clip name 
 
 ## Deployment
 
-**Shipped (session 50)** — Pixi is the live default at `agants.datthemaster.com`. Deploy is the CF
+**Deployed (session 50)** to `agants.datthemaster.com` — the Pixi renderer code, atlases, the
+GlowFilter leak fix, and the Canvas auto-fallback are all live. Pixi is **opt-in** (`?pixi=1`);
+Canvas is the default after the Pixi-default rollback (see the ⚠️ note above). Deploy is the CF
 Worker: `source .env && CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN npx wrangler deploy --config
 frontend-worker/wrangler.toml`. The Python game server is unchanged by the graphics work, so
 `deploy.sh` is not needed for a graphics-only deploy.
