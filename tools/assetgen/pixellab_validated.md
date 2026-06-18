@@ -1,5 +1,10 @@
 # pixellab.ai — validated facts (pre-M0 gate)
 
+## Pinned versions (graphics overhaul)
+- PixiJS: **v8.6.6** (UMD) — `frontend/game/vendor/pixi.min.js`
+- pixi-filters: **v6.0.5** (UMD, targets Pixi v8) — `frontend/game/vendor/pixi-filters.min.js`
+
+
 Date: 2026-06-17. Key in `.env` as `PIXELLAB_API_TOKEN` (gitignored, never committed).
 
 ## Confirmed by live API calls
