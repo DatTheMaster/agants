@@ -105,26 +105,20 @@ def run(colony_id: int, name: str, api_key: str = ""):
         while True:
             state = client.get_state()
             tick   = state["tick"]
-            colony = state["colony"]
-            food   = colony[3]
+            food   = state["food"]
             phase  = state.get("phase", "running")
 
             if phase != "running":
                 print(f"[greedy] game ended (phase={phase})")
                 break
 
-            # Build a larder around tick 120 if we have the dirt
+            # Build a larder around tick 120 if we have the dirt.
+            # Larders must be >=20 tiles from the nest, so place it toward the centre.
             if not larder_built and tick >= 120:
-                nx, ny = colony[1], colony[2]
-                # Place larder ~12 tiles in front of nest toward the centre
-                lx = nx + (12 if colony_id == 0 else -12)
+                nx, ny = state["nest"]
+                lx = nx + (22 if colony_id == 0 else -22)
                 try:
-                    client.send_command({
-                        "command_type": "build",
-                        "type": "larder",
-                        "x": lx,
-                        "y": ny,
-                    })
+                    client.build("larder", lx, ny)
                     print(f"[greedy] tick={tick} — larder build ordered at ({lx},{ny})")
                     larder_built = True
                 except Exception as e:

@@ -11,6 +11,7 @@ from engine.constants import (
     S_FIGHTING, S_PATROLLING, S_RECRUITED, S_BUILDING,
     WORKER_HP, SOLDIER_HP, SCOUT_HP, QUEEN_HP,
     SOLDIER_DMG, SOLDIER_CD, QUEEN_DMG, QUEEN_CD,
+    SOLDIER_ENGAGE_ADVANCE, SOLDIER_ENGAGE_HOLD, SOLDIER_ENGAGE_SIEGE,
     FOOD_DELIVER, FOOD_PICK, FOOD_MAX_APPROACH, FOOD_REGROW,
     FOOD_INIT_HOME_MIN, FOOD_INIT_HOME_MAX, FOOD_MAX_HOME,
     FOOD_INIT_APPR_MIN, FOOD_INIT_APPR_MAX,
@@ -303,10 +304,16 @@ class World:
 
         # Minimum income: every living colony gets +1 food/tick during running phase.
         # Prevents permanent stalls (0 workers + no larders would otherwise be 0 income).
+        # Plus a small passive dirt trickle so the structures subsystem is reliably
+        # reachable in the early-mid game (worker dirt-gathering alone arrives ~tick 240,
+        # too late to matter now that combat is decisive). Active gathering stacks on top.
         for c in self.colonies:
             if c.alive:
                 c.food += 1
                 c.food_earned_tick += 1
+                if c.dirt < DIRT_CAP:
+                    c.dirt = min(DIRT_CAP, c.dirt + 1)
+                    c.dirt_earned_tick += 1
 
         # Rebuild occupancy set for soft collision avoidance
         self._ant_pos = {(a.x, a.y) for c in self.colonies for a in c.ants}
@@ -451,6 +458,10 @@ class World:
                             if d < best_d: best_d = d; best = e
                     if best:
                         struct["cd"] = GUARD_POST_CD
+                        # Data hook for the (deferred) ranged-attack animation: record the
+                        # shot's target + tick so the frontend can render a projectile.
+                        struct["fired_at"] = [best.x, best.y]
+                        struct["fire_tick"] = self.tick
                         old_hp = max(0, int(best.hp))
                         best.hp -= GUARD_POST_DMG
                         new_hp = max(0, int(best.hp))
@@ -830,7 +841,12 @@ class World:
                     ant.carrying = False
                 ant.recruit_target = None  # don't return to the danger zone
                 ant.state = S_RETURNING
+                # Flee at full speed toward the nest — a passing soldier gets
+                # soldier_fast double-moves, so a single-step worker would be run
+                # down. Match the carry-return double-move so workers can escape.
                 self._move_to(ant, c.nx, c.ny, 0)
+                if c.worker_fast:
+                    self._move_to(ant, c.nx, c.ny, 0)
                 return
 
         if ant.recruit_target:
@@ -1065,6 +1081,13 @@ class World:
                 self._move_to(ant, tx, ty, 3)
                 self._dep(ant.x, ant.y, 3, 0.6)
                 return
+            elif cmd == "hold":
+                tx, ty = int(ov["x"]), int(ov["y"])
+                ant.state = S_EXPLORING
+                if abs(ant.x - tx) + abs(ant.y - ty) > 2:
+                    self._move_to(ant, tx, ty, 3)
+                self._dep(ant.x, ant.y, 3, 0.6)
+                return
 
         if not ant.carrying:
             wps = ant.resolved_config(c.directive).get("patrol_waypoints")
@@ -1219,6 +1242,26 @@ class World:
 
         in_siege = (c.enemy is not None
                     and abs(ant.x - c.enemy.nx) + abs(ant.y - c.enemy.ny) <= 12)
+
+        # Retreat takes priority over all engagement: a soldier ordered to retreat
+        # must disengage and fall back to the nest even if an enemy is in range,
+        # otherwise auto_attack/attack_target keeps it locked in combat forever.
+        # (Not while in_siege — a committed siege is not abandoned mid-strike.)
+        if c.directive["military"]["retreat"] and not in_siege:
+            dist_to_nest = abs(ant.x - c.nx) + abs(ant.y - c.ny)
+            ant.state = S_PATROLLING
+            if dist_to_nest > 8:
+                self._move_to(ant, c.nx, c.ny, 2)
+            else:
+                # Defensive perimeter — 8 positions at radius 6 around nest
+                _PERIM = [(6,0),(4,4),(0,6),(-4,4),(-6,0),(-4,-4),(0,-6),(4,-4)]
+                ox, oy = _PERIM[ant.id % 8]
+                px = max(0, min(MAP_W-1, c.nx + ox))
+                py = max(0, min(MAP_H-1, c.ny + oy))
+                self._move_to(ant, px, py, 2)
+            self._dep(ant.x, ant.y, 2, 0.3)
+            return
+
         queen_focus = c.directive["military"]["siege_priority"] == "queen"
 
         _rally = c.directive["military"]["rally_point"]
@@ -1230,14 +1273,81 @@ class World:
             _at_rally = _dist_to_rally <= 4
             _en_route_to_rally = not _at_rally
 
-        # Soldiers en route to rally ignore distant enemies (don't break off mid-march);
-        # they only fight if an enemy is adjacent (dist ≤ 2).  Once staged at the rally
-        # point they use the normal small detection window (5) to hold the position.
-        detect_range = 2 if _en_route_to_rally else (5 if _at_rally else 15)
+        # Engagement range is INTENT-AWARE so an advancing army stays massed instead of
+        # each soldier sprinting off to chase its own nearest enemy (which smears the
+        # army into a 40-tile line of 1v1 duels). While moving toward an objective
+        # (rally / attack_target / auto_attack push) the window is tight — fight only
+        # what's right in front and keep marching. Once at the enemy nest it widens to
+        # lock onto the queen.
+        _mil = c.directive["military"]
+        _advancing = bool(_mil.get("attack_target")) or (_mil.get("auto_attack") and c.enemy)
+        if in_siege:
+            detect_range = SOLDIER_ENGAGE_SIEGE
+        elif _en_route_to_rally or _advancing:
+            detect_range = SOLDIER_ENGAGE_ADVANCE
+        elif _at_rally:
+            detect_range = 5
+        else:
+            detect_range = SOLDIER_ENGAGE_HOLD
+
+        # Where an advancing soldier is headed. When advancing, soldiers FIGHT THROUGH
+        # toward this goal instead of freezing at the enemy line — so a numerical edge
+        # converts into a breakthrough rather than an endless 1v1 front-line stalemate.
+        advance_goal = None
+        if not in_siege:
+            _at = _mil.get("attack_target")
+            if _at:
+                advance_goal = (int(_at[0]), int(_at[1]))
+            elif _mil.get("auto_attack") and c.enemy:
+                advance_goal = (c.enemy.nx, c.enemy.ny)
+
+        # Guard posts shoot the army from range and shred it on the approach, so they
+        # are the PRIORITY target — destroy any that can reach us before engaging
+        # anything else, even mid-advance. Detect them out to their own threat range.
+        if not in_siege:
+            gp = self._nearest_enemy_struct(ant, max(detect_range, GUARD_POST_RANGE + 2),
+                                            only_type="guard_post")
+            if gp is not None:
+                ant.state = S_FIGHTING
+                if abs(ant.x - gp["x"]) <= 1 and abs(ant.y - gp["y"]) <= 1:
+                    if ant.cooldown <= 0:
+                        self._strike_struct(ant, gp, c)
+                else:
+                    self._move_to(ant, gp["x"], gp["y"], 1)
+                self._dep(ant.x, ant.y, 1, 0.8)
+                return
+
         enemy = self._nearest_enemy(ant, detect_range, siege=in_siege, queen_focus=queen_focus)
         if enemy:
-            self._move_to(ant, enemy.x, enemy.y, 1)
             ant.state = S_FIGHTING
+            _adjacent = abs(ant.x - enemy.x) <= 1 and abs(ant.y - enemy.y) <= 1
+            # Strike the adjacent enemy FIRST (before moving), so a soldier that then flows
+            # forward through the line still deals its blow this tick.
+            if _adjacent and ant.cooldown <= 0:
+                dmg = SOLDIER_DMG + c.dmg_bonus
+                old_hp = int(enemy.hp)
+                enemy.hp -= dmg; ant.cooldown = c.soldier_fast_cd
+                new_hp = max(0, int(enemy.hp))
+                if enemy.type == A_QUEEN:
+                    c.queen_dmg_dealt_tick += dmg
+                    ec = self.colonies[enemy.colony]
+                    ec.push_event(f"★ QUEEN UNDER ATTACK! HP: {old_hp}→{new_hp} (dealt {dmg})")
+                    ec.push_notification("queen_under_attack", {"hp": int(new_hp), "old_hp": int(old_hp), "dmg": dmg}, tick=self.tick)
+                    c.push_event(f"★ SIEGE — striking enemy queen! HP: {old_hp}→{new_hp} (dealt {dmg})")
+                if c.soldier_splash:
+                    splash_dmg = max(1, int(dmg * 0.4))
+                    for ec in self.colonies:
+                        if ec.id == ant.colony: continue
+                        for stgt in list(ec.ants):
+                            if stgt is enemy: continue
+                            if abs(stgt.x - enemy.x) + abs(stgt.y - enemy.y) <= 1:
+                                stgt.hp -= splash_dmg
+                                if stgt.hp <= 0: self._kill(stgt)
+                if enemy.hp <= 0:
+                    ec = self.colonies[enemy.colony]
+                    ec.push_event(f"{['worker','soldier','scout','queen'][enemy.type]} killed in battle!")
+                    c.push_event(f"killed enemy {['worker','soldier','scout','queen'][enemy.type]}")
+                    self._kill(enemy)
             self._dep(ant.x, ant.y, 1, 1.0)
             steps = max(1, abs(ant.x - c.nx) + abs(ant.y - c.ny))
             for i in range(min(steps, 20)):
@@ -1245,48 +1355,15 @@ class World:
                 x = int(ant.x + (c.nx - ant.x) * t)
                 y = int(ant.y + (c.ny - ant.y) * t)
                 self._dep(x, y, 1, 0.9 * (1 - t * 0.5))
-            if abs(ant.x-enemy.x) <= 1 and abs(ant.y-enemy.y) <= 1:
-                if ant.cooldown <= 0:
-                    dmg = SOLDIER_DMG + c.dmg_bonus
-                    old_hp = int(enemy.hp)
-                    enemy.hp -= dmg; ant.cooldown = c.soldier_fast_cd
-                    new_hp = max(0, int(enemy.hp))
-                    if enemy.type == A_QUEEN:
-                        c.queen_dmg_dealt_tick += dmg
-                        ec = self.colonies[enemy.colony]
-                        ec.push_event(f"★ QUEEN UNDER ATTACK! HP: {old_hp}→{new_hp} (dealt {dmg})")
-                        ec.push_notification("queen_under_attack", {"hp": int(new_hp), "old_hp": int(old_hp), "dmg": dmg}, tick=self.tick)
-                        c.push_event(f"★ SIEGE — striking enemy queen! HP: {old_hp}→{new_hp} (dealt {dmg})")
-                    if c.soldier_splash:
-                        splash_dmg = max(1, int(dmg * 0.4))
-                        for ec in self.colonies:
-                            if ec.id == ant.colony: continue
-                            for stgt in list(ec.ants):
-                                if stgt is enemy: continue
-                                if abs(stgt.x - enemy.x) + abs(stgt.y - enemy.y) <= 1:
-                                    stgt.hp -= splash_dmg
-                                    if stgt.hp <= 0: self._kill(stgt)
-                    if enemy.hp <= 0:
-                        ec = self.colonies[enemy.colony]
-                        ec.push_event(f"{['worker','soldier','scout','queen'][enemy.type]} killed in battle!")
-                        c.push_event(f"killed enemy {['worker','soldier','scout','queen'][enemy.type]}")
-                        self._kill(enemy)
+            # Movement: when advancing toward an objective, keep pressing toward it — the
+            # army grinds FORWARD through the enemy line so a numerical edge becomes a
+            # breakthrough instead of an endless front-line stalemate. Holding/defending
+            # soldiers close on the enemy, or stand and fight if already adjacent.
+            if _advancing and advance_goal is not None:
+                self._move_to(ant, advance_goal[0], advance_goal[1], 1)
+            elif not _adjacent:
+                self._move_to(ant, enemy.x, enemy.y, 1)
         else:
-            if c.directive["military"]["retreat"] and not in_siege:
-                dist_to_nest = abs(ant.x - c.nx) + abs(ant.y - c.ny)
-                ant.state = S_PATROLLING
-                if dist_to_nest > 8:
-                    self._move_to(ant, c.nx, c.ny, 2)
-                else:
-                    # Defensive perimeter — 8 positions at radius 6 around nest
-                    _PERIM = [(6,0),(4,4),(0,6),(-4,4),(-6,0),(-4,-4),(0,-6),(4,-4)]
-                    ox, oy = _PERIM[ant.id % 8]
-                    px = max(0, min(MAP_W-1, c.nx + ox))
-                    py = max(0, min(MAP_H-1, c.ny + oy))
-                    self._move_to(ant, px, py, 2)
-                self._dep(ant.x, ant.y, 2, 0.3)
-                return
-
             rally = c.directive["military"]["rally_point"]
             if rally and not in_siege:
                 if rally and isinstance(rally[0], (list, tuple)):
@@ -1345,7 +1422,21 @@ class World:
                             else:
                                 c.directive["military"]["rally_point"] = None
                                 c.directive["military"]["rally_release_at"] = None
-                                c.push_event(f"★ RALLY RELEASED — {staged} soldiers advancing!")
+                                # Hand the freshly-massed army a forward objective so it
+                                # FLOWS toward the enemy as one body (reusing the advancing
+                                # flow-through model) instead of scattering — half charging
+                                # and half drifting back to the nest. Only seed this when no
+                                # explicit objective is set, so a player's attack_target /
+                                # auto_attack push is never clobbered.
+                                if (not c.directive["military"].get("attack_target")
+                                        and not c.directive["military"].get("auto_attack")
+                                        and c.enemy is not None):
+                                    c.directive["military"]["attack_target"] = [c.enemy.nx, c.enemy.ny]
+                                    c.push_event(
+                                        f"★ RALLY RELEASED — {staged} soldiers advancing on "
+                                        f"enemy nest ({c.enemy.nx},{c.enemy.ny})!")
+                                else:
+                                    c.push_event(f"★ RALLY RELEASED — {staged} soldiers advancing!")
                                 c.push_notification("rally_released", {"staged": staged, "from": [rx, ry]}, tick=self.tick)
                 return
 
@@ -1360,6 +1451,18 @@ class World:
                 else:
                     attack_tgt = [c.enemy.nx, c.enemy.ny]
             if attack_tgt and not in_siege:
+                # Smash any enemy structure right in our path rather than marching past
+                # it (a barracks pumping soldiers, a wall blocking the lane, etc.).
+                es = self._nearest_enemy_struct(ant, SOLDIER_ENGAGE_ADVANCE)
+                if es is not None:
+                    ant.state = S_FIGHTING
+                    if abs(ant.x - es["x"]) <= 1 and abs(ant.y - es["y"]) <= 1:
+                        if ant.cooldown <= 0:
+                            self._strike_struct(ant, es, c)
+                    else:
+                        self._move_to(ant, es["x"], es["y"], 1)
+                    self._dep(ant.x, ant.y, 1, 0.5)
+                    return
                 ax, ay = int(attack_tgt[0]), int(attack_tgt[1])
                 ant.state = S_PATROLLING
                 self._move_to(ant, ax, ay, 2)
@@ -1475,12 +1578,21 @@ class World:
         if blocked(tx, ty):
             return None
 
+        # Weighted A*: on mostly-open terrain a plain admissible heuristic makes A*
+        # explore a huge equal-cost diamond and blow the node budget before reaching a
+        # distant target (returning None → the army falls back to wall-blind greedy and
+        # gets stuck). A greedy bias (W>1) makes A* expand a narrow corridor toward the
+        # goal, routing around walls only where it meets them — long paths are found in a
+        # few hundred nodes. Paths are slightly suboptimal, which is invisible in-game.
+        W = 1.6
         def h(x, y):
             ddx, ddy = abs(x - tx), abs(y - ty)
-            # octile distance (diagonal step = 1, straight step = 1)
-            return max(ddx, ddy)
+            # true octile distance: straight step = 10, diagonal step = 14. Making a
+            # diagonal cost MORE than a straight step stops A* from drifting diagonally
+            # off the straight line (with equal costs it wanders, then snags on walls).
+            return 10 * (ddx + ddy) - 6 * min(ddx, ddy)
 
-        open_heap = [(h(sx, sy), 0, sx, sy)]
+        open_heap = [(W * h(sx, sy), 0, sx, sy)]
         # came_from maps a node to the node it was reached from
         came_from = {(sx, sy): None}
         g_score = {(sx, sy): 0}
@@ -1505,11 +1617,11 @@ class World:
                     if dx != 0 and dy != 0:
                         if blocked(x + dx, y) or blocked(x, y + dy):
                             continue
-                    ng = g + 1
+                    ng = g + (14 if (dx != 0 and dy != 0) else 10)
                     if ng < g_score.get((nx, ny), float("inf")):
                         g_score[(nx, ny)] = ng
                         came_from[(nx, ny)] = (x, y)
-                        heapq.heappush(open_heap, (ng + h(nx, ny), ng, nx, ny))
+                        heapq.heappush(open_heap, (ng + W * h(nx, ny), ng, nx, ny))
         if not found:
             return None
         # walk back from target to the node whose parent is the start
@@ -1524,7 +1636,7 @@ class World:
         # A* first step: routes around wall lines (re-planned every tick so
         # destroyed walls are picked up immediately). Falls back to greedy if
         # no path is found or the node budget is exceeded.
-        step = self._astar_step(ant.x, ant.y, tx, ty, max_nodes=600)
+        step = self._astar_step(ant.x, ant.y, tx, ty, max_nodes=2000)
         if step is not None:
             nx, ny = step
             if self._try_move(ant, nx, ny):
@@ -1668,6 +1780,34 @@ class World:
                     effective_d = d + (12 if o.type == A_QUEEN else 0)
                 if effective_d < best_d: best_d = effective_d; best = o
         return best
+
+    def _nearest_enemy_struct(self, ant, radius, only_type=None):
+        """Nearest enemy structure within radius (Manhattan). Guard posts are weighted
+        as closer so they are picked preferentially — they shoot the passing army and
+        must be destroyed first. Pass only_type to restrict (e.g. 'guard_post')."""
+        best, best_d = None, radius + 1
+        for st in self.structures:
+            if st["colony"] == ant.colony: continue
+            if st.get("hp", 0) <= 0: continue
+            stype = st.get("type", "guard_post")
+            if only_type and stype != only_type: continue
+            d = abs(ant.x - st["x"]) + abs(ant.y - st["y"])
+            effective_d = d - 6 if stype == "guard_post" else d
+            if effective_d < best_d: best_d = effective_d; best = st
+        return best
+
+    def _strike_struct(self, ant, st, c):
+        """Deal one soldier hit to an enemy structure; remove it and emit events if killed."""
+        dmg = SOLDIER_DMG + c.dmg_bonus
+        st["hp"] -= dmg
+        ant.cooldown = c.soldier_fast_cd
+        if st["hp"] <= 0:
+            stype = st.get("type", "guard_post").replace("_", " ").title()
+            ec = self.colonies[st["colony"]]
+            ec.push_event(f"★ {stype} at ({st['x']},{st['y']}) DESTROYED!")
+            c.push_event(f"Destroyed enemy {stype} at ({st['x']},{st['y']})!")
+            if st in self.structures:
+                self.structures.remove(st)
 
     def _kill(self, ant):
         for c in self.colonies:

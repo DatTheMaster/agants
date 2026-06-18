@@ -104,14 +104,13 @@ def run(colony_id: int, name: str, api_key: str = ""):
         while True:
             state  = client.get_state()
             tick   = state["tick"]
-            colony = state["colony"]
             phase  = state.get("phase", "running")
 
             if phase != "running":
                 print(f"[rush] game ended (phase={phase})")
                 break
 
-            soldier_count = colony[4][1] if len(colony) > 4 else 0
+            soldier_count = state["counts"]["soldiers"]
 
             # If the wave was wiped, re-establish the rally point
             if soldier_count < REBUILD and tick > 60:

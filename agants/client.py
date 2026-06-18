@@ -155,14 +155,25 @@ class AgantClient:
 
     def get_state(self) -> dict:
         """
-        Full colony state for the current seat.
+        Full colony state for the current seat (a flat dict of named fields).
 
         Key fields:
-            tick          Current simulation tick
-            colony        [id, nx, ny, food, counts, directive, known_food, ...]
-            ants          List of ant tuples [id,x,y,px,py,colony,type,state,carrying,hp,max_hp]
-            territory     Flat 15000-int array (0=neutral 1=RED 2=BLUE)
-            fog           Flat 15000-int array (0=dark 1=explored 2=visible)
+            tick              Current simulation tick
+            food, dirt        Current resource balances
+            income_per_s, income_smooth, dirt_per_s
+            counts            {"workers", "soldiers", "scouts", "queen"}
+            queen_hp, queen_alive
+            units             List of dicts: {id, type, x, y, hp, max_hp, age,
+                              lifespan, carrying, state, override}
+                              (type is "queen"|"worker"|"soldier"|"scout")
+            military_summary  {total_soldiers, fighting, patrolling, healthy, wounded, ...}
+            combat            {soldiers_in_siege, soldiers_near_enemy_nest,
+                              enemy_queen_hp_observed, ttk_s, ...}
+            viable_food_nodes / viable_dirt_nodes   ranked gather targets
+            advisor           List of actionable strategic hint strings
+            directive         Current colony directive
+            food_intel, enemy_sightings, own_structures, seen_structs
+            territory / fog   Flat MAP_W*MAP_H int arrays
         """
         if self._colony_id is None:
             raise RuntimeError("Not in a seat — call join_seat() first.")
@@ -190,6 +201,27 @@ class AgantClient:
             raise RuntimeError("Not in a seat — call join_seat() first.")
         return self._get(self._match_path(f"/events/{self._colony_id}"))
 
+    def get_units(self, unit_type: str) -> list[dict]:
+        """
+        Slim list of just your units of one type (id, x, y, hp, state) — cheaper than
+        a full get_state when you only need to locate/command units.
+
+        Args:
+            unit_type: "worker" | "soldier" | "scout" | "queen"
+        """
+        if self._colony_id is None:
+            raise RuntimeError("Not in a seat — call join_seat() first.")
+        data = self._get(self._match_path(f"/units/{self._colony_id}") + f"?type={unit_type}")
+        return data.get("units", [])
+
+    def get_chat(self, since_tick: int = 0) -> list[dict]:
+        """
+        Incoming game chat: list of {tick, agent, colony, message}. Pass since_tick to
+        fetch only newer messages. No seat required (spectating chat is open).
+        """
+        data = self._get(self._match_path("/chat") + f"?since_tick={int(since_tick)}")
+        return data.get("messages", [])
+
     # ------------------------------------------------------------------ #
     # Write endpoints (require seat token)                                #
     # ------------------------------------------------------------------ #
@@ -211,19 +243,41 @@ class AgantClient:
 
     def send_command(self, command: dict) -> dict:
         """
-        Send a one-shot command.
+        Send a one-shot command. The dispatch field is ``type``.
 
-        Common commands:
-            buy_upgrade:       {"command_type": "buy_upgrade", "upgrade_type": "scout"}
-            build:             {"command_type": "build", "type": "larder", "x": 30, "y": 50}
-            convert ant:       {"command_type": "convert", "id": <ant_id>, "to": "soldier"}
-            unit move_to:      {"command_type": "unit_command", "ant_id": <id>,
-                                "override": {"type": "move_to", "x": 75, "y": 50}}
-            unit attack:       {"command_type": "unit_command", "ant_id": <id>,
-                                "override": {"type": "attack_xy", "x": 136, "y": 50}}
+        Commands:
+            buy_upgrade:   {"type": "buy_upgrade", "unit": "scout"}   # or "worker"/"soldier"/True
+            build:         {"type": "build", "build": {"type": "larder", "x": 30, "y": 50}}
+            convert ant:   {"type": "convert", "convert": {"id": <ant_id>, "to": "soldier"}}
+            cancel_spawn:  {"type": "cancel_spawn", "unit_type": "soldier"}  # or "all"
+            redistribute:  {"type": "redistribute_workers"}
+            unit move_to:  {"type": "unit_command", "ant_id": <id>, "command": "move_to", "x": 75, "y": 50}
+            unit attack:   {"type": "unit_command", "ant_id": <id>, "command": "attack_xy", "x": 136, "y": 50}
+            unit patrol:   {"type": "unit_command", "ant_id": <id>, "command": "patrol",
+                            "waypoints": [[70, 40], [70, 60]]}
+            unit clear:    {"type": "unit_command", "ant_id": <id>, "command": "clear"}
+            batch:         {"type": "unit_command_batch", "commands": [ {...}, {...} ]}
+
+        Valid unit ``command`` values: move_to, attack_xy, gather, build, hold, patrol, clear.
+        Prefer the typed helpers (buy_upgrade/build/convert/command_unit) over raw dicts.
         """
         path = self._match_path(f"/command/{self._colony_id}")
         return self._post(path, json=command, headers=self._auth_headers())
+
+    def buy_upgrade(self, unit: str | bool = True) -> dict:
+        """Queue an upgrade purchase. unit: "worker"|"scout"|"soldier", or True for cheapest."""
+        return self.send_command({"type": "buy_upgrade", "unit": unit})
+
+    def build(self, structure: str, x: int, y: int) -> dict:
+        """Build a structure. structure: guard_post|watchtower|barracks|wall|larder."""
+        return self.send_command({"type": "build", "build": {"type": structure, "x": x, "y": y}})
+
+    def command_unit(self, ant_id: int, command: str, **kwargs) -> dict:
+        """
+        Order a single ant. command: move_to|attack_xy|gather|build|hold|patrol|clear.
+        Pass x/y for move_to/attack_xy/gather/build, or waypoints=[...] for patrol.
+        """
+        return self.send_command({"type": "unit_command", "ant_id": ant_id, "command": command, **kwargs})
 
     def send_chat(self, message: str) -> None:
         """Broadcast a message to the game chat (attributed to your colony colour)."""
@@ -236,7 +290,7 @@ class AgantClient:
     def start_game(self) -> None:
         """Start the match (from lobby). Both seats must be filled first."""
         path = self._match_path("/control")
-        self._post(path, json={"action": "start_game"}, headers=self._auth_headers())
+        self._post(path, json={"action": "start"}, headers=self._auth_headers())
 
     # ------------------------------------------------------------------ #
     # Helpers                                                             #

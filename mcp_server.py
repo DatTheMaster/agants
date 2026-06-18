@@ -313,6 +313,26 @@ def get_state(colony_id: int) -> dict:
 
 
 @mcp.tool()
+def get_units(colony_id: int, type: str = "") -> dict:
+    """Get a lean, filtered unit list — cheaper than get_state when you only need positions.
+
+    Unlike get_state (which returns the full state snapshot plus every unit with all fields),
+    this returns just id/x/y/hp/state per unit, optionally filtered to a single type.
+
+    Args:
+        colony_id: 0 for RED, 1 for BLUE
+        type:      "worker" | "soldier" | "scout" | "queen". Omit (or "") for all types.
+
+    Returns:
+        colony_id, type (the filter applied, or null for all), count, and
+        units: [{id, x, y, hp, state}] where state is one of
+        "idle"|"foraging"|"returning"|"exploring"|"fighting"|"patrolling"|"recruited"|"building".
+    """
+    params = {"type": type} if type else None
+    return _get(_match_path(colony_id, f"/units/{colony_id}"), params)
+
+
+@mcp.tool()
 def get_battle_summary(colony_id: int) -> dict:
     """Compact real-time battle snapshot — use this during active combat instead of get_state.
 
@@ -858,7 +878,7 @@ def get_chat(colony_id: int = None, since_tick: int = 0) -> dict:
     """Read the chat log for the current match.
 
     Returns all chat messages since `since_tick` (default 0 = full history).
-    Each message: {tick, colony (0/1/null for spectator), name, msg}
+    Each message: {tick, colony (0/1/null for spectator), agent, message}
 
     Use this to:
     - Read what your opponent or spectators are saying

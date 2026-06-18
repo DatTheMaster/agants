@@ -2554,6 +2554,9 @@ class Server:
         except Exception:
             return await self._api_cors(web.json_response({"error": "bad json"}, status=400))
         action = body.get("action", "")
+        # Accept "start_game" (the WebSocket message name) as an alias for "start".
+        if action == "start_game":
+            action = "start"
         if action == "start":
             if m.world.phase in ("lobby", "placement"):
                 asyncio.create_task(self._run_placement_phase(m))
@@ -2721,6 +2724,32 @@ class Server:
             if _fn["amt"] < 50:
                 advisor.append(f"FOOD NODE ({fx},{fy}) {_fn['tier']} nearly empty ({int(_fn['amt'])}♦ left) — "
                                f"workers will idle soon; redistribute_workers() or expand to frontline")
+        # Food depletion ETA. Sum the *discovered* food in each tier band.
+        _home_appr_food = sum(
+            f["amt"] for f in w.foods
+            if f.get("tier") in ("home", "approach")
+            and (f["x"], f["y"]) in c.food_intel
+        )
+        _frontline_food = sum(
+            f["amt"] for f in w.foods
+            if f.get("tier") == "frontline"
+            and (f["x"], f["y"]) in c.food_intel
+        )
+        # When home/approach are exhausted but the colony still has positive income
+        # AND discovered frontline reserves, income is being sustained by the frontline.
+        # Reporting eta=0 in that case is misleading (it reads as imminent starvation),
+        # so flag it and base the ETA on the reserves that actually feed the income.
+        _sustained_by_frontline = (
+            _w_income > 0 and _home_appr_food <= 0 and _frontline_food > 0
+        )
+        if _w_income <= 0:
+            _food_depletion_eta = None
+        elif _sustained_by_frontline:
+            # No home/approach left, but frontline reserves keep income flowing —
+            # ETA reflects how long those reserves last at current income.
+            _food_depletion_eta = round(_frontline_food / _w_income)
+        else:
+            _food_depletion_eta = round(_home_appr_food / _w_income)
         return {
             "tick": w.tick, "phase": w.phase, "colony_id": cid,
             "nest": [c.nx, c.ny],
@@ -2732,21 +2761,10 @@ class Server:
             "income_smooth": round(c.income_smooth if c.income_history else c.income_per_s, 2),
             "larder_income": LARDER_INCOME * sum(1 for st in w.structures if st["colony"] == cid and st.get("type") == "larder"),
             "dirt_per_s": round(c.dirt_per_s, 2),
-            "food_depletion_eta_t": (
-                round(sum(
-                    f["amt"] for f in w.foods
-                    if f.get("tier") in ("home","approach")
-                    and (f["x"], f["y"]) in c.food_intel
-                ) / _w_income)
-                if _w_income > 0 else None
-            ),
+            "food_depletion_eta_t": _food_depletion_eta,
+            "food_depletion_sustained_by_frontline": _sustained_by_frontline,
             "frontline_food_eta_t": (
-                round(sum(
-                    f["amt"] for f in w.foods
-                    if f.get("tier") == "frontline"
-                    and (f["x"], f["y"]) in c.food_intel
-                ) / _w_income)
-                if _w_income > 0 else None
+                round(_frontline_food / _w_income) if _w_income > 0 else None
             ),
             "counts": {"workers": counts[0], "soldiers": counts[1], "scouts": counts[2], "queen": counts[3]},
             "tiers": {"worker": c.worker_tier, "scout": c.scout_tier, "soldier": c.soldier_tier},
@@ -2856,6 +2874,43 @@ class Server:
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
         self._touch_presence_from_req(req, m)
         return await self._api_cors(web.json_response(self._build_colony_state(cid, m)))
+
+    async def api_units(self, req):
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
+        cid = int(req.match_info["colony_id"])
+        if cid not in (0, 1):
+            return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
+        self._touch_presence_from_req(req, m)
+        type_names = ["worker", "soldier", "scout", "queen"]
+        want = req.query.get("type")
+        type_filter = None
+        if want is not None:
+            want = want.strip().lower()
+            if want and want not in type_names:
+                return await self._api_cors(web.json_response(
+                    {"error": f"invalid type '{want}'; expected one of {type_names}"}, status=400))
+            if want:
+                type_filter = type_names.index(want)
+        w = m.world
+        if not w.colonies or cid >= len(w.colonies):
+            return await self._api_cors(web.json_response({"error": "game not started"}))
+        c = w.colonies[cid]
+        state_names = ["idle", "foraging", "returning", "exploring",
+                       "fighting", "patrolling", "recruited", "building"]
+        units = [
+            {"id": a.id, "x": a.x, "y": a.y, "hp": int(a.hp),
+             "state": state_names[a.state] if a.state < 8 else "idle"}
+            for a in c.ants
+            if type_filter is None or a.type == type_filter
+        ]
+        return await self._api_cors(web.json_response({
+            "colony_id": cid,
+            "type": want if (want is not None and want) else None,
+            "count": len(units),
+            "units": units,
+        }))
 
     async def api_battle_summary(self, req):
         m = self._get_match_or_default(req)
@@ -3186,9 +3241,13 @@ class Server:
             body = await req.json()
         except Exception:
             return await self._api_cors(web.json_response({"error": "bad json"}, status=400))
-        cmd_type = body.get("type", "")
+        # Forgiving dispatch: agents commonly guess "command_type"; accept it as an alias.
+        # command_type wins when explicitly present, so the older flat form
+        # {"command_type":"build","type":"larder",...} keeps "type" free for the structure.
+        cmd_type = body.get("command_type") or body.get("type") or ""
         if cmd_type == "buy_upgrade":
-            unit = body.get("unit", True)
+            # Accept "unit" (canonical) plus common guesses "upgrade_type"/"unit_type".
+            unit = body.get("unit", body.get("upgrade_type", body.get("unit_type", True)))
             c = m.world.colonies[cid]
             _UPGRADE_COSTS_MAP = {
                 "worker":  WORKER_UPGRADE_COSTS,
@@ -3224,7 +3283,15 @@ class Server:
                         "food_current": int(c.food), "food_needed": cost - int(c.food),
                     }))
         elif cmd_type == "build":
-            b = body.get("build", {})
+            b = body.get("build")
+            # Forgiving: accept a flat form too, e.g.
+            # {"type":"build","structure":"larder","x":30,"y":50} or the older
+            # {"command_type":"build","type":"larder","x":30,"y":50}.
+            if not isinstance(b, (dict, list)):
+                flat_type = body.get("structure") or body.get("build_type")
+                if not flat_type and body.get("type") not in (None, "", "build"):
+                    flat_type = body.get("type")
+                b = {"type": flat_type or "guard_post", "x": body.get("x"), "y": body.get("y")}
             c = m.world.colonies[cid]
             # Synchronous dirt validation before queuing
             _BUILD_COSTS = {"guard_post": GUARD_POST_COST, "watchtower": WATCHTOWER_COST,
@@ -3400,8 +3467,25 @@ class Server:
         m = self._get_match_or_default(req)
         if m is None:
             return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
-        since = int(req.rel_url.query.get("since_tick", 0))
-        msgs = [e for e in m.chat_log if e["tick"] >= since]
+        try:
+            since = int(req.rel_url.query.get("since_tick", 0))
+        except (TypeError, ValueError):
+            since = 0
+        msgs = []
+        for e in m.chat_log:
+            if e["tick"] < since:
+                continue
+            # Return both internal keys and stable agent-facing aliases
+            # (agent/message) so MCP agents get a clean, documented shape.
+            msgs.append({
+                "tick":    e["tick"],
+                "colony":  e["colony"],
+                "agent":   e["name"],
+                "name":    e["name"],
+                "message": e["msg"],
+                "msg":     e["msg"],
+                "cls":     e["cls"],
+            })
         return await self._api_cors(web.json_response({"messages": msgs, "total": len(m.chat_log)}))
 
     async def api_create_match(self, req):
@@ -3714,6 +3798,7 @@ class Server:
         router.add_delete("/api/seat/{colony_id}",           self.api_release_seat)
         router.add_post("/api/control",                      self.api_control)
         router.add_get("/api/state/{colony_id}",             self.api_state)
+        router.add_get("/api/units/{colony_id}",             self.api_units)
         router.add_get("/api/battle_summary/{colony_id}",   self.api_battle_summary)
         router.add_get("/api/match_status",                  self.api_match_status)
         router.add_post("/api/forfeit",                      self.api_forfeit)
@@ -3734,6 +3819,7 @@ class Server:
         router.add_post("/api/matches/{match_id}/control",                      self.api_control)
         router.add_post("/api/matches/{match_id}/forfeit",                      self.api_forfeit)
         router.add_get("/api/matches/{match_id}/state/{colony_id}",             self.api_state)
+        router.add_get("/api/matches/{match_id}/units/{colony_id}",             self.api_units)
         router.add_get("/api/matches/{match_id}/battle_summary/{colony_id}",   self.api_battle_summary)
         router.add_get("/api/matches/{match_id}/match_status",                  self.api_match_status)
         router.add_get("/api/matches/{match_id}/notifications/{colony_id}",     self.api_notifications)
@@ -3762,7 +3848,8 @@ class Server:
         app.on_shutdown.append(_on_shutdown)
         runner = web.AppRunner(app)
         await runner.setup()
-        await web.TCPSite(runner, "0.0.0.0", 8083).start()
+        listen_port = int(os.environ.get("PORT", "8083"))
+        await web.TCPSite(runner, "0.0.0.0", listen_port).start()
         red_type  = _brain_for(0)["type"]
         blue_type = _brain_for(1)["type"]
         print(f"🐜  Agants v{VERSION} ({BUILD}) — {PUBLIC_URL}")

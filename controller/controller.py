@@ -234,6 +234,15 @@ class GameClient:
     async def send_chat(self, message: str) -> dict:
         return await self._tool_request("POST", self._mpath("/chat"), {"message": message})
 
+    async def get_chat(self, since_tick: int = 0) -> dict:
+        return await self._tool_request("GET", self._mpath("/chat") + f"?since_tick={int(since_tick)}")
+
+    async def get_units(self, unit_type: str = "") -> dict:
+        suffix = self._mpath(f"/units/{self.colony_id}")
+        if unit_type:
+            suffix += f"?type={unit_type}"
+        return await self._tool_request("GET", suffix)
+
     async def submit_feedback(self, feedback: str, category: str = "general") -> dict:
         return await self._tool_request("POST", "/api/feedback",
                                         {"feedback": feedback, "category": category,
@@ -282,6 +291,22 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {
             "message": {"type": "string"}}, "required": ["message"]}}},
     {"type": "function", "function": {
+        "name": "get_chat",
+        "description": "Read recent in-game chat — INCOMING messages from the opponent and spectators. "
+                       "Returns [{tick, agent, colony, message}]. Pass since_tick to get only newer "
+                       "messages. Use to react to taunts or banter; chat is now two-way.",
+        "parameters": {"type": "object", "properties": {
+            "since_tick": {"type": "integer",
+                           "description": "Only return messages after this tick (default 0 = all recent)."}}}}},
+    {"type": "function", "function": {
+        "name": "get_units",
+        "description": "Fetch a SLIM list of just your units of one type (id,x,y,hp,state) without the full "
+                       "state dump — the cheap way to grab soldier/worker/scout IDs and positions for "
+                       "unit_command. 'type' is worker|soldier|scout|queen.",
+        "parameters": {"type": "object", "properties": {
+            "type": {"type": "string", "enum": ["worker", "soldier", "scout", "queen"]}},
+            "required": ["type"]}}},
+    {"type": "function", "function": {
         "name": "submit_feedback",
         "description": "Log feedback about game state quality, missing data, or anything that made your "
                        "decision-making harder. This is stored server-side for developer review. "
@@ -320,40 +345,40 @@ DIRECTIVE LEVERS (patch_directive):
 
 HARD RULES — violating these loses games:
 
-1. RETREAT CANCELS ATTACK. Never set retreat=True while attack_target is set — soldiers will
-   just circle your own nest forever. To attack: patch {{\"military\":{{\"retreat\":false,
-   \"attack_target\":[ex,ey]}}}} in a single call. To defend: clear attack_target first.
+1. OFFENSE OR DEFENSE, NOT BOTH. retreat=True reliably pulls soldiers home and overrides
+   attacking, so never set retreat=True and attack_target at the same time. To attack, patch in
+   ONE call: {{\"military\":{{\"retreat\":false,\"attack_target\":[ex,ey],\"siege_priority\":\"queen\"}}}}.
+   To defend: {{\"military\":{{\"retreat\":true,\"attack_target\":null}}}}; clear retreat once safe.
 
-2. RALLY BEFORE ATTACKING. Set rally_point near midfield (x=75,y=50) and rally_release_at=12
-   BEFORE you set attack_target. Soldiers that advance without rallying die one-by-one at the
-   chokepoint. The sequence is: (a) set rally_point+rally_release_at → wait for count → (b) set
-   attack_target and clear rally_point in the same patch.
+2. JUST ATTACK — RALLY IS OPTIONAL. Armies now advance as a body and push THROUGH the
+   chokepoints together (they no longer die one-by-one), so once you have a soldier mass (~10+)
+   you can set attack_target=[{enemy_nest}] directly. Rally is only a TIMING tool: to launch one
+   big coordinated wave, set rally_point=[75,50]+rally_release_at=12, wait for the count, then in
+   ONE call set attack_target and clear rally_point. Don't stall your whole army rallying every fight.
 
-3. BUILD A LARDER BY TICK 200. Home/approach food nodes deplete ~tick 300. After that, income=0
-   means you can never spawn again. Larder costs 150 dirt (+6 food/t passive forever). Use
-   send_command("build", {{"build":{{"type":"larder","x":<near nest>,"y":<near nest>}}}}).
-   To accumulate dirt: patch economy.gather_dirt=true (workers actively gather from nearby deposits).
-   Watch dirt_income in state. If dirt=0 at tick 80+, set gather_dirt=true immediately.
+3. BUILD A LARDER (~tick 150-200). Home/approach food depletes ~tick 300; a larder (150 dirt,
+   +6 food/t forever) keeps you spawning. Dirt now accumulates on its own (workers gather it by
+   default + a small passive trickle), so you'll have ~150 dirt by mid-game without doing anything
+   — just build when you can afford it: send_command("build", {{"build":{{"type":"larder",
+   "x":<≥20 tiles from your nest>,"y":<y>}}}}). NOTE: larders must be ≥20 tiles from your nest.
 
-4. SIEGE REQUIRES siege_priority="queen". Without it soldiers fight bodyguards and deal 0
-   damage to the queen. Set it the moment your soldiers enter enemy territory.
+4. SIEGE: keep siege_priority="queen" so soldiers focus the enemy queen over her bodyguards.
+   Enemy guard posts are auto-targeted by your soldiers — no need to micro them.
 
 STRATEGY FLOW:
- - Early (0–150): 60% workers, auto_upgrade=true, scout the flanks, queue 1-2 soldiers.
- - Mid (150–300): shift to 50% soldiers, set rally_point=[75,50], rally_release_at=12.
-   Build larder NOW before food depletes.
- - Attack: once rally count hit, patch retreat=false + attack_target=[{enemy_nest}] +
-   rally_point=null + siege_priority="queen" in one call.
- - Defend: if enemy_soldiers_near_nest>3, patch retreat=true + attack_target=null.
-   Clear retreat once threat passes.
- - Read 'advisor' hints — they name exactly what's being neglected.
+ - Early (0-150): ~60% workers, auto_upgrade=true, scout the flanks, queue a few soldiers.
+ - Mid (150-350): shift to ~55% soldiers. Once you have ~10+ soldiers, push:
+   attack_target=[{enemy_nest}] + siege_priority="queen". Build a larder when you have 150 dirt.
+ - Defend: if enemy_soldiers_near_nest>3, patch retreat=true + attack_target=null; clear once safe.
+ - Read 'advisor' hints (they name what you're neglecting) and get_chat (react to the opponent).
 
 TOOLS: patch_directive(patches) sets standing orders. send_command(command_type,data) for
-buy_upgrade/build/convert/cancel_spawn/unit_command. get_intel_map() for a spatial picture.
+buy_upgrade/build/convert/cancel_spawn/unit_command. get_units(type) grabs unit IDs/positions
+cheaply. get_chat(since_tick) reads incoming messages. get_intel_map() for a spatial picture.
 send_chat(message) to taunt. Be decisive: usually 1-2 tool calls per tick.
 For unit_command: data is flat — {{\"ant_id\":N,\"command\":\"move_to\",\"x\":X,\"y\":Y}}.
 Do NOT nest command inside an \"override\" dict.
-ONLY use ant IDs from the idle_workers list in the state message — never guess or increment IDs.
+Use ant IDs from the state's unit lists or get_units(type) — never guess or increment IDs.
 Ants die frequently; IDs become stale within 1-2 ticks. If you see 400 errors, stop retrying and use directives instead.
 
 FEEDBACK: When the game ends (phase=ended, or your colony alive=False), call submit_feedback()
@@ -461,6 +486,8 @@ async def agent_loop(client: GameClient, llm: OpenAI, model: str, ui: UI, loop: 
         "send_command": lambda a: client.send_command(a.get("command_type", ""), a.get("data", {})),
         "get_intel_map": lambda a: client.get_intel_map(),
         "send_chat": lambda a: client.send_chat(a.get("message", "")),
+        "get_chat": lambda a: client.get_chat(a.get("since_tick", 0)),
+        "get_units": lambda a: client.get_units(a.get("type", "")),
         "submit_feedback": lambda a: client.submit_feedback(a.get("feedback", ""), a.get("category", "general")),
     }
     _state_errors = 0

@@ -88,7 +88,7 @@ mcp_servers:
 { "mcp": { "agants": { "type": "remote", "url": "https://mcp.datthemaster.com/agants/mcp" } } }
 ```
 
-Call `join_seat(0, "MyAgent")` and start playing. 29 tools available: `get_state`, `patch_directive`, `command_units`, `build_structure`, and more.
+Call `join_seat(0, "MyAgent")` and start playing. 32 tools available: `get_state`, `get_units`, `patch_directive`, `command_units`, `build_structure`, `get_chat`, and more.
 
 > **Important:** use streamable-HTTP (not SSE). The server runs behind Cloudflare, which doesn't support long-lived SSE. Claude Code = `"type": "http"`, OpenClaw = `"transport": "streamable-http"`, OpenCode = `"type": "remote"`.
 
@@ -236,7 +236,7 @@ Or run `python3 controller.py --setup` for an interactive wizard.
 ```
 agants/
 ├── server.py          # Sim engine + WebSocket + REST API
-├── mcp_server.py      # FastMCP server — 29 tools for agent control
+├── mcp_server.py      # FastMCP server — 32 tools for agent control
 ├── agants/
 │   ├── client.py      # Python SDK — AgantClient wrapper
 │   └── __init__.py

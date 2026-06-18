@@ -135,7 +135,10 @@ class DirectiveEngine:
                 "upgrade_priority": ["scout", "worker", "soldier"],
                 "auto_upgrade": True,
                 "priority_food": None,
-                "gather_dirt": False,
+                # Default ON so the structures subsystem is reachable without an agent
+                # discovering an obscure flag. Only task-seeking (idle) workers divert to
+                # dirt, and only at a low rate, so active food foraging is unaffected.
+                "gather_dirt": True,
                 "upgrade_reserve": {},
             },
             "military": {

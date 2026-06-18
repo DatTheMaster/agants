@@ -60,6 +60,16 @@ SOLDIER_HP  = 200
 WORKER_HP   = 55
 SCOUT_HP    = 45
 
+# ── Soldier engagement ranges ───────────────────────────────────────────────────
+# How far a soldier will break formation to chase an enemy, by intent. A large
+# range makes every soldier independently sprint at its own nearest target, which
+# shreds an advancing army into a 40-tile smear of 1v1 duels (the army never
+# masses or sieges). Keep these tight so soldiers advance toward the OBJECTIVE as
+# a body and only fight what is right in front of them.
+SOLDIER_ENGAGE_ADVANCE = 3   # while advancing to a rally / attack_target / auto_attack push
+SOLDIER_ENGAGE_HOLD    = 6   # while defending / patrolling near home (was effectively 15)
+SOLDIER_ENGAGE_SIEGE   = 15  # once at the enemy nest — lock onto the queen
+
 # ── Guard Post ─────────────────────────────────────────────────────────────────
 GUARD_POST_COST  = 150
 GUARD_POST_HP    = 300
