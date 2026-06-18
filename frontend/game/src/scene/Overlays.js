@@ -85,9 +85,11 @@ export class Overlays {
     this._lastTerrKey = key;
     this._free(this._terrSprite);
     this._terrSprite = this._bake(app, territory, (v) => {
-      // Subtle tint so the ground isn't washed red/blue (units must read clearly).
-      if (v === 1) return { color: 0xc83c3c, alpha: 22 / 255 }; // RED
-      if (v === 2) return { color: 0x3c54dc, alpha: 22 / 255 }; // BLUE
+      // Very faint tint — just enough to read ownership at a glance, but NOT enough to
+      // wash the ground red/blue. A stronger red tint made red units blend into their
+      // own territory (user feedback). Units must always read clearly over it.
+      if (v === 1) return { color: 0xc83c3c, alpha: 13 / 255 }; // RED
+      if (v === 2) return { color: 0x3c54dc, alpha: 13 / 255 }; // BLUE
       return null;
     });
     this.territoryLayer.addChild(this._terrSprite);
