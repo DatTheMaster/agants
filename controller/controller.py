@@ -437,10 +437,17 @@ def format_state_message(state: dict, notifs: list[dict]) -> str:
                      "the income sensor may be delayed or unreliable; do NOT over-react to 0-income.")
     units = state.get("units", [])
     if units:
-        idle_workers = [u for u in units if u["type"] == "worker" and u.get("state") == "idle" and not u.get("override")][:6]
+        idle_workers = [u for u in units if u["type"] == "worker" and u.get("state") == "idle" and not u.get("override")]
+        workers_total = sum(1 for u in units if u["type"] == "worker")
         if idle_workers:
-            lines.append(f"idle_workers (tick {state['tick']}): " +
-                         ", ".join(f"id={u['id']}@({u['x']},{u['y']})" for u in idle_workers))
+            ids = ", ".join(f"id={u['id']}@({u['x']},{u['y']})" for u in idle_workers[:8])
+            lines.append(
+                f"⚠ IDLE WORKERS: {len(idle_workers)}/{workers_total} workers sitting idle "
+                f"= wasted economy/income. ACT THIS TURN to put them to work: set "
+                f"economy.priority_food=[x,y] toward a viable food node (see food_nodes above), "
+                f"set economy.gather_dirt=true to mine dirt, and/or per-worker "
+                f"send_command('unit_command',{{ant_id,command:'gather',x,y}}). If home/approach "
+                f"food is depleted, push priority_food to a FRONTLINE node or expand. idle: {ids}")
     if state.get("advisor"):
         lines.append("ADVISOR: " + " | ".join(state["advisor"]))
     if state.get("events"):
