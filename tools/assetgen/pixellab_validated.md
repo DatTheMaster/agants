@@ -36,7 +36,64 @@ Optional: `no_background`, `view` ("high top-down"), `outline`, `shading`, `deta
 `text_guidance_scale` (1–20, def 8), `color_image` (forced palette), `seed`, `init_image`.
 Response: `{usage, image:{base64}}`.
 
-## Still TODO in the pre-M0 gate
-- Confirm actual `usage.generations` for one skeleton animation + one 8-rotation.
-- Grayscale-base + Pixi tint legibility test at 32px (RED vs BLUE).
-- Free-rotation legibility test on a real generated ant (and the 128×128 queen).
+## Asset generation run (2026-06-18) — actual generations used
+
+**TOTAL: 26 / 30 budget** (4 buffer left, stopped early per frugal mandate).
+Full per-call ledger: `tools/assetgen/ledger.json`. Script: `tools/assetgen/gen.py`
+(REST API direct via `requests`; the `pixellab` SDK was NOT installed, not needed).
+
+| Group | Endpoint | Subjects | Gens |
+|---|---|---|---|
+| anchor (pre-existing) | generate-image-pixflux | worker_anchor / worker_idle | 1 |
+| ants | generate-image-pixflux | soldier, scout, queen[128] | 3 |
+| structures | generate-image-pixflux | guard_post, watchtower, barracks, wall, larder (all _active) | 5 |
+| terrain | generate-image-pixflux (no_background=false) | dirt, leaf, water, rock, nest | 5 |
+| nodes | generate-image-pixflux | food×4 (seeds/beetle/leaf/honeydew), dirt_node×2 | 6 |
+| anim | **animate-with-text** | worker_walk (4 frames) | **1.0** |
+| extra | generate-image-pixflux + animate-with-text | guard_post_damaged, wall_damaged, soldier_walk(4f) | 3 |
+
+### CONFIRMED animation cost
+- `POST /v1/animate-with-text`, 4 frames @ 64×64, returns `usage.generations = 1.0`
+  (NOT ~2 as estimated). A 4-frame walk = **1 generation**. Confirmed twice
+  (worker_walk, soldier_walk). The `/animate-with-skeleton` endpoint was NOT used;
+  `animate-with-text` with `action:"walk"` + `reference_image` worked first try.
+
+### Generation method notes (lessons)
+- **pixflux (text→sprite) is the reliable path.** bitforge `style_image` transfer
+  produced NOISE when fed the sparse/transparent 64×64 anchor (style_strength read the
+  empty bg as texture). Switched all subjects to pixflux with a shared `seed=4242` +
+  gray `color_image` for coherence instead. Two bitforge calls failed BEFORE spending
+  budget (HTTP 500 on a size mismatch; the failed queen-at-128 bitforge call also did
+  not bill) — only successful 200s were counted.
+- **Queen @128 via bitforge fails**: `style_image must be size (128,128)`. Use pixflux
+  for the queen (text→sprite has no style-size constraint).
+- Walk-anim frames inherited the near-black tone of the original anchor (the anchor
+  came out dark). Frames are distinct (leg motion visible) and usable; if a cleaner
+  gray walk is wanted later, regenerate from a gray `worker_idle_0` reference (1 gen).
+
+## Packing (DONE)
+- `free-tex-packer-cli` v0.3.0 is installed but ONLY accepts `--project file.ftpp`
+  (no inline flags), awkward to script. Replaced with `tools/assetgen/pack.py` — an
+  in-house deterministic packer emitting the **TexturePacker JSON-hash** format Pixi v8
+  `Assets.load()` parses (verified field shapes against the vendored pixi.min.js parser:
+  `frames`, `animations`, `rotated`, `trimmed`, `sourceSize`, `spriteSourceSize`,
+  `meta.image`, `meta.scale` all present/consumed).
+- Output committed to `frontend/game/assets/`: ants (12 frames/6 anims, 512×256),
+  structures (8 frames, 512×256), terrain (5 frames, 512×128), nodes (6 frames, 512×128).
+  `fx.*` NOT produced — all FX are procedural per spec §6.5 (renderer falls back).
+- `animations` resolve: `ants.animations.worker_walk` = 4 ordered textures,
+  `soldier_walk` = 4, single-frame idles (`worker_idle/soldier_idle/scout_idle/queen_idle`)
+  = 1 each. Frame keys keep the `.png` suffix (e.g. `worker_idle_0.png`); clip names per
+  spec §3.3 are the animation keys.
+
+## Verification status
+- Atlas frame bounds + image sizes validated (Python/PIL): all in-bounds, sizes match meta.
+- Pixi JSON-hash field compatibility confirmed by inspecting the vendored Pixi v8 parser.
+- **Visual browser load NOT run**: Playwright Chrome is not installed in this env
+  (`/opt/google/chrome/chrome` missing). M2/M3 should load the atlases in-browser to
+  confirm `sheet.animations[...]` renders. Static format checks all pass.
+
+## Still TODO (deferred to later milestones, not this asset pass)
+- Grayscale-base + Pixi tint legibility test at 32px (RED vs BLUE) — needs in-browser Pixi.
+- Free-rotation legibility test on a real generated ant + the 128×128 queen — M3.
+- Optional: structure under-construction (scaffold) frames + scout/queen walk (budget: 4 left).

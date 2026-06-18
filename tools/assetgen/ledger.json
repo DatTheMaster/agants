@@ -1,0 +1,166 @@
+{
+  "generations": 26.0,
+  "calls": [
+    {
+      "label": "pre-existing anchor (worker_anchor.png)",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0
+    },
+    {
+      "label": "ant soldier_idle_0",
+      "endpoint": "generate-image-bitforge",
+      "generations": 1.0,
+      "latency_s": 16.1
+    },
+    {
+      "label": "ant scout_idle_0",
+      "endpoint": "generate-image-bitforge",
+      "generations": 1.0,
+      "latency_s": 26.5
+    },
+    {
+      "label": "ant queen_idle_0",
+      "endpoint": "generate-image-bitforge",
+      "status": 500,
+      "error": "{\"detail\":\"style_image must be size (128, 128), not torch.Size([64, 64])\"}"
+    },
+    {
+      "label": "ant soldier_idle_0",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 16.2
+    },
+    {
+      "label": "ant scout_idle_0",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 45.9
+    },
+    {
+      "label": "ant queen_idle_0",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 29.7
+    },
+    {
+      "label": "struct guard_post_active",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 26.6
+    },
+    {
+      "label": "struct watchtower_active",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 17.5
+    },
+    {
+      "label": "struct barracks_active",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 18.8
+    },
+    {
+      "label": "struct wall_active",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 17.6
+    },
+    {
+      "label": "struct larder_active",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 18.3
+    },
+    {
+      "label": "terrain dirt_0",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 12.0
+    },
+    {
+      "label": "terrain leaf_0",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 15.4
+    },
+    {
+      "label": "terrain water_0",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 20.3
+    },
+    {
+      "label": "terrain rock_0",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 15.2
+    },
+    {
+      "label": "terrain nest_0",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 13.0
+    },
+    {
+      "label": "node food_seeds",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 25.6
+    },
+    {
+      "label": "node food_beetle",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 21.6
+    },
+    {
+      "label": "node food_leaf",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 43.3
+    },
+    {
+      "label": "node food_honeydew",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 21.9
+    },
+    {
+      "label": "node dirt_node_0",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 19.9
+    },
+    {
+      "label": "node dirt_node_1",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 16.1
+    },
+    {
+      "label": "anim worker_walk (animate-with-text)",
+      "endpoint": "animate-with-text",
+      "generations": 1.0,
+      "latency_s": 29.1
+    },
+    {
+      "label": "struct guard_post_damaged",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 19.6
+    },
+    {
+      "label": "struct wall_damaged",
+      "endpoint": "generate-image-pixflux",
+      "generations": 1.0,
+      "latency_s": 17.3
+    },
+    {
+      "label": "anim soldier_walk",
+      "endpoint": "animate-with-text",
+      "generations": 1.0,
+      "latency_s": 15.8
+    }
+  ]
+}
