@@ -2208,8 +2208,13 @@ class Server:
             elapsed = time.monotonic() - t0
             print(f"    ❌ debrief error after {elapsed:.2f}s: {e}\n")
 
+    # The human spectator UI is the Cloudflare Worker frontend, NOT this API host. The
+    # local landing.html has root-relative links (/matches.html, /config.js, …) that
+    # resolve against api.datthemaster.com and 404 here, so send humans to the real site.
+    FRONTEND_URL = "https://agants.datthemaster.com/"
+
     async def on_index(self, req):
-        return web.FileResponse("./frontend/landing.html")
+        raise web.HTTPFound(self.FRONTEND_URL)
 
     async def on_game(self, req):
         return web.FileResponse("./frontend/index.html")
@@ -3889,9 +3894,10 @@ class Server:
 
         # A bare "/agants" (no trailing slash) does NOT match the subapp mount point —
         # aiohttp subapps only resolve at "/agants/…". Without this, a human typing the
-        # natural URL gets a confusing 404. Redirect it to the canonical "/agants/".
+        # natural URL gets a confusing 404. Send them to the real spectator frontend
+        # (the local /agants/ landing has host-breaking root-relative links).
         async def _agants_redirect(_req):
-            raise web.HTTPMovedPermanently("/agants/")
+            raise web.HTTPFound(self.FRONTEND_URL)
         app.router.add_get("/agants", _agants_redirect)
 
         subapp = web.Application()
