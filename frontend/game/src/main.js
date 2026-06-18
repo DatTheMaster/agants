@@ -8,6 +8,7 @@ import { Stage } from './scene/Stage.js';
 import { Camera } from './scene/Camera.js';
 import { TileGrid } from './scene/TileGrid.js';
 import { Overlays } from './scene/Overlays.js';
+import { StructureView } from './entities/StructureView.js';
 import { Loop } from './render/Loop.js';
 
 export async function main() {
@@ -36,6 +37,15 @@ export async function main() {
   } catch (e) {
     console.warn('[pixi] terrain atlas not loaded, using flat-color tiles:', e?.message || e);
   }
+
+  // Optional structures atlas — falls back to placeholder shapes if missing (spec).
+  let structAtlas = null;
+  try {
+    structAtlas = await PIXI.Assets.load('./assets/structures.json');
+  } catch (e) {
+    console.warn('[pixi] structures atlas not loaded, using placeholder shapes:', e?.message || e);
+  }
+  const structureView = new StructureView(stage.structureLayer, structAtlas);
 
   const store = new SnapshotStore();
   let mapBuilt = false;
@@ -80,17 +90,22 @@ export async function main() {
         overlays.updateTerritory(app, snap.territory);
         overlays.updateFog(app, snap.fog);
       }
+      // Structures + nests: non-positional, synced once per tick.
+      structureView.sync(store);
       // Reuse the existing DOM HUD.
       try { window.state = snap; window.updateSidebar?.(snap); } catch (e) { /* HUD optional */ }
     },
   });
   conn.connect();
 
-  // Single ticker: M1 has no per-frame interpolation work yet (terrain/overlays
-  // are static between ticks); kept so M2+ can lerp sprite positions here.
-  new Loop().start(app, store, (_t) => { /* M2+ binds sprites here */ });
+  // Single ticker: M1/M2 have no per-frame positional interpolation (terrain,
+  // overlays, structures are static between ticks); structures only need their
+  // procedural auras pulsed. M3 adds ant lerping here.
+  new Loop().start(app, store, (_t) => {
+    structureView.refreshPulse(app.ticker.deltaMS);
+  });
 
-  window.__agants = { app, stage, store, conn, camera, tileGrid, overlays };
+  window.__agants = { app, stage, store, conn, camera, tileGrid, overlays, structureView };
   console.log('[pixi] client mounted; ws=', url);
 }
 main();
