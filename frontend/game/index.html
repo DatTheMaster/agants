@@ -848,6 +848,24 @@ canvas { display: block; }
 </div>
 
 <script>
+  // Opt-in Pixi client: ?pixi=1 loads the new ESM renderer and SKIPS the Canvas path.
+  window.__USE_PIXI = new URLSearchParams(location.search).get('pixi') === '1';
+</script>
+<script>
+  if (window.__USE_PIXI) {
+    const load = (src, mod) => new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = src; if (mod) s.type = 'module';
+      s.onload = res; s.onerror = rej; document.body.appendChild(s);
+    });
+    load('./vendor/pixi.min.js')
+      .then(() => load('./vendor/pixi-filters.min.js').catch(() => {}))  // filters optional in M0
+      .then(() => load('./src/main.js', true))
+      .catch((e) => console.error('[pixi] failed to load renderer', e));
+  }
+</script>
+
+<script>
 // ═══════════════════════════════════════════════════════════════════════════════
 // Setup
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2719,7 +2737,10 @@ function cyclePov() {
 // ─── Window resize ───────────────────────────────────────────────────────────
 window.addEventListener("resize", resizeCanvas);
 
-connect();
+// Skip the Canvas renderer entirely when the opt-in Pixi client is active (?pixi=1).
+if (!window.__USE_PIXI) {
+  connect();
+}
 </script>
 </body>
 </html>

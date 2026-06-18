@@ -20,6 +20,9 @@ data/
 # Replay capture (large local artifact, not source)
 tools/replay/match.jsonl
 
+# Replay verification screenshots
+tools/replay/shots/
+
 # Agent workspaces
 .hermes/
 HERMES_TESTS/
