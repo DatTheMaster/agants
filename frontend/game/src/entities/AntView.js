@@ -336,7 +336,11 @@ export class AntViews {
       // Facing from the tick segment heading; null when not moving (keep last).
       const dx = to.x - from.x, dy = to.y - from.y;
       const moved = (dx * dx + dy * dy) > 1e-6;
-      const angle = moved ? Math.atan2(dy, dx) : null;
+      let angle = moved ? Math.atan2(dy, dx) : null;
+      // The queen is fixed at her nest, so she keeps the default art orientation —
+      // which points her head OUTWARD for the left (RED) colony. Force her to face
+      // midfield (toward the enemy): RED (colony 0) looks east, BLUE (colony 1) west.
+      if (entry.type === 3) angle = entry.colony === 0 ? Math.PI : 0;
 
       const tier = store.tierForAnt(entry.colony, entry.type);
       v.update(entry, tier, wx, wy, angle);
