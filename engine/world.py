@@ -680,18 +680,38 @@ class World:
             elif c._rally_stall_since is None:
                 c._rally_stall_since = self.tick
             elif self.tick - c._rally_stall_since >= STALL_TICKS and (self.tick - c._rally_stall_since) % STALL_TICKS == 0:
+                # Diagnose WHY it stalled: a rally on the enemy's half of the map is the
+                # common cause — reinforcing soldiers fight and die en route and never
+                # reach it. Suggest a safe staging tile on this colony's own side.
+                contested = bool(c.enemy) and abs(rx - c.enemy.nx) < abs(rx - c.nx)
+                safe_x = safe_y = None
+                if c.enemy:
+                    mid_x = (c.nx + c.enemy.nx) / 2.0
+                    safe_x = int(c.nx + (mid_x - c.nx) * 0.5)  # halfway nest→midfield, own side
+                    safe_y = c.ny
                 c.push_notification("rally_stalled", {
                     "staged": staged,
                     "release_at": release_at,
                     "rally_x": rx, "rally_y": ry,
                     "stalled_ticks": self.tick - c._rally_stall_since,
+                    "contested_rally": contested,
+                    "suggested_rally": [safe_x, safe_y] if safe_x is not None else None,
                 }, tick=self.tick)
-                c.push_event(
-                    f"⚠ RALLY STALLED: {staged}/{release_at} staged at ({rx},{ry}) "
-                    f"— count hasn't grown in {self.tick - c._rally_stall_since} ticks. "
-                    f"Lower rally_release_at to {max(1, staged)} to release now, "
-                    f"or check if soldiers are dying before reaching the rally point."
-                )
+                if contested:
+                    c.push_event(
+                        f"⚠ RALLY STALLED: {staged}/{release_at} staged at ({rx},{ry}) — "
+                        f"this rally is in contested/enemy territory, so soldiers die en route "
+                        f"and never stage. Move rally_point to a tile YOU control "
+                        + (f"(e.g. [{safe_x},{safe_y}]) " if safe_x is not None else "")
+                        + f"and push from there, or lower rally_release_at to {max(1, staged)} to release now."
+                    )
+                else:
+                    c.push_event(
+                        f"⚠ RALLY STALLED: {staged}/{release_at} staged at ({rx},{ry}) "
+                        f"— count hasn't grown in {self.tick - c._rally_stall_since} ticks. "
+                        f"Lower rally_release_at to {max(1, staged)} to release now, "
+                        f"or check if soldiers are dying before reaching the rally point."
+                    )
 
     def _check_idle_workers(self):
         """Alert when a meaningful share of workers sit idle for a sustained stretch.
@@ -853,9 +873,7 @@ class World:
                         self._move_to(ant, bx, by, 0)
                         ant.state = S_FORAGING
                     else:
-                        builders = sum(1 for a in c.ants if a.type == A_WORKER
-                                       and abs(a.x - bx) + abs(a.y - by) <= BUILD_RANGE)
-                        if builders <= BUILD_WORKER_CAP:
+                        if self._is_active_builder(ant, c, bx, by):
                             site["build_progress"] = site.get("build_progress", 0) + BUILD_RATE[c.worker_tier]
                         ant.state = S_BUILDING
                     return
@@ -1026,9 +1044,7 @@ class World:
             if site["colony"] != ant.colony: continue
             d = abs(ant.x - site["x"]) + abs(ant.y - site["y"])
             if d <= BUILD_RANGE:
-                builders = sum(1 for a in c.ants if a.type == A_WORKER
-                               and abs(a.x - site["x"]) + abs(a.y - site["y"]) <= BUILD_RANGE)
-                if builders <= BUILD_WORKER_CAP:
+                if self._is_active_builder(ant, c, site["x"], site["y"]):
                     site["build_progress"] = site.get("build_progress", 0) + BUILD_RATE[c.worker_tier]
                 ant.state = S_BUILDING
                 return
@@ -1585,6 +1601,17 @@ class World:
             if st.get("type") == "wall" and st["x"] == x and st["y"] == y:
                 return False
         return True
+
+    def _is_active_builder(self, ant, colony, sx, sy):
+        """True if this worker is one of the first BUILD_WORKER_CAP workers in range of
+        the site (stable order by id). A crowd BEYOND the cap stands by instead of
+        freezing the build — the old `builders <= cap` check zeroed all progress once
+        more than the cap of workers piled on, so overcrowded sites never completed."""
+        in_range = sorted(
+            a.id for a in colony.ants if a.type == A_WORKER
+            and abs(a.x - sx) + abs(a.y - sy) <= BUILD_RANGE
+        )
+        return ant.id in in_range[:BUILD_WORKER_CAP]
 
     def _assign_builders_to_site(self, colony, sx, sy):
         """Assign up to BUILD_WORKER_CAP idle workers to the incomplete build site at (sx,sy)."""

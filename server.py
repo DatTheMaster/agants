@@ -558,6 +558,10 @@ TACTICAL NOTES:
   rally_point: soldiers HOLD at coordinate until staged count hits rally_release_at.
     Single point: [x, y]. Waypoints: [[x1,y1],[x2,y2],[x3,y3]] — advance through them in sequence.
     rally_mode: "normal" (clear on release) | "auto_forward" (advance rally toward enemy on release)
+    STAGE ON YOUR SIDE: pick a tile in territory YOU control (behind your front line).
+    A rally in contested/enemy ground never fills — reinforcing soldiers fight and die
+    en route and never reach it (staged stays 0). To push forward, mass safely first,
+    then use rally_mode="auto_forward" or set attack_target on release.
   attack_target: soldiers advance continuously — do NOT hold when they arrive.
   auto_attack: true — soldiers automatically target enemy nest/queen using only fog-of-war-known info.
     Queen exact pos only revealed once soldiers reach siege range; otherwise advances to enemy nest.
@@ -596,9 +600,12 @@ IMPORTANT RULES:
 - "retreat" pulls soldiers home but does NOT reduce upkeep — retreating soldiers still cost
   food. Use it to regroup, not to save food. Reduce roles.soldier to actually cut upkeep.
 - "attack_target" overrides patrol direction but NOT rally_point — clear rally first if set.
-- rally_point should be set to a staging tile NEAR the enemy nest, not ON it.
-  Use own_queen_pos and enemy_queen_pos from state to pick real coordinates.
-  Good staging point: midpoint between nests, or 15-20 tiles short of enemy nest.
+- rally_point should be a SAFE staging tile on YOUR side of the front line — NOT the
+  midfield and NOT near the enemy nest. Soldiers reinforcing toward a rally in contested
+  or enemy territory get picked off one-by-one en route and never stage (staged stays 0).
+  Use field.front_line.center + your own nest to pick a tile you control: roughly
+  10-20 tiles ahead of your nest, staying short of the front line. Mass there, THEN push
+  (rally_mode="auto_forward", or clear rally / set attack_target to release into the advance).
 - If soldiers_in_siege > 3 and enemy queen_hp < 600, PUSH — do not hold back.
   That is a winning position. Set defense="aggressive", clear rally_point to let
   soldiers advance freely into siege range.
