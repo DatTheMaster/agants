@@ -94,6 +94,8 @@ export class AntView {
     this._lastAngle = 0;       // free-rotation facing memory (idle keeps heading)
     this._tier = -1;
     this._isAnimated = false;
+    this._tint = -1;           // cached colony tint (skip redundant per-frame writes)
+    this._hpKey = '';          // cached hp-bar geometry signature (redraw only on change)
   }
 
   // Resolve an ordered texture array for a clip, with graceful fallback to the
@@ -146,6 +148,7 @@ export class AntView {
         if (textures.length > 1) spr.play();
         this.body = spr;
         this._isAnimated = true;
+        this._tint = -1;       // fresh sprite: force tint re-apply next update
         this.container.addChildAt(spr, 0);
       }
     } else {
@@ -154,6 +157,7 @@ export class AntView {
         if (this.body) { this.body.destroy(); this.body = null; }
         this.body = this._makePlaceholder(typeIdx);
         this._isAnimated = false;
+        this._tint = -1;       // fresh placeholder: force tint re-apply next update
         this.container.addChildAt(this.body, 0);
       }
     }
@@ -196,16 +200,27 @@ export class AntView {
   _setHpBar(hp, maxHp, typeIdx, tier) {
     const PIXI = window.PIXI;
     const damaged = hp < maxHp && maxHp > 0;
-    if (!damaged) { if (this.hpBar) { this.hpBar.destroy(); this.hpBar = null; } return; }
+    if (!damaged) {
+      if (this.hpBar) { this.hpBar.destroy(); this.hpBar = null; this._hpKey = ''; }
+      return;
+    }
     if (!this.hpBar) { this.hpBar = new PIXI.Graphics(); this.container.addChild(this.hpBar); }
-    const pct = Math.max(0, Math.min(1, hp / maxHp));
-    const base = (BASE_DISPLAY[typeIdx] ?? 16) * (TIER_SCALE[tier] || 1);
-    const w = Math.max(8, base * 0.8);
-    const y = -base * 0.6 - 3;
-    const r = Math.round(255 * (1 - pct)), g = Math.round(210 * pct);
-    this.hpBar.clear();
-    this.hpBar.rect(-w / 2, y, w, 2).fill({ color: 0x000000, alpha: 0.55 });
-    this.hpBar.rect(-w / 2, y, w * pct, 2).fill({ color: (r << 16) | (g << 8) });
+    // Redraw the bar geometry ONLY when hp/maxHp/type/tier change — at peak ant
+    // counts this avoids 2000 clear()+rect()+fill() rebuilds every frame. The
+    // cheap counter-rotation (below) still runs each frame so the bar stays
+    // screen-up as the body rotates.
+    const key = `${hp}/${maxHp}/${typeIdx}/${tier}`;
+    if (key !== this._hpKey) {
+      const pct = Math.max(0, Math.min(1, hp / maxHp));
+      const base = (BASE_DISPLAY[typeIdx] ?? 16) * (TIER_SCALE[tier] || 1);
+      const w = Math.max(8, base * 0.8);
+      const y = -base * 0.6 - 3;
+      const r = Math.round(255 * (1 - pct)), g = Math.round(210 * pct);
+      this.hpBar.clear();
+      this.hpBar.rect(-w / 2, y, w, 2).fill({ color: 0x000000, alpha: 0.55 });
+      this.hpBar.rect(-w / 2, y, w * pct, 2).fill({ color: (r << 16) | (g << 8) });
+      this._hpKey = key;
+    }
     // HP bar must not rotate with the body (it's screen-up). Counter-rotate.
     this.hpBar.rotation = -this.container.rotation;
   }
@@ -221,9 +236,11 @@ export class AntView {
 
     if (tier !== this._tier) { this._applySize(entry.type, tier); this._tier = tier; }
 
-    // Colony tint on the (grayscale) base art.
+    // Colony tint on the (grayscale) base art. Cache to skip redundant writes.
     const tint = tintFor(entry.colony);
-    if (this.body && 'tint' in this.body) this.body.tint = tint;
+    if (tint !== this._tint && this.body && 'tint' in this.body) {
+      this.body.tint = tint; this._tint = tint;
+    }
 
     this._setPellet(entry.carrying);
 
@@ -246,6 +263,8 @@ export class AntView {
     if (this.hpBar) { this.hpBar.destroy(); this.hpBar = null; }
     this._clip = null;
     this._tier = -1;
+    this._tint = -1;
+    this._hpKey = '';
     this._lastAngle = 0;
     this.container.rotation = 0;
     this.container.visible = true;
