@@ -203,6 +203,12 @@ export async function main() {
 
   window.__agants = { app, stage, store, conn, camera, tileGrid, overlays,
     structureView, antViews, antPool, nodeViews, nodePool, effects, hud };
+  window.__pixiMounted = true;   // tells index.html the fallback is no longer needed
   console.log('[pixi] client mounted; ws=', url);
 }
-main();
+// On any init failure (incl. the intermittent Pixi crash), degrade to the Canvas
+// renderer rather than leaving a blank screen for the live player.
+main().catch((e) => {
+  console.error('[pixi] init failed — falling back to Canvas', e);
+  try { window.__startCanvas?.('pixi init exception'); } catch (_) { /* canvas optional */ }
+});

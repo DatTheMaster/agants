@@ -848,20 +848,42 @@ canvas { display: block; }
 </div>
 
 <script>
-  // Opt-in Pixi client: ?pixi=1 loads the new ESM renderer and SKIPS the Canvas path.
-  window.__USE_PIXI = new URLSearchParams(location.search).get('pixi') === '1';
+  // Pixi is the DEFAULT renderer. Opt OUT with ?pixi=0 to force the legacy Canvas
+  // renderer. Canvas is ALSO the automatic fallback if Pixi fails to load or never
+  // mounts (covers the intermittent init crash that breaks the Pixi render).
+  window.__USE_PIXI = new URLSearchParams(location.search).get('pixi') !== '0';
+  window.__pixiMounted = false;
+
+  // Start the legacy Canvas renderer. Idempotent; safe to call from the fallback
+  // paths and from the normal ?pixi=0 path. connect() is defined further down, by
+  // the time any of these callers fire.
+  window.__startCanvas = function (reason) {
+    if (window.__canvasStarted) return;
+    window.__canvasStarted = true;
+    window.__USE_PIXI = false;
+    if (reason) console.warn('[render] using Canvas renderer:', reason);
+    try { connect(); } catch (e) { console.error('[render] canvas start failed', e); }
+  };
 </script>
 <script>
   if (window.__USE_PIXI) {
+    // Fall back to Canvas only if Pixi has not already mounted successfully.
+    const fallback = (why) => { if (!window.__pixiMounted) window.__startCanvas(why); };
     const load = (src, mod) => new Promise((res, rej) => {
       const s = document.createElement('script');
       s.src = src; if (mod) s.type = 'module';
       s.onload = res; s.onerror = rej; document.body.appendChild(s);
     });
     load('./vendor/pixi.min.js')
-      .then(() => load('./vendor/pixi-filters.min.js').catch(() => {}))  // filters optional in M0
+      .then(() => load('./vendor/pixi-filters.min.js').catch(() => {}))  // filters optional
       .then(() => load('./src/main.js', true))
-      .catch((e) => console.error('[pixi] failed to load renderer', e));
+      .catch((e) => { console.error('[pixi] failed to load renderer', e); fallback('pixi load error'); });
+    // Watchdog: if Pixi has not mounted shortly after load, use Canvas instead.
+    setTimeout(() => fallback('pixi did not mount within 8s'), 8000);
+    // The intermittent crash ("...reading 'split'") fires during init — catch any
+    // pre-mount error/rejection and degrade to the working Canvas renderer.
+    window.addEventListener('error', (ev) => { if (!window.__pixiMounted) fallback('error before mount: ' + (ev.message || '')); });
+    window.addEventListener('unhandledrejection', () => { if (!window.__pixiMounted) fallback('rejection before mount'); });
   }
 </script>
 
@@ -2737,9 +2759,10 @@ function cyclePov() {
 // ─── Window resize ───────────────────────────────────────────────────────────
 window.addEventListener("resize", resizeCanvas);
 
-// Skip the Canvas renderer entirely when the opt-in Pixi client is active (?pixi=1).
+// Pixi (the default) drives the render; only start Canvas when Pixi is off
+// (?pixi=0). The fallback paths above start Canvas via __startCanvas if Pixi fails.
 if (!window.__USE_PIXI) {
-  connect();
+  window.__startCanvas('canvas mode (?pixi=0)');
 }
 </script>
 </body>
