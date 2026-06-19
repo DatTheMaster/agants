@@ -67,7 +67,7 @@ def test_standing_enemy_scouted_value_and_staleness():
     me.ants += [Ant(40, 50, 0, A_SOLDIER, born_tick=0) for _ in range(5)]
     w.tick = 1000
     me.enemy_scouted_tick = 980
-    me.enemy_scouted_counts = [4, 3, 1, 1]      # w,s,sc,q -> 4*5 + 3*20 + 1*8 = 88 (matches army_value: incl workers)
+    me.enemy_scouted_counts = [4, 3, 1, 1, 0]      # w,s,sc,q,spitter -> 4*5 + 3*20 + 1*8 + 0*15 = 88
     st = build_sitrep(me, w)["standing"]
     assert st["military"]["enemy"] == 88, st["military"]
     assert st["military"]["enemy_stale_ticks"] == 20

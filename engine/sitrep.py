@@ -2,9 +2,9 @@
 of a colony's situation and the effect of its own orders. Instrument, not coach: facts
 only, never prescriptions. See docs/superpowers/specs/2026-06-18-agent-situation-report-design.md
 """
-from engine.constants import A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN
+from engine.constants import A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER, NUM_ANT_TYPES
 
-UNIT_VALUE = {A_WORKER: 5, A_SOLDIER: 20, A_SCOUT: 8}
+UNIT_VALUE = {A_WORKER: 5, A_SOLDIER: 20, A_SCOUT: 8, A_SPITTER: 15}
 ADVANCE_EPS = 3        # tiles of net COM movement over the window below which an attack is "no_effect"
 
 
@@ -55,12 +55,12 @@ def _orders(colony, world):
         out.append({"intent": "rally", "point": [rx, ry], "status": status, "detail": detail})
 
     # spawn — target vs actual ratios
-    counts = [sum(1 for a in colony.ants if a.type == t) for t in range(4)]
-    total = counts[A_WORKER] + counts[A_SOLDIER] + counts[A_SCOUT]
+    counts = [sum(1 for a in colony.ants if a.type == t) for t in range(NUM_ANT_TYPES)]
+    total = counts[A_WORKER] + counts[A_SOLDIER] + counts[A_SCOUT] + counts[A_SPITTER]
     if total > 0:
         spawn = colony.directive.get("spawn", {})
         parts, drift = [], False
-        for name, idx in (("worker", A_WORKER), ("soldier", A_SOLDIER), ("scout", A_SCOUT)):
+        for name, idx in (("worker", A_WORKER), ("soldier", A_SOLDIER), ("scout", A_SCOUT), ("spitter", A_SPITTER)):
             tgt = spawn.get(name, {}).get("target_ratio")
             if tgt is None:
                 continue
@@ -85,18 +85,19 @@ def _verdict(you, enemy, margin_floor=1):
 
 def _standing(colony, world):
     from engine.constants import MAP_W, MAP_H
-    counts = [sum(1 for a in colony.ants if a.type == t) for t in range(4)]
+    counts = [sum(1 for a in colony.ants if a.type == t) for t in range(NUM_ANT_TYPES)]
     you_mil = counts[A_SOLDIER] * UNIT_VALUE[A_SOLDIER] + counts[A_SCOUT] * UNIT_VALUE[A_SCOUT] \
-        + counts[A_WORKER] * UNIT_VALUE[A_WORKER]
+        + counts[A_WORKER] * UNIT_VALUE[A_WORKER] + counts[A_SPITTER] * UNIT_VALUE[A_SPITTER]
 
     # enemy military: scouted-only (coarse counts), with staleness
-    sc = getattr(colony, "enemy_scouted_counts", [0, 0, 0, 0])
+    _sc_raw = getattr(colony, "enemy_scouted_counts", [0] * NUM_ANT_TYPES)
+    sc = list(_sc_raw) + [0] * max(0, NUM_ANT_TYPES - len(_sc_raw))
     seen_tick = getattr(colony, "enemy_scouted_tick", -9999)
     if seen_tick < 0:
         enemy_mil, stale, mverdict, mmargin = "unknown", None, "unknown", None
     else:
         enemy_mil = sc[A_SOLDIER] * UNIT_VALUE[A_SOLDIER] + sc[A_SCOUT] * UNIT_VALUE[A_SCOUT] \
-            + sc[A_WORKER] * UNIT_VALUE[A_WORKER]
+            + sc[A_WORKER] * UNIT_VALUE[A_WORKER] + sc[A_SPITTER] * UNIT_VALUE[A_SPITTER]
         stale = world.tick - seen_tick
         mverdict, mmargin = _verdict(you_mil, enemy_mil)
 
@@ -159,6 +160,7 @@ def _field(colony, world):
             "soldiers": sum(1 for a in seen_enemies if a.type == A_SOLDIER),
             "scouts":   sum(1 for a in seen_enemies if a.type == A_SCOUT),
             "workers":  sum(1 for a in seen_enemies if a.type == A_WORKER),
+            "spitters": sum(1 for a in seen_enemies if a.type == A_SPITTER),
         }
         enemy_army = {"seen": True, "size": len(seen_enemies), "pos": [round(cx), round(cy)],
                       "composition": composition, "seen_tick": world.tick, "age_ticks": 0}

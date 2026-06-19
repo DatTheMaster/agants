@@ -403,7 +403,9 @@ SPAWN COSTS & TIMES:
   Each worker delivery = 30♦ to treasury. Workers carry 20♦ from each food node per trip.
   Food is RESERVED immediately when an ant is queued — not when it spawns.
   If spawn fails (refunded), you'll see "spawn failed" in events.
-LIFESPAN: worker=500t   soldier=300t   scout=200t   queen=∞
+LIFESPAN: worker=500t   soldier=300t   scout=200t   queen=∞   spitter=250t
+  Spitter (ranged, anti-mass): 70HP, ranged; deals ~16 + ~8 splash to adjacent enemies per shot, range 5, slow (speed 1). Use spawn.spitter.target_ratio to queue.
+  Role: cheap counter to massed workers/scouts — fragile vs focused soldier fire.
   → SPAWN QUEUE in your state shows what is cooking + food already reserved.
   → AGING OUT SOON shows ants in final 20% of lifespan — plan replacements NOW.
 
@@ -794,9 +796,10 @@ def format_enemy_sightings(colony, world_tick, limit=8):
         cx, cy, sol, tot, tk = s[0], s[1], s[2], s[3], s[4]
         wk = s[5] if len(s) > 5 else None
         sc = s[6] if len(s) > 6 else None
+        sp = s[7] if len(s) > 7 else None
         out.append({
             "pos": [cx, cy], "total": tot,
-            "soldiers": sol, "workers": wk, "scouts": sc,
+            "soldiers": sol, "workers": wk, "scouts": sc, "spitters": sp,
             "seen_tick": tk, "ticks_ago": max(0, world_tick - tk),
         })
     out.reverse()  # most-recent first
@@ -1237,7 +1240,7 @@ def build_debrief_prompt(world, colony_id, strategy_log, memory=None):
     mm, ss = elapsed // 60, elapsed % 60
 
     def ant_counts(col):
-        ct = [0, 0, 0, 0]
+        ct = [0] * NUM_ANT_TYPES
         for a in col.ants: ct[a.type] += 1
         return ct
 
@@ -1413,7 +1416,7 @@ class RunLogger:
         return f"{t//60:02d}:{t%60:02d}"
 
     def _counts(self, c):
-        ct = [0, 0, 0, 0]
+        ct = [0] * NUM_ANT_TYPES
         for a in c.ants: ct[a.type] += 1
         return ct
 
@@ -2660,7 +2663,7 @@ class Server:
             return {"error": "game not started"}
         c = w.colonies[cid]
         enemy = c.enemy
-        counts = [0, 0, 0, 0]
+        counts = [0] * NUM_ANT_TYPES
         for a in c.ants:
             counts[a.type] += 1
         queen = next((a for a in c.ants if a.type == A_QUEEN), None)
@@ -2713,10 +2716,11 @@ class Server:
         for st in w.structures:
             if st["colony"] == cid:
                 _struct_counts[st.get("type", "guard_post")] = _struct_counts.get(st.get("type", "guard_post"), 0) + 1
-        if c.dirt >= LARDER_COST:
+        if c.dirt >= min(LARDER_COST, GUARD_POST_COST, WATCHTOWER_COST, BARRACKS_COST, BULWARK_COST):
             affordable = [f"{s} ({co}◆)" for s, co, mx in
                           [("larder", LARDER_COST, LARDER_MAX), ("guard_post", GUARD_POST_COST, GUARD_POST_MAX),
-                           ("watchtower", WATCHTOWER_COST, WATCHTOWER_MAX), ("barracks", BARRACKS_COST, BARRACKS_MAX)]
+                           ("watchtower", WATCHTOWER_COST, WATCHTOWER_MAX), ("barracks", BARRACKS_COST, BARRACKS_MAX),
+                           ("bulwark", BULWARK_COST, BULWARK_MAX)]
                           if c.dirt >= co and _struct_counts.get(s, 0) < mx]
             if affordable:
                 advisor.append(f"{int(c.dirt)}◆ dirt unspent; affordable structures: {', '.join(affordable)}")
@@ -2874,6 +2878,10 @@ class Server:
                 "exploring": sum(1 for a in c.ants if a.type == A_SCOUT and a.state == S_EXPLORING),
                 "other": sum(1 for a in c.ants if a.type == A_SCOUT and a.state != S_EXPLORING),
             },
+            "spitters": {
+                "firing": sum(1 for a in c.ants if a.type == A_SPITTER and a.state == S_FIGHTING),
+                "total": sum(1 for a in c.ants if a.type == A_SPITTER),
+            },
         }
         return {
             "tick": w.tick, "phase": w.phase, "colony_id": cid,
@@ -2894,7 +2902,7 @@ class Server:
             "frontline_food_eta_t": (
                 round(_frontline_food / _w_income) if _w_income > 0 else None
             ),
-            "counts": {"workers": counts[0], "soldiers": counts[1], "scouts": counts[2], "queen": counts[3]},
+            "counts": {"workers": counts[0], "soldiers": counts[1], "scouts": counts[2], "queen": counts[3], "spitters": counts[4]},
             "tiers": {"worker": c.worker_tier, "scout": c.scout_tier, "soldier": c.soldier_tier},
             "spawn_queue": sq_summary,
             "aging_soon": {"workers": aging_soon[0], "soldiers": aging_soon[1], "scouts": aging_soon[2]},
@@ -2991,7 +2999,7 @@ class Server:
             **({"units_omitted": "compact=true — use current_orders / get_units(type=...) for unit detail"}
                if compact else {
                 "units": [
-                    {"id": a.id, "type": ["worker","soldier","scout","queen"][a.type],
+                    {"id": a.id, "type": ANT_TYPE_NAMES[a.type],
                      "x": a.x, "y": a.y, "hp": int(a.hp), "max_hp": a.max_hp,
                      "age": a.age, "lifespan": a.lifespan, "carrying": a.carrying,
                      "carrying_type": getattr(a, "carrying_type", "food"),
@@ -3022,7 +3030,7 @@ class Server:
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
         self._touch_presence_from_req(req, m)
-        type_names = ["worker", "soldier", "scout", "queen"]
+        type_names = ANT_TYPE_NAMES
         want = req.query.get("type")
         type_filter = None
         if want is not None:
@@ -3116,7 +3124,7 @@ class Server:
         combined_larder = 0.0
         colony_data = []
         for c in w.colonies:
-            counts_arr = [sum(1 for a in c.ants if a.type == t) for t in range(4)]
+            counts_arr = [sum(1 for a in c.ants if a.type == t) for t in range(NUM_ANT_TYPES)]
             army_val   = sum(_val.get(a.type, 0) for a in c.ants if a.type != A_QUEEN)
             score      = c.food_collected + army_val + max(0, int(c.food))
             queen      = next((a for a in c.ants if a.type == A_QUEEN), None)
@@ -3452,9 +3460,11 @@ class Server:
             c = m.world.colonies[cid]
             # Synchronous dirt validation before queuing
             _BUILD_COSTS = {"guard_post": GUARD_POST_COST, "watchtower": WATCHTOWER_COST,
-                            "barracks": BARRACKS_COST, "wall": WALL_COST, "larder": LARDER_COST}
+                            "barracks": BARRACKS_COST, "wall": WALL_COST, "larder": LARDER_COST,
+                            "bulwark": BULWARK_COST}
             _BUILD_LIMITS = {"guard_post": GUARD_POST_MAX, "watchtower": WATCHTOWER_MAX,
-                             "barracks": BARRACKS_MAX, "wall": WALL_MAX, "larder": LARDER_MAX}
+                             "barracks": BARRACKS_MAX, "wall": WALL_MAX, "larder": LARDER_MAX,
+                             "bulwark": BULWARK_MAX}
             stype = "guard_post" if isinstance(b, list) else b.get("type", "guard_post")
             dirt_cost = _BUILD_COSTS.get(stype, GUARD_POST_COST)
             limit = _BUILD_LIMITS.get(stype, GUARD_POST_MAX)
@@ -3505,11 +3515,11 @@ class Server:
             m._pending_strategies.append((cid, {"convert": body.get("convert", {})}))
         elif cmd_type == "cancel_spawn":
             unit_type = body.get("unit_type", "all")
-            if unit_type not in {"worker", "soldier", "scout", "all"}:
+            if unit_type not in {"worker", "soldier", "scout", "spitter", "all"}:
                 return await self._api_cors(web.json_response(
-                    {"error": "unit_type must be 'worker', 'soldier', 'scout', or 'all'"}, status=400))
+                    {"error": "unit_type must be 'worker', 'soldier', 'scout', 'spitter', or 'all'"}, status=400))
             c = m.world.colonies[cid]
-            _type_map = {"worker": A_WORKER, "soldier": A_SOLDIER, "scout": A_SCOUT}
+            _type_map = {"worker": A_WORKER, "soldier": A_SOLDIER, "scout": A_SCOUT, "spitter": A_SPITTER}
             if unit_type == "all":
                 cancelled = len(c.spawn_queue)
                 refund = sum(cost for _, _, cost in c.spawn_queue)

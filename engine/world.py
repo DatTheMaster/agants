@@ -6,7 +6,8 @@ import time
 from engine.constants import (
     MAP_W, MAP_H, TILE, TERRITORY_DECAY,
     T_DIRT, T_LEAF, T_WATER, T_ROCK, T_NEST,
-    A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN,
+    A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER,
+    ANT_TYPE_NAMES, NUM_ANT_TYPES,
     S_IDLE, S_FORAGING, S_RETURNING, S_EXPLORING,
     S_FIGHTING, S_PATROLLING, S_RECRUITED, S_BUILDING,
     WORKER_HP, SOLDIER_HP, SCOUT_HP, QUEEN_HP,
@@ -22,7 +23,7 @@ from engine.constants import (
     DIRT_PICK, DIRT_DELIVER, DIRT_CAP, DIRT_REGROW, DIRT_REGROW_FRONT,
     DIRT_FRONT_MAX, DIRT_MAX, DIRT_INIT_MIN, DIRT_INIT_MAX,
     GUARD_POST_COST, GUARD_POST_HP, GUARD_POST_DMG, GUARD_POST_CD,
-    GUARD_POST_RANGE, GUARD_POST_MAX,
+    GUARD_POST_RANGE, GUARD_POST_MAX, GUARD_POST_SPLASH_RADIUS,
     WATCHTOWER_COST, WATCHTOWER_HP, WATCHTOWER_VISION, WATCHTOWER_MAX,
     BARRACKS_COST, BARRACKS_HP, BARRACKS_SPAWN_TIME, BARRACKS_MAX,
     WALL_COST, WALL_HP, WALL_MAX,
@@ -32,6 +33,8 @@ from engine.constants import (
     UPGRADE_LABELS, UPGRADE_EFFECTS,
     VISION_RADIUS, SCOUT_VISION_RADIUS,
     STALEMATE_TIMEOUT,
+    SPITTER_RANGE, SPITTER_DMG, SPITTER_CD, SPLASH_RADIUS, SPLASH_FALLOFF,
+    BULWARK_COST, BULWARK_HP, BULWARK_MAX, BULWARK_CONTACT_DMG,
 )
 from engine.colony import Ant, Colony, DirectiveEngine, _apply_upgrade_effects
 
@@ -113,7 +116,7 @@ class Predator:
                     nearest.hp -= 60; self.cooldown = 5
                     if nearest.hp <= 0:
                         col = world.colonies[nearest.colony]
-                        col.push_event(f"predator killed a {['worker','soldier','scout','queen'][nearest.type]}")
+                        col.push_event(f"predator killed a {ANT_TYPE_NAMES[nearest.type]}")
                         world._kill(nearest)
         else:
             if self.tx is None or random.random() < 0.1:
@@ -348,7 +351,7 @@ class World:
                     c.push_event(f"convert failed: need {cost}♦ to convert to {order['to']}")
                     continue
                 c.food -= cost
-                old_name = ["worker","soldier","scout"][ant.type]
+                old_name = ANT_TYPE_NAMES[ant.type]
                 ant.type     = target_type
                 ant.hp       = _CONVERT_HP[target_type]
                 ant.max_hp   = ant.hp
@@ -379,9 +382,9 @@ class World:
                 c.push_event(f"★ Guard Post foundation laid at ({x},{y}) — workers needed to build")
                 self._assign_builders_to_site(c, x, y)
 
-        _STRUCT_LIMITS = {"watchtower": WATCHTOWER_MAX, "barracks": BARRACKS_MAX, "wall": WALL_MAX, "larder": LARDER_MAX}
-        _STRUCT_COSTS  = {"watchtower": WATCHTOWER_COST, "barracks": BARRACKS_COST, "wall": WALL_COST, "larder": LARDER_COST}
-        _STRUCT_HP     = {"watchtower": WATCHTOWER_HP, "barracks": BARRACKS_HP, "wall": WALL_HP, "larder": LARDER_HP}
+        _STRUCT_LIMITS = {"watchtower": WATCHTOWER_MAX, "barracks": BARRACKS_MAX, "wall": WALL_MAX, "larder": LARDER_MAX, "bulwark": BULWARK_MAX}
+        _STRUCT_COSTS  = {"watchtower": WATCHTOWER_COST, "barracks": BARRACKS_COST, "wall": WALL_COST, "larder": LARDER_COST, "bulwark": BULWARK_COST}
+        _STRUCT_HP     = {"watchtower": WATCHTOWER_HP, "barracks": BARRACKS_HP, "wall": WALL_HP, "larder": LARDER_HP, "bulwark": BULWARK_HP}
         for c in self.colonies:
             if not c.alive or not c.structure_queue: continue
             order = c.structure_queue.pop(0)
@@ -397,7 +400,7 @@ class World:
                     and own_of_type < limit
                     and (0 <= x < MAP_W and 0 <= y < MAP_H)
                     and tile_clear
-                    and (self._passable(x, y) or stype == "wall")):
+                    and (self._passable(x, y) or stype in ("wall", "bulwark"))):
                 c.dirt -= cost
                 c.dirt = max(0, c.dirt)
                 entry = {"x": x, "y": y, "colony": c.id, "type": stype,
@@ -464,9 +467,11 @@ class World:
                         struct["fire_tick"] = self.tick
                         old_hp = max(0, int(best.hp))
                         best.hp -= GUARD_POST_DMG
+                        self._apply_splash(struct["colony"], best, GUARD_POST_DMG,
+                                           GUARD_POST_SPLASH_RADIUS, SPLASH_FALLOFF)
                         new_hp = max(0, int(best.hp))
                         owner = self.colonies[struct["colony"]]
-                        owner.push_event(f"Guard Post ({struct['x']},{struct['y']}) hit {['worker','soldier','scout','queen'][best.type]}! HP {old_hp}→{new_hp}")
+                        owner.push_event(f"Guard Post ({struct['x']},{struct['y']}) hit {ANT_TYPE_NAMES[best.type]}! HP {old_hp}→{new_hp}")
                         if best.hp <= 0: self._kill(best)
 
             elif stype == "larder":
@@ -474,6 +479,14 @@ class World:
                 if c.alive:
                     c.food += LARDER_INCOME
                     c.food_earned_tick += LARDER_INCOME
+
+            elif stype == "bulwark":
+                for ec in self.colonies:
+                    if ec.id == struct["colony"]: continue
+                    for e in list(ec.ants):
+                        if abs(e.x - struct["x"]) <= 1 and abs(e.y - struct["y"]) <= 1:
+                            e.hp -= BULWARK_CONTACT_DMG
+                            if e.hp <= 0: self._kill(e)
 
             elif stype == "barracks":
                 struct["spawn_timer"] = struct.get("spawn_timer", 0) + 1
@@ -504,14 +517,14 @@ class World:
                 if ant.lifespan is not None:
                     ant.age += 1
                     if ant.age >= ant.lifespan:
-                        c.push_event(f"aged out: {['worker','soldier','scout'][ant.type]} died at age {ant.age}")
+                        c.push_event(f"aged out: {ANT_TYPE_NAMES[ant.type]} died at age {ant.age}")
                         self._kill(ant)
 
             if c.food < -50:
                 non_queens = [a for a in c.ants if a.type != A_QUEEN]
                 if non_queens:
                     victim = random.choice(non_queens)
-                    c.push_event(f"starved: lost a {['worker','soldier','scout'][victim.type]}")
+                    c.push_event(f"starved: lost a {ANT_TYPE_NAMES[victim.type]}")
                     self._kill(victim)
                 else:
                     if c.food < -55:
@@ -544,12 +557,14 @@ class World:
                     w_paused   = sp["worker"].get("pause", False)
                     sc_paused  = sp["scout"].get("pause", False)
                     sol_paused = sp["soldier"].get("pause", False)
+                    spit_paused = sp.get("spitter", {}).get("pause", False)
                     wshare   = 0.0 if w_paused   else max(sp["worker"]["target_ratio"],  sp["worker"].get("min_ratio", 0.0))
                     sshare   = 0.0 if sc_paused  else max(sp["scout"]["target_ratio"],   sp["scout"].get("min_ratio", 0.0))
                     solshare = 0.0 if sol_paused else max(sp["soldier"]["target_ratio"], sp["soldier"].get("min_ratio", 0.0))
-                    total_sh = wshare + sshare + solshare
+                    spitshare = 0.0 if spit_paused else max(sp.get("spitter", {}).get("target_ratio", 0.0), sp.get("spitter", {}).get("min_ratio", 0.0))
+                    total_sh = wshare + sshare + solshare + spitshare
                     if total_sh > 0:
-                        wshare /= total_sh; sshare /= total_sh; solshare /= total_sh
+                        wshare /= total_sh; sshare /= total_sh; solshare /= total_sh; spitshare /= total_sh
                     worker_max = sp["worker"]["max"]
                     n_workers = sum(1 for a in c.ants if a.type == A_WORKER)
                     worker_capped = worker_max is not None and n_workers >= worker_max
@@ -581,12 +596,12 @@ class World:
 
                     # Enforce spawn.{type}.min counts: if any type is below its
                     # minimum (ants + queued), prioritize it regardless of ratios.
-                    _TYPE_KEYS = [(A_WORKER, "worker"), (A_SCOUT, "scout"), (A_SOLDIER, "soldier")]
-                    _PAUSED = {A_WORKER: w_paused, A_SCOUT: sc_paused, A_SOLDIER: sol_paused}
+                    _TYPE_KEYS = [(A_WORKER, "worker"), (A_SCOUT, "scout"), (A_SOLDIER, "soldier"), (A_SPITTER, "spitter")]
+                    _PAUSED = {A_WORKER: w_paused, A_SCOUT: sc_paused, A_SOLDIER: sol_paused, A_SPITTER: spit_paused}
                     t = None
                     for _tc, _tk in _TYPE_KEYS:
                         if _PAUSED[_tc]: continue
-                        _min = sp[_tk].get("min", 0)
+                        _min = sp.get(_tk, {}).get("min", 0)
                         if not _min: continue
                         _cur = sum(1 for a in c.ants if a.type == _tc)
                         _queued = sum(1 for qt, _, _ in c.spawn_queue if qt == _tc)
@@ -594,19 +609,18 @@ class World:
                             t = _tc
                             break
 
-                    if t is None:
-                        r = random.random()
-                        if total_sh == 0:
-                            t = None
-                        elif worker_capped:
-                            non_w = sshare + solshare
-                            t = A_SCOUT if (r < sshare / max(non_w, 0.01)) else A_SOLDIER
-                        elif r < wshare:
-                            t = A_WORKER
-                        elif r < wshare + sshare:
-                            t = A_SCOUT
+                    if t is None and total_sh > 0:
+                        if worker_capped:
+                            shares = [(A_SCOUT, sshare), (A_SOLDIER, solshare), (A_SPITTER, spitshare)]
                         else:
-                            t = A_SOLDIER
+                            shares = [(A_WORKER, wshare), (A_SCOUT, sshare), (A_SOLDIER, solshare), (A_SPITTER, spitshare)]
+                        tot = sum(s for _, s in shares) or 1.0
+                        r = random.random() * tot
+                        acc = 0.0
+                        for _tc, _s in shares:
+                            acc += _s
+                            if r < acc:
+                                t = _tc; break
 
                     if t is not None:
                         cost = c.SPAWN_COST[t]
@@ -825,6 +839,7 @@ class World:
         elif ant.type == A_SOLDIER: self._behavior_soldier(ant)
         elif ant.type == A_SCOUT:   self._behavior_scout(ant)
         elif ant.type == A_QUEEN:   self._behavior_queen(ant)
+        elif ant.type == A_SPITTER: self._behavior_spitter(ant)
 
         # Track consecutive idle ticks so the agent can be shown SUSTAINED idle (truly
         # unassigned workers) rather than the transient 1-tick churn of the gather cycle
@@ -837,7 +852,7 @@ class World:
         if c.enemy and abs(ant.x - c.enemy.nx) + abs(ant.y - c.enemy.ny) <= 18:
             c.enemy_scouted_tick = self.tick
             c.enemy_scouted_counts = [sum(1 for a in c.enemy.ants if a.type == t)
-                                      for t in range(4)]
+                                      for t in range(NUM_ANT_TYPES)]
 
     def _assign_food_target(self, ant, c):
         """Pick the best known food node for this worker, set it as recruit_target and
@@ -1330,18 +1345,11 @@ class World:
                     ec.push_notification("queen_under_attack", {"hp": new_hp, "old_hp": old_hp, "dmg": dmg}, tick=self.tick)
                     c.push_event(f"★ SIEGE — striking enemy queen! HP: {old_hp}→{new_hp} (dealt {dmg})")
                 if c.soldier_splash:
-                    splash_dmg = max(1, int(dmg * 0.4))
-                    for ec in self.colonies:
-                        if ec.id == ant.colony: continue
-                        for stgt in list(ec.ants):
-                            if stgt is adj: continue
-                            if abs(stgt.x - adj.x) + abs(stgt.y - adj.y) <= 1:
-                                stgt.hp -= splash_dmg
-                                if stgt.hp <= 0: self._kill(stgt)
+                    self._apply_splash(ant.colony, adj, dmg, radius=1, falloff=0.4)
                 if adj.hp <= 0:
                     ec = self.colonies[adj.colony]
-                    ec.push_event(f"{['worker','soldier','scout','queen'][adj.type]} killed in battle!")
-                    c.push_event(f"killed enemy {['worker','soldier','scout','queen'][adj.type]}")
+                    ec.push_event(f"{ANT_TYPE_NAMES[adj.type]} killed in battle!")
+                    c.push_event(f"killed enemy {ANT_TYPE_NAMES[adj.type]}")
                     self._kill(adj)
             return
 
@@ -1453,18 +1461,11 @@ class World:
                     ec.push_notification("queen_under_attack", {"hp": int(new_hp), "old_hp": int(old_hp), "dmg": dmg}, tick=self.tick)
                     c.push_event(f"★ SIEGE — striking enemy queen! HP: {old_hp}→{new_hp} (dealt {dmg})")
                 if c.soldier_splash:
-                    splash_dmg = max(1, int(dmg * 0.4))
-                    for ec in self.colonies:
-                        if ec.id == ant.colony: continue
-                        for stgt in list(ec.ants):
-                            if stgt is adj: continue
-                            if abs(stgt.x - adj.x) + abs(stgt.y - adj.y) <= 1:
-                                stgt.hp -= splash_dmg
-                                if stgt.hp <= 0: self._kill(stgt)
+                    self._apply_splash(ant.colony, adj, dmg, radius=1, falloff=0.4)
                 if adj.hp <= 0:
                     ec = self.colonies[adj.colony]
-                    ec.push_event(f"{['worker','soldier','scout','queen'][adj.type]} killed in battle!")
-                    c.push_event(f"killed enemy {['worker','soldier','scout','queen'][adj.type]}")
+                    ec.push_event(f"{ANT_TYPE_NAMES[adj.type]} killed in battle!")
+                    c.push_event(f"killed enemy {ANT_TYPE_NAMES[adj.type]}")
                     self._kill(adj)
             # Movement (attack-move): if ANY enemy is adjacent, STAND and fight it — defend,
             # never march past, and grind down a blocking worker ring. Otherwise CLOSE on the
@@ -1636,7 +1637,7 @@ class World:
         if not (0 <= x < MAP_W and 0 <= y < MAP_H): return False
         if self.terrain[y][x] in (T_WATER, T_ROCK): return False
         for st in self.structures:
-            if st.get("type") == "wall" and st["x"] == x and st["y"] == y:
+            if st.get("type") in ("wall", "bulwark") and st["x"] == x and st["y"] == y:
                 return False
         return True
 
@@ -1752,6 +1753,81 @@ class World:
         if came_from.get(cur) != (sx, sy):
             return None
         return cur
+
+    def _behavior_spitter(self, ant):
+        """Fragile ranged splash unit. Fires at the nearest enemy within SPITTER_RANGE
+        (Chebyshev, damage + splash); does NOT chase. Holds position when enemies are
+        in range so the soldier can close and kill it 1v1. Retreats toward the nest only
+        when no enemy is currently in range (repositioning). When adjacent, fires
+        point-blank and stays — a retreating spitter on open terrain would kite forever
+        and be unkillable, so self-preservation is expressed through fragility (70 HP)
+        and the no-advance rule, not active evasion."""
+        c = self.colonies[ant.colony]
+        if ant.cooldown > 0:
+            ant.cooldown -= 1
+
+        # Handle unit_override: move_to/hold reposition but still fire if enemy in range
+        ov = ant.unit_override
+        if ov:
+            cmd = ov.get("cmd")
+            if cmd in ("move_to", "hold"):
+                tx, ty = int(ov["x"]), int(ov["y"])
+                if cmd == "hold":
+                    # Only move if farther than 2 tiles from hold point
+                    if abs(ant.x - tx) + abs(ant.y - ty) > 2:
+                        self._move_to(ant, tx, ty, 1)
+                else:
+                    # move_to: keep moving toward point each tick
+                    self._move_to(ant, tx, ty, 1)
+                ant.state = S_PATROLLING
+                self._dep(ant.x, ant.y, 1, 0.3)
+                # fall through to firing check below
+
+        # nearest enemy within firing range (Chebyshev)
+        target, best_d = None, SPITTER_RANGE + 1
+        for ec in self.colonies:
+            if ec.id == ant.colony:
+                continue
+            for e in ec.ants:
+                d = max(abs(e.x - ant.x), abs(e.y - ant.y))
+                if d < best_d:
+                    best_d = d
+                    target = e
+
+        if target is not None and best_d <= SPITTER_RANGE:
+            # Enemy in range — stand and fire; holding position is intentional
+            # (see docstring: retreat-kiting makes the spitter unkillable in 1v1)
+            ant.state = S_FIGHTING
+            if ant.cooldown <= 0:
+                ant.cooldown = SPITTER_CD
+                ant.fired_at = [target.x, target.y]   # animation hook
+                ant.fire_tick = self.tick
+                dmg = SPITTER_DMG + c.dmg_bonus
+                target.hp -= dmg
+                self._apply_splash(ant.colony, target, dmg, SPLASH_RADIUS, SPLASH_FALLOFF)
+                if target.hp <= 0:
+                    self._kill(target)
+            self._dep(ant.x, ant.y, 1, 0.5)
+            return
+
+        # No enemy in range: retreat toward nest or rally, but do NOT chase enemies
+        if ov:
+            self._dep(ant.x, ant.y, 1, 0.3)
+            return  # already handled above (move_to/hold)
+        rally = c.directive["military"].get("rally_point")
+        if rally:
+            rp = rally[0] if isinstance(rally[0], (list, tuple)) else rally
+            self._move_to(ant, int(rp[0]), int(rp[1]), 1)
+            ant.state = S_PATROLLING
+        else:
+            # fall back near nest when idle
+            dist_to_nest = max(abs(ant.x - c.nx), abs(ant.y - c.ny))
+            if dist_to_nest > SPITTER_RANGE:
+                ant.state = S_RETURNING
+                self._move_to(ant, c.nx, c.ny, 1)
+            else:
+                ant.state = S_IDLE
+        self._dep(ant.x, ant.y, 1, 0.3)
 
     def _move_to(self, ant, tx, ty, layer):
         # A* first step: routes around wall lines (re-planned every tick so
@@ -1881,8 +1957,8 @@ class World:
                 c.push_event(f"★ QUEEN fighting back! Killed/hit soldier HP {old_hp}→{new_hp}")
             if best.hp <= 0:
                 ec = self.colonies[best.colony]
-                ec.push_event(f"queen killed a {['worker','soldier','scout','queen'][best.type]}!")
-                c.push_event(f"queen defended nest! Killed {['worker','soldier','scout','queen'][best.type]}")
+                ec.push_event(f"queen killed a {ANT_TYPE_NAMES[best.type]}!")
+                c.push_event(f"queen defended nest! Killed {ANT_TYPE_NAMES[best.type]}")
                 self._kill(best)
         else:
             ant.state = S_IDLE
@@ -1944,6 +2020,21 @@ class World:
             c.push_event(f"Destroyed enemy {stype} at ({st['x']},{st['y']})!")
             if st in self.structures:
                 self.structures.remove(st)
+
+    def _apply_splash(self, attacker_colony_id, target, dmg, radius, falloff):
+        """Damage every ENEMY ant within Chebyshev `radius` of `target` (excluding target
+        itself) by round(dmg*falloff). Shared by soldier splash, the Spitter, and guard posts."""
+        splash = max(1, round(dmg * falloff))
+        for ec in self.colonies:
+            if ec.id == attacker_colony_id:
+                continue
+            for stgt in list(ec.ants):
+                if stgt is target:
+                    continue
+                if abs(stgt.x - target.x) <= radius and abs(stgt.y - target.y) <= radius:
+                    stgt.hp -= splash
+                    if stgt.hp <= 0:
+                        self._kill(stgt)
 
     def _kill(self, ant):
         for c in self.colonies:
@@ -2043,7 +2134,8 @@ class World:
                     workers  = sum(1 for x, y, t in spotted if t == A_WORKER)
                     soldiers = sum(1 for x, y, t in spotted if t == A_SOLDIER)
                     scouts   = sum(1 for x, y, t in spotted if t == A_SCOUT)
-                    c.enemy_sightings.append((cx, cy, soldiers, len(spotted), self.tick, workers, scouts))
+                    spitters = sum(1 for x, y, t in spotted if t == A_SPITTER)
+                    c.enemy_sightings.append((cx, cy, soldiers, len(spotted), self.tick, workers, scouts, spitters))
                     if len(c.enemy_sightings) > 8: c.enemy_sightings.pop(0)
                     if soldiers >= 3:
                         c.push_notification("enemy_contact", {"cx": cx, "cy": cy, "soldiers": soldiers, "total": len(spotted)}, tick=self.tick)
@@ -2071,11 +2163,12 @@ class World:
         corpses = [[int(c["x"]), int(c["y"]), int(c["amt"])] for c in self.corpses]
         cols = []
         for c in self.colonies:
-            counts = [0, 0, 0, 0]
+            counts = [0] * NUM_ANT_TYPES
             for a in c.ants: counts[a.type] += 1
-            sq_summary = {"w": 0, "so": 0, "sc": 0, "reserved": 0, "next_t": None}
+            _sq_key = {A_WORKER: "w", A_SOLDIER: "so", A_SCOUT: "sc", A_SPITTER: "sp"}
+            sq_summary = {"w": 0, "so": 0, "sc": 0, "sp": 0, "reserved": 0, "next_t": None}
             for ant_type, ticks_rem, cost in c.spawn_queue:
-                sq_summary[["w", "so", "sc"][ant_type]] += 1
+                sq_summary[_sq_key.get(ant_type, "w")] += 1
                 sq_summary["reserved"] += cost
             if c.spawn_queue:
                 sq_summary["next_t"] = min(tr for _, tr, _ in c.spawn_queue)

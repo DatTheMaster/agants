@@ -33,6 +33,7 @@ const RANGE_TILES = { guard_post: 10, watchtower: 12 };
 // Footprint scale (fraction of a tile the sprite covers), parity with Canvas.
 const FOOTPRINT = {
   guard_post: 0.85, watchtower: 0.9, barracks: 1.2, larder: 0.95, wall: 1.0,
+  bulwark: 1.0,
 };
 
 // Atlas frame name resolution for a given type + state. Falls back gracefully:
@@ -123,6 +124,17 @@ export class StructureView {
     if (type === 'wall') {
       g.rect(-h, -h, footprint, footprint).fill({ color: 0x888078 });
       g.rect(-h, -h, footprint, footprint).stroke({ color: 0x2a201a, width: 1 });
+    } else if (type === 'bulwark') {
+      // Reinforced wall tile with acid-green spike markers (placeholder — parity with
+      // Canvas bulwark rendering). Reuses wall stone fill + a distinct tint overlay.
+      g.rect(-h, -h, footprint, footprint).fill({ color: 0x6a7a50 });
+      g.rect(-h, -h, footprint, footprint).stroke({ color: 0x1a2a10, width: 1.5 });
+      // Three upward spikes across the top edge
+      const sw = footprint * 0.12, sh = footprint * 0.3;
+      for (let i = 0; i < 3; i++) {
+        const sx = -h + footprint * (0.2 + i * 0.3);
+        g.moveTo(sx - sw / 2, -h).lineTo(sx, -h - sh).lineTo(sx + sw / 2, -h).fill({ color: 0x99cc33 });
+      }
     } else if (type === 'watchtower') {
       const tw = TS * 0.5, th = TS * 0.9;
       g.rect(-tw / 2, -th / 2, tw, th).fill({ color: 0xbfbfbf });
@@ -189,7 +201,8 @@ export class StructureView {
     const PIXI = window.PIXI;
     const container = new PIXI.Container();
     container.position.set(s.x * TS + TS / 2, s.y * TS + TS / 2);
-    const isWall = s.type === 'wall';
+    // Bulwark renders in the wall layer (draws first, like walls).
+    const isWall = s.type === 'wall' || s.type === 'bulwark';
     (isWall ? this.wallContainer : this.bodyContainer).addChild(container);
 
     // Overlay (range/vision/income/spawn) lives in the shared overlayContainer

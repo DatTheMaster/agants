@@ -498,7 +498,7 @@ Add the method (place after `_behavior_soldier`):
 ```python
 def _behavior_spitter(self, ant):
     """Fragile ranged splash unit. Fires at the nearest enemy within SPITTER_RANGE
-    (damage + splash); does NOT chase; backs toward the nest if an enemy gets adjacent."""
+    (damage + splash); does NOT chase; holds position and keeps firing when an enemy gets adjacent (hold-and-fire; retreat-when-adjacent was rejected — do not revert)."""
     c = self.colonies[ant.colony]
     if ant.cooldown > 0:
         ant.cooldown -= 1
@@ -511,7 +511,7 @@ def _behavior_spitter(self, ant):
             if d < best_d: best_d = d; target = e
     adj = self._adjacent_enemy(ant)
     if adj is not None:
-        # too close — fragile; retreat toward the nest, do not melee
+        # too close — hold-and-fire; retreat-when-adjacent was rejected, do not revert
         ant.state = S_RETURNING
         self._move_to(ant, c.nx, c.ny, 1)
         self._dep(ant.x, ant.y, 1, 0.3)
