@@ -34,6 +34,7 @@ from engine.constants import (
     VISION_RADIUS, SCOUT_VISION_RADIUS,
     STALEMATE_TIMEOUT,
     SPITTER_RANGE, SPITTER_DMG, SPITTER_CD, SPLASH_RADIUS, SPLASH_FALLOFF,
+    BULWARK_COST, BULWARK_HP, BULWARK_MAX, BULWARK_CONTACT_DMG,
 )
 from engine.colony import Ant, Colony, DirectiveEngine, _apply_upgrade_effects
 
@@ -381,9 +382,9 @@ class World:
                 c.push_event(f"★ Guard Post foundation laid at ({x},{y}) — workers needed to build")
                 self._assign_builders_to_site(c, x, y)
 
-        _STRUCT_LIMITS = {"watchtower": WATCHTOWER_MAX, "barracks": BARRACKS_MAX, "wall": WALL_MAX, "larder": LARDER_MAX}
-        _STRUCT_COSTS  = {"watchtower": WATCHTOWER_COST, "barracks": BARRACKS_COST, "wall": WALL_COST, "larder": LARDER_COST}
-        _STRUCT_HP     = {"watchtower": WATCHTOWER_HP, "barracks": BARRACKS_HP, "wall": WALL_HP, "larder": LARDER_HP}
+        _STRUCT_LIMITS = {"watchtower": WATCHTOWER_MAX, "barracks": BARRACKS_MAX, "wall": WALL_MAX, "larder": LARDER_MAX, "bulwark": BULWARK_MAX}
+        _STRUCT_COSTS  = {"watchtower": WATCHTOWER_COST, "barracks": BARRACKS_COST, "wall": WALL_COST, "larder": LARDER_COST, "bulwark": BULWARK_COST}
+        _STRUCT_HP     = {"watchtower": WATCHTOWER_HP, "barracks": BARRACKS_HP, "wall": WALL_HP, "larder": LARDER_HP, "bulwark": BULWARK_HP}
         for c in self.colonies:
             if not c.alive or not c.structure_queue: continue
             order = c.structure_queue.pop(0)
@@ -399,7 +400,7 @@ class World:
                     and own_of_type < limit
                     and (0 <= x < MAP_W and 0 <= y < MAP_H)
                     and tile_clear
-                    and (self._passable(x, y) or stype == "wall")):
+                    and (self._passable(x, y) or stype in ("wall", "bulwark"))):
                 c.dirt -= cost
                 c.dirt = max(0, c.dirt)
                 entry = {"x": x, "y": y, "colony": c.id, "type": stype,
@@ -476,6 +477,14 @@ class World:
                 if c.alive:
                     c.food += LARDER_INCOME
                     c.food_earned_tick += LARDER_INCOME
+
+            elif stype == "bulwark":
+                for ec in self.colonies:
+                    if ec.id == struct["colony"]: continue
+                    for e in list(ec.ants):
+                        if abs(e.x - struct["x"]) <= 1 and abs(e.y - struct["y"]) <= 1:
+                            e.hp -= BULWARK_CONTACT_DMG
+                            if e.hp <= 0: self._kill(e)
 
             elif stype == "barracks":
                 struct["spawn_timer"] = struct.get("spawn_timer", 0) + 1
@@ -1626,7 +1635,7 @@ class World:
         if not (0 <= x < MAP_W and 0 <= y < MAP_H): return False
         if self.terrain[y][x] in (T_WATER, T_ROCK): return False
         for st in self.structures:
-            if st.get("type") == "wall" and st["x"] == x and st["y"] == y:
+            if st.get("type") in ("wall", "bulwark") and st["x"] == x and st["y"] == y:
                 return False
         return True
 
