@@ -248,7 +248,7 @@ canvas { display: block; }
 .ico-soldier { width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #bdbdbd;display:inline-block;flex-shrink:0; }
 .ico-scout   { width:6px;height:6px;background:#888;border-radius:50%;display:inline-block;flex-shrink:0; }
 .ico-queen   { width:11px;height:11px;background:#cfcfcf;border-radius:50%;box-shadow:0 0 3px #999;display:inline-block;flex-shrink:0; }
-.ico-spitter { width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #88cc44;display:inline-block;flex-shrink:0; }
+.ico-spitter { width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #9a9a9a;display:inline-block;flex-shrink:0; }
 .ico-bulwark { width:16px;height:14px;border:1.5px solid #2a4010;background:#6a7a50;display:inline-flex;align-items:flex-end;justify-content:center;border-radius:2px;flex-shrink:0;overflow:hidden;position:relative; }
 .ico-bulwark::before { content:''; position:absolute;top:-2px;left:2px;border-left:2px solid transparent;border-right:2px solid transparent;border-bottom:5px solid #88cc44;display:inline-block; }
 .ico-team    { width:9px;height:9px;border-radius:2px;display:inline-block;flex-shrink:0; }
@@ -1743,13 +1743,14 @@ function initAntCache() {
   const typeList = [0, 1, 2, 4];
   for (const type of typeList) {
     for (let col = 0; col < 2; col++) {
-      // Spitter: blend colony color 25% + acid-green 75% so it reads as its own unit.
+      // Spitter: blend colony color 50% + acid-green 50% so RED vs BLUE remains
+      // clearly distinguishable while still reading green-tinged as a distinct type.
       let r, g, b;
       if (type === 4) {
         const [cr, cg, cb] = CCOL[col];
-        r = Math.round(cr * 0.25 + SPITTER_RGB[0] * 0.75);
-        g = Math.round(cg * 0.25 + SPITTER_RGB[1] * 0.75);
-        b = Math.round(cb * 0.25 + SPITTER_RGB[2] * 0.75);
+        r = Math.round(cr * 0.50 + SPITTER_RGB[0] * 0.50);
+        g = Math.round(cg * 0.50 + SPITTER_RGB[1] * 0.50);
+        b = Math.round(cb * 0.50 + SPITTER_RGB[2] * 0.50);
       } else {
         [r, g, b] = CCOL[col];
       }

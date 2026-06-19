@@ -20,6 +20,16 @@ import { TS } from '../scene/Camera.js';
 const COLONY_TINT = { 0: 0xff5555, 1: 0x5577ff };
 function tintFor(colony) { return COLONY_TINT[colony] ?? 0xffffff; }
 
+// Blend two 0xRRGGBB colors by fraction t toward `b` (0=all a, 1=all b).
+function blendHex(a, b, t) {
+  const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
+  const br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff;
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bl = Math.round(ab + (bb - ab) * t);
+  return (r << 16) | (g << 8) | bl;
+}
+
 // Per-tier scale multiplier (spec §2.4 "kept"; index.html:1502).
 export const TIER_SCALE = [1.0, 1.25, 1.5, 1.8];
 
@@ -39,8 +49,8 @@ const BASE_DISPLAY = [2.8, 3.8, 2.6, 6.0, 3.6].map((b) => (b * TS) / 8 * 2.0);
 // (x2.0: BASE_SZ was a *radius* in the Canvas; sprites use width/height.)
 
 // Placeholder body color per type (used when no atlas frame exists).
-// Spitter (idx 4) uses acid-green so it's visually distinct from soldier.
-const PLACEHOLDER_COLOR = [0xcfcfcf, 0xe0e0e0, 0xb8b8b8, 0xf0f0f0, 0x88cc44];
+// Spitter (idx 4) is neutral-gray so the blended team tint shows correctly.
+const PLACEHOLDER_COLOR = [0xcfcfcf, 0xe0e0e0, 0xb8b8b8, 0xf0f0f0, 0xe0e0e0];
 
 // State values (engine/constants.py:21), verified.
 const S = { IDLE: 0, FORAGING: 1, RETURNING: 2, EXPLORING: 3, FIGHTING: 4,
@@ -254,8 +264,12 @@ export class AntView {
     if (tier !== this._tier) { this._applySize(entry.type, tier); this._tier = tier; }
 
     // Colony tint on the (grayscale) base art. Cache to skip redundant writes.
-    // Spitter (type 4): override with acid-green to distinguish from soldiers.
-    const tint = entry.type === 4 ? 0x88ee22 : tintFor(entry.colony);
+    // Spitter (type 4): blend team color with acid-green (55% green / 45% team)
+    // so RED vs BLUE spitters remain distinguishable while still reading as a
+    // distinct type (green cast). blendHex(team, green, 0.55).
+    const tint = entry.type === 4
+      ? blendHex(tintFor(entry.colony), 0x88ee22, 0.55)
+      : tintFor(entry.colony);
     if (tint !== this._tint && this.body && 'tint' in this.body) {
       this.body.tint = tint; this._tint = tint;
     }
