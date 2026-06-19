@@ -1761,7 +1761,13 @@ class World:
             cmd = ov.get("cmd")
             if cmd in ("move_to", "hold"):
                 tx, ty = int(ov["x"]), int(ov["y"])
-                self._move_to(ant, tx, ty, 1)
+                if cmd == "hold":
+                    # Only move if farther than 2 tiles from hold point
+                    if abs(ant.x - tx) + abs(ant.y - ty) > 2:
+                        self._move_to(ant, tx, ty, 1)
+                else:
+                    # move_to: keep moving toward point each tick
+                    self._move_to(ant, tx, ty, 1)
                 ant.state = S_PATROLLING
                 self._dep(ant.x, ant.y, 1, 0.3)
                 # fall through to firing check below
@@ -1795,6 +1801,7 @@ class World:
 
         # No enemy in range: retreat toward nest or rally, but do NOT chase enemies
         if ov:
+            self._dep(ant.x, ant.y, 1, 0.3)
             return  # already handled above (move_to/hold)
         rally = c.directive["military"].get("rally_point")
         if rally:
