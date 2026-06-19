@@ -33,6 +33,7 @@ from engine.constants import (
     UPGRADE_LABELS, UPGRADE_EFFECTS,
     VISION_RADIUS, SCOUT_VISION_RADIUS,
     STALEMATE_TIMEOUT,
+    SPITTER_RANGE, SPITTER_DMG, SPITTER_CD, SPLASH_RADIUS, SPLASH_FALLOFF,
 )
 from engine.colony import Ant, Colony, DirectiveEngine, _apply_upgrade_effects
 
@@ -827,6 +828,7 @@ class World:
         elif ant.type == A_SOLDIER: self._behavior_soldier(ant)
         elif ant.type == A_SCOUT:   self._behavior_scout(ant)
         elif ant.type == A_QUEEN:   self._behavior_queen(ant)
+        elif ant.type == A_SPITTER: self._behavior_spitter(ant)
 
         # Track consecutive idle ticks so the agent can be shown SUSTAINED idle (truly
         # unassigned workers) rather than the transient 1-tick churn of the gather cycle
@@ -1740,6 +1742,74 @@ class World:
         if came_from.get(cur) != (sx, sy):
             return None
         return cur
+
+    def _behavior_spitter(self, ant):
+        """Fragile ranged splash unit. Fires at the nearest enemy within SPITTER_RANGE
+        (Chebyshev, damage + splash); does NOT chase. Holds position when enemies are
+        in range so the soldier can close and kill it 1v1. Retreats toward the nest only
+        when no enemy is currently in range (repositioning). When adjacent, fires
+        point-blank and stays — a retreating spitter on open terrain would kite forever
+        and be unkillable, so self-preservation is expressed through fragility (70 HP)
+        and the no-advance rule, not active evasion."""
+        c = self.colonies[ant.colony]
+        if ant.cooldown > 0:
+            ant.cooldown -= 1
+
+        # Handle unit_override: move_to/hold reposition but still fire if enemy in range
+        ov = ant.unit_override
+        if ov:
+            cmd = ov.get("cmd")
+            if cmd in ("move_to", "hold"):
+                tx, ty = int(ov["x"]), int(ov["y"])
+                self._move_to(ant, tx, ty, 1)
+                ant.state = S_PATROLLING
+                self._dep(ant.x, ant.y, 1, 0.3)
+                # fall through to firing check below
+
+        # nearest enemy within firing range (Chebyshev)
+        target, best_d = None, SPITTER_RANGE + 1
+        for ec in self.colonies:
+            if ec.id == ant.colony:
+                continue
+            for e in ec.ants:
+                d = max(abs(e.x - ant.x), abs(e.y - ant.y))
+                if d < best_d:
+                    best_d = d
+                    target = e
+
+        if target is not None and best_d <= SPITTER_RANGE:
+            # Enemy in range — stand and fire; holding position is intentional
+            # (see docstring: retreat-kiting makes the spitter unkillable in 1v1)
+            ant.state = S_FIGHTING
+            if ant.cooldown <= 0:
+                ant.cooldown = SPITTER_CD
+                ant.fired_at = [target.x, target.y]   # animation hook
+                ant.fire_tick = self.tick
+                dmg = SPITTER_DMG + c.dmg_bonus
+                target.hp -= dmg
+                self._apply_splash(ant.colony, target, dmg, SPLASH_RADIUS, SPLASH_FALLOFF)
+                if target.hp <= 0:
+                    self._kill(target)
+            self._dep(ant.x, ant.y, 1, 0.5)
+            return
+
+        # No enemy in range: retreat toward nest or rally, but do NOT chase enemies
+        if ov:
+            return  # already handled above (move_to/hold)
+        rally = c.directive["military"].get("rally_point")
+        if rally:
+            rp = rally[0] if isinstance(rally[0], (list, tuple)) else rally
+            self._move_to(ant, int(rp[0]), int(rp[1]), 1)
+            ant.state = S_PATROLLING
+        else:
+            # fall back near nest when idle
+            dist_to_nest = max(abs(ant.x - c.nx), abs(ant.y - c.ny))
+            if dist_to_nest > SPITTER_RANGE:
+                ant.state = S_RETURNING
+                self._move_to(ant, c.nx, c.ny, 1)
+            else:
+                ant.state = S_IDLE
+        self._dep(ant.x, ant.y, 1, 0.3)
 
     def _move_to(self, ant, tx, ty, layer):
         # A* first step: routes around wall lines (re-planned every tick so

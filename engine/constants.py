@@ -47,7 +47,7 @@ FOOD_REGROW_APPROACH     = 0.5
 STALEMATE_TIMEOUT = 7200   # 2 hours — effectively never fires
 
 # ── Corpses ────────────────────────────────────────────────────────────────────
-CORPSE_FOOD  = [12, 25, 17, 0]   # worker / soldier / scout / queen
+CORPSE_FOOD  = [12, 25, 17, 0, 20]   # worker / soldier / scout / queen / spitter
 CORPSE_DECAY = 0.4
 
 # ── Queen combat ───────────────────────────────────────────────────────────────
