@@ -20,8 +20,9 @@ export const COLONY = { ID: 0, NEST_X: 1, NEST_Y: 2, ALIVE: 10, TIERS: 11 };
 
 // Ant type idx -> index into a colony's `tiers` triple. worker(0)->0,
 // soldier(1)->2, scout(2)->1. Queen(3) is always tier 3 (handled separately).
+// Spitter(4) shares the soldier tier slot (index 2) — combat unit, same upgrade track.
 // Mirrors the Canvas renderer's TYPE_TIER_IDX = [0, 2, 1] (index.html:1461).
-export const TYPE_TIER_IDX = [0, 2, 1];
+export const TYPE_TIER_IDX = [0, 2, 1, /* queen special-cased */ 0, 2];
 
 // food[]   = [x, y, amt, kind, tier]
 // dirt[]   = [x, y, amt, tier]

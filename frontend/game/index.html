@@ -248,6 +248,9 @@ canvas { display: block; }
 .ico-soldier { width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #bdbdbd;display:inline-block;flex-shrink:0; }
 .ico-scout   { width:6px;height:6px;background:#888;border-radius:50%;display:inline-block;flex-shrink:0; }
 .ico-queen   { width:11px;height:11px;background:#cfcfcf;border-radius:50%;box-shadow:0 0 3px #999;display:inline-block;flex-shrink:0; }
+.ico-spitter { width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #88cc44;display:inline-block;flex-shrink:0; }
+.ico-bulwark { width:16px;height:14px;border:1.5px solid #2a4010;background:#6a7a50;display:inline-flex;align-items:flex-end;justify-content:center;border-radius:2px;flex-shrink:0;overflow:hidden;position:relative; }
+.ico-bulwark::before { content:''; position:absolute;top:-2px;left:2px;border-left:2px solid transparent;border-right:2px solid transparent;border-bottom:5px solid #88cc44;display:inline-block; }
 .ico-team    { width:9px;height:9px;border-radius:2px;display:inline-block;flex-shrink:0; }
 .ico-bldg    { width:16px;height:14px;border:1px solid #333;display:inline-flex;align-items:center;justify-content:center;font-size:8px;color:#666;border-radius:2px;flex-shrink:0; }
 .ico-dot     { width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0; }
@@ -692,6 +695,7 @@ canvas { display: block; }
           <div class="lgnd-row"><span class="ico-soldier"></span> Soldier — melee combat</div>
           <div class="lgnd-row"><span class="ico-scout"></span> Scout — fast, reveals map</div>
           <div class="lgnd-row"><span class="ico-queen"></span> Queen — nest, spawns ants</div>
+          <div class="lgnd-row"><span class="ico-spitter"></span> Spitter — ranged acid attack</div>
         </div>
         <div class="lgnd-section">
           <div class="lgnd-title">Buildings</div>
@@ -699,6 +703,7 @@ canvas { display: block; }
           <div class="lgnd-row"><span class="ico-bldg">W</span> Watchtower — vision 12t</div>
           <div class="lgnd-row"><span class="ico-bldg">B</span> Barracks — spawn ×1.5</div>
           <div class="lgnd-row"><span class="ico-bldg">L</span> Larder — +6♦/t passive</div>
+          <div class="lgnd-row"><span class="ico-bulwark"></span> Bulwark — heavy wall, spike aura</div>
         </div>
         <div class="lgnd-section">
           <div class="lgnd-title">Map</div>
@@ -1498,7 +1503,7 @@ function onTick(d) {
     colTiers[ci] = d.colonies[ci][11] || [0, 0, 0];
   }
 
-  const TYPE_TIER_IDX = [0, 2, 1]; // worker→[0], soldier→[2], scout→[1] in colTiers
+  const TYPE_TIER_IDX = [0, 2, 1, 0, 2]; // worker→[0], soldier→[2], scout→[1], queen special-cased, spitter→[2] (soldier slot)
   const nextIds = new Set();
 
   for (const a of d.ants) {
@@ -1540,7 +1545,7 @@ function onTick(d) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const TIER_SCALE = [1.0, 1.25, 1.5, 1.8];
-const BASE_SZ    = [2.8, 3.8, 2.6, 6.0];   // worker, soldier, scout, queen
+const BASE_SZ    = [2.8, 3.8, 2.6, 6.0, 3.6];   // worker, soldier, scout, queen, spitter
 
 const CACHE_SIZE = 80, CACHE_HALF = CACHE_SIZE / 2;
 let antCache = {};
@@ -1690,6 +1695,15 @@ function drawScoutShape(ctx, sz, r, g, b, tier) {
   }
 }
 
+// Spitter: soldier body silhouette recolored acid-green — placeholder quality.
+// The acid-green tint override is applied by mixing (r,g,b) toward (136,204,68)
+// before calling this function (see initAntCache / drawAnt below).
+function drawSpitterShape(ctx, sz, r, g, b, tier) {
+  // Reuse soldier geometry — same mass/head/legs so it reads as a heavy fighter —
+  // but with the caller-supplied acid-green rgb so it's visually distinct at a glance.
+  drawSoldierShape(ctx, sz, r, g, b, tier);
+}
+
 function drawQueenShape(sz, r, g, b, now) {
   const pulse = 0.5 + 0.5 * Math.sin(now / 520);
   const grd = X.createRadialGradient(0, 0, sz*0.3, 0, 0, sz*2.8);
@@ -1720,11 +1734,25 @@ function drawQueenShape(sz, r, g, b, now) {
   X.shadowBlur = 0;
 }
 
+// Acid-green RGB used for spitter tinting (blended with colony color).
+const SPITTER_RGB = [136, 204, 68];
+
 function initAntCache() {
   antCache = {};
-  for (let type = 0; type < 3; type++) {
+  // Types 0-2: worker/soldier/scout (colony-tinted). Type 4: spitter (acid-green).
+  const typeList = [0, 1, 2, 4];
+  for (const type of typeList) {
     for (let col = 0; col < 2; col++) {
-      const [r, g, b] = CCOL[col];
+      // Spitter: blend colony color 25% + acid-green 75% so it reads as its own unit.
+      let r, g, b;
+      if (type === 4) {
+        const [cr, cg, cb] = CCOL[col];
+        r = Math.round(cr * 0.25 + SPITTER_RGB[0] * 0.75);
+        g = Math.round(cg * 0.25 + SPITTER_RGB[1] * 0.75);
+        b = Math.round(cb * 0.25 + SPITTER_RGB[2] * 0.75);
+      } else {
+        [r, g, b] = CCOL[col];
+      }
       for (let tier = 0; tier < 4; tier++) {
         let cv;
         if (typeof OffscreenCanvas !== "undefined") {
@@ -1742,6 +1770,7 @@ function initAntCache() {
         }
         if      (type === 0) drawWorkerShape(ctx, sz, r, g, b, tier);
         else if (type === 1) drawSoldierShape(ctx, sz, r, g, b, tier);
+        else if (type === 4) drawSpitterShape(ctx, sz, r, g, b, tier);
         else                 drawScoutShape(ctx, sz, r, g, b, tier);
         antCache[`${type}-${col}-${tier}`] = cv;
       }
@@ -2016,7 +2045,7 @@ function render() {
         // Structure type label (small)
         X.fillStyle = `rgba(255,255,255,0.7)`;
         X.font = "bold 5px monospace"; X.textAlign = "center"; X.textBaseline = "middle";
-        const ABBR = {guard_post:"G",watchtower:"W",barracks:"B",larder:"L",wall:"="};
+        const ABBR = {guard_post:"G",watchtower:"W",barracks:"B",larder:"L",wall:"=",bulwark:"BW"};
         X.fillText(ABBR[stype]||"?", sx, sy);
         X.textBaseline = "alphabetic";
         // Construction progress bar
@@ -2112,6 +2141,35 @@ function render() {
           X.fillStyle = "rgba(0,0,0,0.55)"; X.fillRect(sx-lr, sy+TS*0.22, lr*2, 3);
           X.fillStyle = `rgb(${Math.round(255*(1-hpPct))},${Math.round(200*hpPct)},0)`;
           X.fillRect(sx-lr, sy+TS*0.22, lr*2*hpPct, 3);
+        }
+
+      } else if (stype === "bulwark") {
+        // Reinforced wall tile — same stone shape as a wall but with acid-green spike
+        // overlay so it reads as a heavy fortification. Placeholder quality.
+        const bh = TS;
+        // Stone fill (olive-green tinted)
+        X.fillStyle = `rgba(${Math.round(col[0]*0.3+80)},${Math.round(col[1]*0.3+90)},${Math.round(col[2]*0.2+50)},0.85)`;
+        X.fillRect(sx-bh/2, sy-bh/2, bh, bh);
+        X.strokeStyle = "rgba(20,40,10,0.7)"; X.lineWidth = 1.2;
+        X.strokeRect(sx-bh/2+0.5, sy-bh/2+0.5, bh-1, bh-1);
+        // Colony tint highlight
+        X.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.15)`;
+        X.fillRect(sx-bh/2, sy-bh/2, bh, bh);
+        // Acid-green spikes (3 upward triangles on top edge)
+        X.fillStyle = `rgba(136,204,68,${0.75+0.15*pulse})`;
+        const sw = bh * 0.12, sh = bh * 0.28;
+        for (let i = 0; i < 3; i++) {
+          const spx = sx - bh/2 + bh * (0.2 + i * 0.3);
+          X.beginPath(); X.moveTo(spx-sw, sy-bh/2); X.lineTo(spx, sy-bh/2-sh); X.lineTo(spx+sw, sy-bh/2); X.closePath(); X.fill();
+        }
+        // Letter label
+        X.fillStyle = "rgba(200,255,100,0.9)";
+        X.font = "bold 6px monospace"; X.textAlign = "center"; X.textBaseline = "middle";
+        X.fillText("BW", sx, sy); X.textBaseline = "alphabetic";
+        if (hpPct < 1) {
+          X.fillStyle = "rgba(0,0,0,0.5)"; X.fillRect(sx-bh/2, sy+bh/2+2, bh, 3);
+          X.fillStyle = `rgb(${Math.round(255*(1-hpPct))},${Math.round(200*hpPct)},0)`;
+          X.fillRect(sx-bh/2, sy+bh/2+2, bh*hpPct, 3);
         }
       }
     }

@@ -30,16 +30,17 @@ export const TIER_SCALE = [1.0, 1.25, 1.5, 1.8];
 const ART_FACING_OFFSET = Math.PI / 2;
 
 // Type idx -> atlas subject name.
-const TYPE_NAME = ['worker', 'soldier', 'scout', 'queen'];
+const TYPE_NAME = ['worker', 'soldier', 'scout', 'queen', 'spitter'];
 
 // Display size (world px) of a type at tier 0, before TIER_SCALE. Derived from
 // the Canvas BASE_SZ*TS/8 so the Pixi sprites read at parity sizes.
-//   BASE_SZ = [2.8, 3.8, 2.6, 6.0]  ->  *TS/8  (TS=32)
-const BASE_DISPLAY = [2.8, 3.8, 2.6, 6.0].map((b) => (b * TS) / 8 * 2.0);
+//   BASE_SZ = [2.8, 3.8, 2.6, 6.0, 3.6]  ->  *TS/8  (TS=32)
+const BASE_DISPLAY = [2.8, 3.8, 2.6, 6.0, 3.6].map((b) => (b * TS) / 8 * 2.0);
 // (x2.0: BASE_SZ was a *radius* in the Canvas; sprites use width/height.)
 
 // Placeholder body color per type (used when no atlas frame exists).
-const PLACEHOLDER_COLOR = [0xcfcfcf, 0xe0e0e0, 0xb8b8b8, 0xf0f0f0];
+// Spitter (idx 4) uses acid-green so it's visually distinct from soldier.
+const PLACEHOLDER_COLOR = [0xcfcfcf, 0xe0e0e0, 0xb8b8b8, 0xf0f0f0, 0x88cc44];
 
 // State values (engine/constants.py:21), verified.
 const S = { IDLE: 0, FORAGING: 1, RETURNING: 2, EXPLORING: 3, FIGHTING: 4,
@@ -74,6 +75,13 @@ const CLIP_TABLE = {
     [S.IDLE]: 'queen_idle',
     [S.FIGHTING]: 'queen_attack',
     default: 'queen_idle',
+  },
+  // Spitter: reuses soldier clips (no dedicated sprite yet — placeholder quality).
+  // Visually distinguished by the acid-green PLACEHOLDER_COLOR[4] tint overlay below.
+  spitter: {
+    [S.IDLE]: 'soldier_idle',
+    [S.FIGHTING]: 'soldier_attack',
+    default: 'soldier_walk',
   },
 };
 
@@ -246,7 +254,8 @@ export class AntView {
     if (tier !== this._tier) { this._applySize(entry.type, tier); this._tier = tier; }
 
     // Colony tint on the (grayscale) base art. Cache to skip redundant writes.
-    const tint = tintFor(entry.colony);
+    // Spitter (type 4): override with acid-green to distinguish from soldiers.
+    const tint = entry.type === 4 ? 0x88ee22 : tintFor(entry.colony);
     if (tint !== this._tint && this.body && 'tint' in this.body) {
       this.body.tint = tint; this._tint = tint;
     }
