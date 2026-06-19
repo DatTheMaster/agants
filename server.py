@@ -796,9 +796,10 @@ def format_enemy_sightings(colony, world_tick, limit=8):
         cx, cy, sol, tot, tk = s[0], s[1], s[2], s[3], s[4]
         wk = s[5] if len(s) > 5 else None
         sc = s[6] if len(s) > 6 else None
+        sp = s[7] if len(s) > 7 else None
         out.append({
             "pos": [cx, cy], "total": tot,
-            "soldiers": sol, "workers": wk, "scouts": sc,
+            "soldiers": sol, "workers": wk, "scouts": sc, "spitters": sp,
             "seen_tick": tk, "ticks_ago": max(0, world_tick - tk),
         })
     out.reverse()  # most-recent first
@@ -2715,7 +2716,7 @@ class Server:
         for st in w.structures:
             if st["colony"] == cid:
                 _struct_counts[st.get("type", "guard_post")] = _struct_counts.get(st.get("type", "guard_post"), 0) + 1
-        if c.dirt >= LARDER_COST:
+        if c.dirt >= min(LARDER_COST, GUARD_POST_COST, WATCHTOWER_COST, BARRACKS_COST, BULWARK_COST):
             affordable = [f"{s} ({co}◆)" for s, co, mx in
                           [("larder", LARDER_COST, LARDER_MAX), ("guard_post", GUARD_POST_COST, GUARD_POST_MAX),
                            ("watchtower", WATCHTOWER_COST, WATCHTOWER_MAX), ("barracks", BARRACKS_COST, BARRACKS_MAX),

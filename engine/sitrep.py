@@ -60,7 +60,7 @@ def _orders(colony, world):
     if total > 0:
         spawn = colony.directive.get("spawn", {})
         parts, drift = [], False
-        for name, idx in (("worker", A_WORKER), ("soldier", A_SOLDIER), ("scout", A_SCOUT)):
+        for name, idx in (("worker", A_WORKER), ("soldier", A_SOLDIER), ("scout", A_SCOUT), ("spitter", A_SPITTER)):
             tgt = spawn.get(name, {}).get("target_ratio")
             if tgt is None:
                 continue

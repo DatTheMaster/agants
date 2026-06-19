@@ -614,7 +614,7 @@ def build_structure(colony_id: int, structure_type: str, x: int, y: int) -> dict
         barracks:   200◆  — HP=200, spawns soldiers every 20 ticks, max 2 [build: 150 work]
         wall:       25◆   — impassable tile, max 12 segments          [build: 25 work]
         larder:     150◆  — HP=150, +6♦/tick passive food income, max 2 [build: 120 work]
-        bulwark:    50◆   — HP=100, contact splash damage (spiked barricade), max 6 [build: 40 work]
+        bulwark:    50◆   — HP=250, contact splash damage (spiked barricade), max 6 [build: 40 work]
 
     CONSTRUCTION: Dirt is deducted immediately, but the structure starts INACTIVE
     (not functional, shown as scaffolding on the map). Workers within 2 tiles auto-
