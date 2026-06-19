@@ -23,7 +23,7 @@ from engine.constants import (
     DIRT_PICK, DIRT_DELIVER, DIRT_CAP, DIRT_REGROW, DIRT_REGROW_FRONT,
     DIRT_FRONT_MAX, DIRT_MAX, DIRT_INIT_MIN, DIRT_INIT_MAX,
     GUARD_POST_COST, GUARD_POST_HP, GUARD_POST_DMG, GUARD_POST_CD,
-    GUARD_POST_RANGE, GUARD_POST_MAX,
+    GUARD_POST_RANGE, GUARD_POST_MAX, GUARD_POST_SPLASH_RADIUS,
     WATCHTOWER_COST, WATCHTOWER_HP, WATCHTOWER_VISION, WATCHTOWER_MAX,
     BARRACKS_COST, BARRACKS_HP, BARRACKS_SPAWN_TIME, BARRACKS_MAX,
     WALL_COST, WALL_HP, WALL_MAX,
@@ -467,6 +467,8 @@ class World:
                         struct["fire_tick"] = self.tick
                         old_hp = max(0, int(best.hp))
                         best.hp -= GUARD_POST_DMG
+                        self._apply_splash(struct["colony"], best, GUARD_POST_DMG,
+                                           GUARD_POST_SPLASH_RADIUS, SPLASH_FALLOFF)
                         new_hp = max(0, int(best.hp))
                         owner = self.colonies[struct["colony"]]
                         owner.push_event(f"Guard Post ({struct['x']},{struct['y']}) hit {ANT_TYPE_NAMES[best.type]}! HP {old_hp}→{new_hp}")
