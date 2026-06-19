@@ -1330,14 +1330,7 @@ class World:
                     ec.push_notification("queen_under_attack", {"hp": new_hp, "old_hp": old_hp, "dmg": dmg}, tick=self.tick)
                     c.push_event(f"★ SIEGE — striking enemy queen! HP: {old_hp}→{new_hp} (dealt {dmg})")
                 if c.soldier_splash:
-                    splash_dmg = max(1, int(dmg * 0.4))
-                    for ec in self.colonies:
-                        if ec.id == ant.colony: continue
-                        for stgt in list(ec.ants):
-                            if stgt is adj: continue
-                            if abs(stgt.x - adj.x) + abs(stgt.y - adj.y) <= 1:
-                                stgt.hp -= splash_dmg
-                                if stgt.hp <= 0: self._kill(stgt)
+                    self._apply_splash(ant.colony, adj, dmg, radius=1, falloff=0.4)
                 if adj.hp <= 0:
                     ec = self.colonies[adj.colony]
                     ec.push_event(f"{['worker','soldier','scout','queen'][adj.type]} killed in battle!")
@@ -1453,14 +1446,7 @@ class World:
                     ec.push_notification("queen_under_attack", {"hp": int(new_hp), "old_hp": int(old_hp), "dmg": dmg}, tick=self.tick)
                     c.push_event(f"★ SIEGE — striking enemy queen! HP: {old_hp}→{new_hp} (dealt {dmg})")
                 if c.soldier_splash:
-                    splash_dmg = max(1, int(dmg * 0.4))
-                    for ec in self.colonies:
-                        if ec.id == ant.colony: continue
-                        for stgt in list(ec.ants):
-                            if stgt is adj: continue
-                            if abs(stgt.x - adj.x) + abs(stgt.y - adj.y) <= 1:
-                                stgt.hp -= splash_dmg
-                                if stgt.hp <= 0: self._kill(stgt)
+                    self._apply_splash(ant.colony, adj, dmg, radius=1, falloff=0.4)
                 if adj.hp <= 0:
                     ec = self.colonies[adj.colony]
                     ec.push_event(f"{['worker','soldier','scout','queen'][adj.type]} killed in battle!")
@@ -1944,6 +1930,21 @@ class World:
             c.push_event(f"Destroyed enemy {stype} at ({st['x']},{st['y']})!")
             if st in self.structures:
                 self.structures.remove(st)
+
+    def _apply_splash(self, attacker_colony_id, target, dmg, radius, falloff):
+        """Damage every ENEMY ant within Chebyshev `radius` of `target` (excluding target
+        itself) by round(dmg*falloff). Shared by soldier splash, the Spitter, and guard posts."""
+        splash = max(1, round(dmg * falloff))
+        for ec in self.colonies:
+            if ec.id == attacker_colony_id:
+                continue
+            for stgt in list(ec.ants):
+                if stgt is target:
+                    continue
+                if abs(stgt.x - target.x) <= radius and abs(stgt.y - target.y) <= radius:
+                    stgt.hp -= splash
+                    if stgt.hp <= 0:
+                        self._kill(stgt)
 
     def _kill(self, ant):
         for c in self.colonies:
