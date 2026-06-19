@@ -1,13 +1,17 @@
 import random
 
 from engine.constants import (
-    A_WORKER, A_SOLDIER, A_SCOUT,
+    A_WORKER, A_SOLDIER, A_SCOUT, A_SPITTER,
     MAP_W, MAP_H,
     WATCHTOWER_COST, WATCHTOWER_MAX,
     GUARD_POST_COST, GUARD_POST_MAX,
+    BULWARK_COST, BULWARK_MAX,
     LARDER_COST, LARDER_MAX,
     WORKER_UPGRADE_COSTS, SCOUT_UPGRADE_COSTS, SOLDIER_UPGRADE_COSTS,
 )
+
+# Bot caps for bulwarks — stay conservative; leave BULWARK_MAX headroom for humans/agents
+_BOT_BULWARK_MAX = 3
 
 
 def update_bot_strategy(world, colony_id):
@@ -19,16 +23,47 @@ def update_bot_strategy(world, colony_id):
     food     = c.food
     income   = c.income_per_s
 
+    # Detect enemy rush: count enemy soldiers within ~30 tiles of our nest
+    enemy_rush = False
+    if c.enemy:
+        enemy_near = sum(
+            1 for a in c.enemy.ants
+            if a.type == A_SOLDIER
+            and abs(a.x - c.nx) + abs(a.y - c.ny) <= 30
+        )
+        enemy_rush = enemy_near >= 3
+
     if (food < 150 and workers < 20) or (income < 5 and food < 100):
-        roles, cap, defense = {"worker": 0.65, "scout": 0.15, "soldier": 0.20}, 70, "defensive"
+        # Early / struggling — mostly economy, token combat presence
+        if enemy_rush:
+            # Shift combat budget toward spitters under rush even when poor
+            roles, cap, defense = {"worker": 0.55, "scout": 0.10, "soldier": 0.20, "spitter": 0.15}, 70, "defensive"
+        else:
+            roles, cap, defense = {"worker": 0.65, "scout": 0.15, "soldier": 0.14, "spitter": 0.06}, 70, "defensive"
     elif food > 1800 and workers >= 40:
-        roles, cap, defense = {"worker": 0.25, "scout": 0.10, "soldier": 0.65}, 55, "aggressive"
+        # Aggressive push — soldier:spitter ~70:30 of combat budget
+        if enemy_rush:
+            roles, cap, defense = {"worker": 0.25, "scout": 0.08, "soldier": 0.39, "spitter": 0.28}, 55, "aggressive"
+        else:
+            roles, cap, defense = {"worker": 0.25, "scout": 0.10, "soldier": 0.46, "spitter": 0.19}, 55, "aggressive"
     elif food > 1000 and workers >= 30:
-        roles, cap, defense = {"worker": 0.35, "scout": 0.12, "soldier": 0.53}, 55, "aggressive"
+        # Mid-game push
+        if enemy_rush:
+            roles, cap, defense = {"worker": 0.35, "scout": 0.10, "soldier": 0.30, "spitter": 0.25}, 55, "aggressive"
+        else:
+            roles, cap, defense = {"worker": 0.35, "scout": 0.12, "soldier": 0.37, "spitter": 0.16}, 55, "aggressive"
     elif food > 500 and workers >= 20:
-        roles, cap, defense = {"worker": 0.45, "scout": 0.15, "soldier": 0.40}, 60, "balanced"
+        # Balanced
+        if enemy_rush:
+            roles, cap, defense = {"worker": 0.40, "scout": 0.10, "soldier": 0.22, "spitter": 0.28}, 60, "balanced"
+        else:
+            roles, cap, defense = {"worker": 0.45, "scout": 0.15, "soldier": 0.28, "spitter": 0.12}, 60, "balanced"
     else:
-        roles, cap, defense = {"worker": 0.55, "scout": 0.20, "soldier": 0.25}, 65, "balanced"
+        # Early growth
+        if enemy_rush:
+            roles, cap, defense = {"worker": 0.48, "scout": 0.12, "soldier": 0.22, "spitter": 0.18}, 65, "balanced"
+        else:
+            roles, cap, defense = {"worker": 0.55, "scout": 0.20, "soldier": 0.18, "spitter": 0.07}, 65, "balanced"
 
     # Rally to mass, then release as a wave — avoids 1-by-1 trickle deaths
     rally_update = {}
@@ -64,6 +99,7 @@ def update_bot_strategy(world, colony_id):
     own_structs = [st for st in world.structures if st["colony"] == c.id]
     own_gp = sum(1 for st in own_structs if st.get("type") == "guard_post")
     own_wt = sum(1 for st in own_structs if st.get("type") == "watchtower")
+    own_bw = sum(1 for st in own_structs if st.get("type") == "bulwark")
     if c.enemy:
         def _bot_find_passable(bx, by, spread=6):
             for _ in range(10):
@@ -72,6 +108,21 @@ def update_bot_strategy(world, colony_id):
                 if world._passable(tx, ty):
                     return tx, ty
             return None, None
+
+        # Bulwark: build a spiked forward barrier — prioritize when under rush
+        # Place ~20% of the way toward the enemy (just outside our nest approach)
+        bw_cap = _BOT_BULWARK_MAX
+        if own_bw < bw_cap and dirt >= BULWARK_COST and workers >= 6:
+            # Under rush: build immediately; otherwise wait for modest stability
+            should_build_bw = enemy_rush or (workers >= 12 and world.tick > 100)
+            if should_build_bw:
+                bwx = int(c.nx + (c.enemy.nx - c.nx) * 0.18)
+                bwy = int(c.ny + (c.enemy.ny - c.ny) * 0.18)
+                bwx2, bwy2 = _bot_find_passable(bwx, bwy, spread=5)
+                if bwx2 is not None:
+                    entry = {"type": "bulwark", "x": bwx2, "y": bwy2}
+                    if entry not in c.structure_queue:
+                        c.structure_queue.append(entry)
 
         if own_wt < WATCHTOWER_MAX and dirt >= WATCHTOWER_COST and workers >= 8:
             bx = int(c.nx + (c.enemy.nx - c.nx) * 0.25)

@@ -614,6 +614,9 @@ class Colony:
                 d["spawn"]["worker"]["target_ratio"]  = r.get("worker",  0.55) / total
                 d["spawn"]["scout"]["target_ratio"]   = r.get("scout",   0.25) / total
                 d["spawn"]["soldier"]["target_ratio"] = r.get("soldier", 0.20) / total
+                if "spitter" not in d["spawn"]:
+                    d["spawn"]["spitter"] = {"target_ratio": 0.0, "min_ratio": 0.0, "min": 0, "max": 20, "pause": False, "birth_config": {}}
+                d["spawn"]["spitter"]["target_ratio"] = r.get("spitter", 0.0) / total
         if "expansion" in s:
             v = list(s["expansion"]) if isinstance(s["expansion"], tuple) else list(s["expansion"])
             d["unit_types"]["scout"]["expansion"]   = v
