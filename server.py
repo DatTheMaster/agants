@@ -404,7 +404,7 @@ SPAWN COSTS & TIMES:
   Food is RESERVED immediately when an ant is queued — not when it spawns.
   If spawn fails (refunded), you'll see "spawn failed" in events.
 LIFESPAN: worker=500t   soldier=300t   scout=200t   queen=∞   spitter=250t
-  Spitter (ranged, anti-mass): 40HP, splash damage 8/tick on contact, slow (speed 1). Use spawn.spitter.target_ratio to queue.
+  Spitter (ranged, anti-mass): 70HP, ranged; deals ~16 + ~8 splash to adjacent enemies per shot, range 5, slow (speed 1). Use spawn.spitter.target_ratio to queue.
   Role: cheap counter to massed workers/scouts — fragile vs focused soldier fire.
   → SPAWN QUEUE in your state shows what is cooking + food already reserved.
   → AGING OUT SOON shows ants in final 20% of lifespan — plan replacements NOW.
@@ -3515,11 +3515,11 @@ class Server:
             m._pending_strategies.append((cid, {"convert": body.get("convert", {})}))
         elif cmd_type == "cancel_spawn":
             unit_type = body.get("unit_type", "all")
-            if unit_type not in {"worker", "soldier", "scout", "all"}:
+            if unit_type not in {"worker", "soldier", "scout", "spitter", "all"}:
                 return await self._api_cors(web.json_response(
-                    {"error": "unit_type must be 'worker', 'soldier', 'scout', or 'all'"}, status=400))
+                    {"error": "unit_type must be 'worker', 'soldier', 'scout', 'spitter', or 'all'"}, status=400))
             c = m.world.colonies[cid]
-            _type_map = {"worker": A_WORKER, "soldier": A_SOLDIER, "scout": A_SCOUT}
+            _type_map = {"worker": A_WORKER, "soldier": A_SOLDIER, "scout": A_SCOUT, "spitter": A_SPITTER}
             if unit_type == "all":
                 cancelled = len(c.spawn_queue)
                 refund = sum(cost for _, _, cost in c.spawn_queue)

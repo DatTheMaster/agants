@@ -589,7 +589,7 @@ class Colony:
                 self.convert_queue.append({"id": int(cv["id"]), "to": str(cv["to"])})
         if "cancel_spawn" in s:
             unit_str = s["cancel_spawn"]
-            _type_map = {"worker": A_WORKER, "soldier": A_SOLDIER, "scout": A_SCOUT}
+            _type_map = {"worker": A_WORKER, "soldier": A_SOLDIER, "scout": A_SCOUT, "spitter": A_SPITTER}
             if unit_str == "all":
                 for _, _, cost in self.spawn_queue:
                     self.food += cost

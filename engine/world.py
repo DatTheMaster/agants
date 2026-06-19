@@ -351,7 +351,7 @@ class World:
                     c.push_event(f"convert failed: need {cost}♦ to convert to {order['to']}")
                     continue
                 c.food -= cost
-                old_name = ["worker","soldier","scout"][ant.type]
+                old_name = ANT_TYPE_NAMES[ant.type]
                 ant.type     = target_type
                 ant.hp       = _CONVERT_HP[target_type]
                 ant.max_hp   = ant.hp

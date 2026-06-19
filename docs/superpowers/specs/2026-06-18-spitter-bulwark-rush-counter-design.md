@@ -50,7 +50,7 @@ A fragile ranged ant that punishes clumped soldier-balls and folds if melee reac
 | Speed | ~1/tick (same) | No kiting micro |
 
 **Behavior (simple, by design):** fire at the nearest enemy within range; **does not chase**;
-if an enemy becomes adjacent, step back toward nest/rally (basic self-preservation). Obeys
+holds position and keeps firing even when enemies are adjacent (hold-and-fire; retreat-when-adjacent was considered and rejected — do not revert). Obeys
 existing unit verbs (`move_to`/`hold`/`gather`(N/A)/`attack`) + a `spawn.spitter.target_ratio`
 directive field. No new agent commands.
 

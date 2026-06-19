@@ -484,7 +484,7 @@ def get_directive(colony_id: int) -> dict:
     Key directive sections:
     - spawn: target ratios, min ratios, reserve_food, burst_at, per-type min/max/pause
         spawn.{type}.pause=true  — stop adding this type to the queue (save food for upgrades)
-        spawn.spitter.target_ratio — queue spitters (ranged anti-mass, 40HP, splash dmg, fragile vs soldiers)
+        spawn.spitter.target_ratio — queue spitters (ranged anti-mass, 70HP, ranged ~16+8 splash, range 5, fragile vs soldiers)
     - economy: upgrade_priority, auto_upgrade, priority_food, gather_dirt, upgrade_reserve
         economy.upgrade_reserve={"scout": 450}  — protect 450♦ from spawn queue for scout T1
     - military: stance, formation, rally_point, rally_release_at, auto_attack, retreat
