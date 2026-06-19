@@ -16,12 +16,14 @@ def test_splash_hits_adjacent_enemies_only():
     near   = Ant(51, 50, en.id, A_SOLDIER); en.ants.append(near)     # adjacent enemy
     far    = Ant(55, 50, en.id, A_SOLDIER); en.ants.append(far)      # out of radius
     friend = Ant(49, 50, me.id, A_SOLDIER); me.ants.append(friend)   # friendly, must be safe
-    near_hp0, far_hp0, friend_hp0 = near.hp, far.hp, friend.hp
+    diag   = Ant(51, 51, en.id, A_SOLDIER); en.ants.append(diag)     # diagonal neighbor (Chebyshev)
+    target_hp0, near_hp0, far_hp0, friend_hp0, diag_hp0 = target.hp, near.hp, far.hp, friend.hp, diag.hp
     w._apply_splash(me.id, target, dmg=16, radius=1, falloff=0.5)
+    assert target.hp == target_hp0, "splash must not double-hit the primary target"
     assert near.hp == near_hp0 - 8, near.hp
+    assert diag.hp == diag_hp0 - 8, "diagonal is within Chebyshev radius 1"
     assert far.hp == far_hp0, "splash leaked beyond radius"
     assert friend.hp == friend_hp0, "splash hit a friendly"
-    assert target.hp == target.hp, "splash must not double-hit the primary target"
 
 if __name__ == "__main__":
     import traceback
