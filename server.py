@@ -403,7 +403,7 @@ SPAWN COSTS & TIMES:
   Each worker delivery = 30♦ to treasury. Workers carry 20♦ from each food node per trip.
   Food is RESERVED immediately when an ant is queued — not when it spawns.
   If spawn fails (refunded), you'll see "spawn failed" in events.
-LIFESPAN: worker=500t   soldier=300t   scout=200t   queen=∞   spitter=250t
+LIFESPAN: worker=500t   soldier=300t   scout=200t   queen=∞   spitter=300t
   Spitter (ranged, anti-mass): 70HP, ranged; deals ~16 + ~8 splash to adjacent enemies per shot, range 5, slow (speed 1). Use spawn.spitter.target_ratio to queue.
   Role: cheap counter to massed workers/scouts — fragile vs focused soldier fire.
   → SPAWN QUEUE in your state shows what is cooking + food already reserved.
