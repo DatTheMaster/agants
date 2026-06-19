@@ -33,37 +33,40 @@ def update_bot_strategy(world, colony_id):
         )
         enemy_rush = enemy_near >= 3
 
+    # Spitters are HOLD-AND-FIRE defenders: keep them a small supplement.
+    # Soldiers must stay the clear majority of combat (~80% baseline, never < ~70%
+    # even under rush). Under rush we lift the spitter share to ~25-30% of combat,
+    # not past it — the offensive soldier core is what wins games.
     if (food < 150 and workers < 20) or (income < 5 and food < 100):
         # Early / struggling — mostly economy, token combat presence
         if enemy_rush:
-            # Shift combat budget toward spitters under rush even when poor
-            roles, cap, defense = {"worker": 0.55, "scout": 0.10, "soldier": 0.20, "spitter": 0.15}, 70, "defensive"
+            roles, cap, defense = {"worker": 0.55, "scout": 0.10, "soldier": 0.26, "spitter": 0.09}, 70, "defensive"
         else:
-            roles, cap, defense = {"worker": 0.65, "scout": 0.15, "soldier": 0.14, "spitter": 0.06}, 70, "defensive"
+            roles, cap, defense = {"worker": 0.65, "scout": 0.15, "soldier": 0.17, "spitter": 0.03}, 70, "defensive"
     elif food > 1800 and workers >= 40:
-        # Aggressive push — soldier:spitter ~70:30 of combat budget
+        # Aggressive push — soldier-heavy combat budget
         if enemy_rush:
-            roles, cap, defense = {"worker": 0.25, "scout": 0.08, "soldier": 0.39, "spitter": 0.28}, 55, "aggressive"
+            roles, cap, defense = {"worker": 0.25, "scout": 0.08, "soldier": 0.50, "spitter": 0.17}, 55, "aggressive"
         else:
-            roles, cap, defense = {"worker": 0.25, "scout": 0.10, "soldier": 0.46, "spitter": 0.19}, 55, "aggressive"
+            roles, cap, defense = {"worker": 0.25, "scout": 0.10, "soldier": 0.54, "spitter": 0.11}, 55, "aggressive"
     elif food > 1000 and workers >= 30:
         # Mid-game push
         if enemy_rush:
-            roles, cap, defense = {"worker": 0.35, "scout": 0.10, "soldier": 0.30, "spitter": 0.25}, 55, "aggressive"
+            roles, cap, defense = {"worker": 0.35, "scout": 0.10, "soldier": 0.40, "spitter": 0.15}, 55, "aggressive"
         else:
-            roles, cap, defense = {"worker": 0.35, "scout": 0.12, "soldier": 0.37, "spitter": 0.16}, 55, "aggressive"
+            roles, cap, defense = {"worker": 0.35, "scout": 0.12, "soldier": 0.44, "spitter": 0.09}, 55, "aggressive"
     elif food > 500 and workers >= 20:
         # Balanced
         if enemy_rush:
-            roles, cap, defense = {"worker": 0.40, "scout": 0.10, "soldier": 0.22, "spitter": 0.28}, 60, "balanced"
+            roles, cap, defense = {"worker": 0.40, "scout": 0.10, "soldier": 0.37, "spitter": 0.13}, 60, "balanced"
         else:
-            roles, cap, defense = {"worker": 0.45, "scout": 0.15, "soldier": 0.28, "spitter": 0.12}, 60, "balanced"
+            roles, cap, defense = {"worker": 0.45, "scout": 0.15, "soldier": 0.33, "spitter": 0.07}, 60, "balanced"
     else:
         # Early growth
         if enemy_rush:
-            roles, cap, defense = {"worker": 0.48, "scout": 0.12, "soldier": 0.22, "spitter": 0.18}, 65, "balanced"
+            roles, cap, defense = {"worker": 0.48, "scout": 0.12, "soldier": 0.30, "spitter": 0.10}, 65, "balanced"
         else:
-            roles, cap, defense = {"worker": 0.55, "scout": 0.20, "soldier": 0.18, "spitter": 0.07}, 65, "balanced"
+            roles, cap, defense = {"worker": 0.55, "scout": 0.20, "soldier": 0.21, "spitter": 0.04}, 65, "balanced"
 
     # Rally to mass, then release as a wave — avoids 1-by-1 trickle deaths
     rally_update = {}
