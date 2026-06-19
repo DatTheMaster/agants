@@ -611,6 +611,7 @@ canvas { display: block; }
         <div class="r"><span class="k">Workers</span><span class="v" id="r-w">—</span></div>
         <div class="r"><span class="k">Soldiers</span><span class="v" id="r-s">—</span></div>
         <div class="r"><span class="k">Scouts</span><span class="v" id="r-c">—</span></div>
+        <div class="r"><span class="k">Spitters</span><span class="v" id="r-spit">—</span></div>
         <div class="r"><span class="k">Queen HP</span><span class="v" id="r-qhp">—</span></div>
       </div>
       <div class="queue-line" id="r-queue">QUEUE: —</div>
@@ -651,6 +652,7 @@ canvas { display: block; }
         <div class="r"><span class="k">Workers</span><span class="v" id="b-w">—</span></div>
         <div class="r"><span class="k">Soldiers</span><span class="v" id="b-s">—</span></div>
         <div class="r"><span class="k">Scouts</span><span class="v" id="b-c">—</span></div>
+        <div class="r"><span class="k">Spitters</span><span class="v" id="b-spit">—</span></div>
         <div class="r"><span class="k">Queen HP</span><span class="v" id="b-qhp">—</span></div>
       </div>
       <div class="queue-line" id="b-queue">QUEUE: —</div>
@@ -2284,7 +2286,7 @@ function updateSidebar(now) {
 
   for (const { prefix, col } of ids) {
     const ct = col[4];
-    const total = ct[0] + ct[1] + ct[2] + ct[3];
+    const total = ct[0] + ct[1] + ct[2] + ct[3] + (ct[4] || 0);
     const food  = col[3];
     const strat = col[5];
     const foodCollected = col[8] || 0;
@@ -2311,6 +2313,7 @@ function updateSidebar(now) {
     document.getElementById(`${prefix}-w`).textContent = ct[0];
     document.getElementById(`${prefix}-s`).textContent = ct[1];
     document.getElementById(`${prefix}-c`).textContent = ct[2];
+    document.getElementById(`${prefix}-spit`).textContent = ct[4] || 0;
     document.getElementById(`${prefix}-qhp`).textContent = queen ? qhp : "DEAD";
     document.getElementById(`${prefix}-fed`).textContent  = foodCollected;
     document.getElementById(`${prefix}-lost`).textContent = antsLost;
