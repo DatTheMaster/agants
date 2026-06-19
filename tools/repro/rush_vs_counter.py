@@ -5,7 +5,16 @@ RED = 80%-soldier rush (attack_target=BLUE nest, auto_attack).
 BLUE = defender: spitter-heavy build (target_ratio~0.4) + soldiers, pre-placed
   2-3 bulwarks across the nest approach + 1-2 guard posts.
 
-Acceptance: BLUE queen alive at tick 600+ AND RED soldier losses high.
+Acceptance (PRIMARY GOAL = rush is blunted):
+  - BLUE queen alive at end AND
+  - Substantial RED SOLDIER attrition (red_soldier_losses >= 50) AND
+  - BLUE not wiped
+
+Report per seed:
+  - red_soldier_losses (soldiers specifically, not all ants)
+  - min_chebyshev_dist_to_queen: closest any RED soldier ever got to BLUE queen
+  - peak_red_soldiers_near_nest: peak count of RED soldiers within 6 tiles of BLUE nest
+  - BLUE queen HP at end
 
 Run: PYTHONPATH=. python3 tools/repro/rush_vs_counter.py
 """
@@ -84,15 +93,16 @@ def run(seed, ticks=1500, verbose=False):
         "spawn.scout.target_ratio":   0.10,
     })
 
-    # BLUE pre-placed defences: bulwarks across the nest approach corridor
-    # (around x=115–125, y=50 — the main approach lane from midfield)
+    # BLUE pre-placed defences: bulwarks at a defensible line inside BLUE territory
+    # (~x=110-120, just inside BLUE approach corridor — not hugging the nest)
+    # BLUE_SPAWN = (136, 50), so x=110 is ~26 tiles out from nest (realistic hold line)
     bx, by = BLUE_SPAWN
-    _pre_placed_bulwark(w, blue.id, bx - 18, by)       # ~118,50
-    _pre_placed_bulwark(w, blue.id, bx - 18, by - 4)   # ~118,46
-    _pre_placed_bulwark(w, blue.id, bx - 15, by + 4)   # ~121,54
-    # Guard posts behind the bulwark line — range 10 → covers the choke
-    _pre_placed_guard_post(w, blue.id, bx - 10, by - 2)  # ~126,48
-    _pre_placed_guard_post(w, blue.id, bx - 10, by + 2)  # ~126,52
+    _pre_placed_bulwark(w, blue.id, bx - 26, by)       # ~110,50 — center lane hold
+    _pre_placed_bulwark(w, blue.id, bx - 26, by - 5)   # ~110,45 — upper approach
+    _pre_placed_bulwark(w, blue.id, bx - 23, by + 5)   # ~113,55 — lower approach
+    # Guard posts just behind the bulwark line — range 10 → covers the choke
+    _pre_placed_guard_post(w, blue.id, bx - 18, by - 2)  # ~118,48
+    _pre_placed_guard_post(w, blue.id, bx - 18, by + 2)  # ~118,52
 
     # ── Initial small army so neither side spawns from scratch ──
     for _ in range(8):
@@ -101,7 +111,7 @@ def run(seed, ticks=1500, verbose=False):
                             red.id, A_SOLDIER))
     # BLUE: seed a couple of spitters near the defensive line
     for _ in range(4):
-        blue.ants.append(Ant(bx - 14 + random.randint(-2, 2),
+        blue.ants.append(Ant(bx - 20 + random.randint(-2, 2),
                              by + random.randint(-3, 3),
                              blue.id, A_SPITTER))
 
@@ -109,8 +119,15 @@ def run(seed, ticks=1500, verbose=False):
     red_queen  = next(a for a in red.ants  if a.type == A_QUEEN)
 
     peak_red_soldiers = 0
-    red_losses = 0
-    red_start_soldiers = sum(1 for a in red.ants if a.type == A_SOLDIER)
+
+    # Track RED SOLDIER losses specifically (not omnibus ants_lost which includes all types)
+    # We track soldier count each tick and accumulate decreases
+    prev_red_soldiers = sum(1 for a in red.ants if a.type == A_SOLDIER)
+    red_soldier_losses = 0
+
+    # Track how close RED soldiers got to BLUE's queen
+    min_chebyshev_dist_to_queen = 9999
+    peak_red_soldiers_near_nest = 0   # peak count within 6 tiles of BLUE nest
 
     blue_queen_hp_log = []   # (tick, hp) every 100 ticks
 
@@ -125,13 +142,38 @@ def run(seed, ticks=1500, verbose=False):
         spitters_now      = sum(1 for a in blue.ants if a.type == A_SPITTER)
         peak_red_soldiers = max(peak_red_soldiers, red_soldiers_now)
 
+        # Accumulate RED SOLDIER deaths this tick (soldiers only, not workers/scouts/spitters)
+        soldier_delta = prev_red_soldiers - red_soldiers_now
+        if soldier_delta > 0:
+            red_soldier_losses += soldier_delta
+        prev_red_soldiers = red_soldiers_now
+
+        # Track proximity metrics to BLUE queen
+        bq_alive = blue_queen in blue.ants
+        if bq_alive:
+            bqx, bqy = blue_queen.x, blue_queen.y
+            red_near_nest = 0
+            for a in red.ants:
+                if a.type == A_SOLDIER:
+                    # Chebyshev distance to BLUE queen
+                    cheb = max(abs(a.x - bqx), abs(a.y - bqy))
+                    if cheb < min_chebyshev_dist_to_queen:
+                        min_chebyshev_dist_to_queen = cheb
+                    # Count within 6 tiles of BLUE nest (use BLUE_SPAWN as reference)
+                    nest_cheb = max(abs(a.x - bx), abs(a.y - by))
+                    if nest_cheb <= 6:
+                        red_near_nest += 1
+            peak_red_soldiers_near_nest = max(peak_red_soldiers_near_nest, red_near_nest)
+
         if t % 100 == 0:
             bq_hp = blue_queen.hp if blue_queen in blue.ants else 0
             blue_queen_hp_log.append((t, bq_hp))
             if verbose:
                 rq_hp = red_queen.hp if red_queen in red.ants else 0
+                near_str = f"near_nest={peak_red_soldiers_near_nest}"
                 print(f"  t={t:4d}  RED_sol={red_soldiers_now:3d}  BLUE_sol={blue_soldiers_now:2d}  "
-                      f"BLUE_spit={spitters_now:2d}  BLUE_queen={bq_hp:4.0f}  RED_queen={rq_hp:4.0f}")
+                      f"BLUE_spit={spitters_now:2d}  BLUE_queen={bq_hp:4.0f}  RED_queen={rq_hp:4.0f}  "
+                      f"sol_losses={red_soldier_losses}  min_dist={min_chebyshev_dist_to_queen}  {near_str}")
 
         if blue_queen not in blue.ants and winner is None:
             winner = "RED"; decision_tick = t
@@ -140,8 +182,6 @@ def run(seed, ticks=1500, verbose=False):
         if winner:
             break
 
-    # Compute losses roughly: initial + spawned - alive
-    red_losses = red.ants_lost
     bq_final_hp = blue_queen.hp if blue_queen in blue.ants else 0
 
     return {
@@ -151,7 +191,10 @@ def run(seed, ticks=1500, verbose=False):
         "blue_queen_hp_final": bq_final_hp,
         "blue_queen_hp_log": blue_queen_hp_log,
         "peak_red_soldiers": peak_red_soldiers,
-        "red_losses": red_losses,
+        "red_soldier_losses": red_soldier_losses,   # SOLDIERS only, not all ants
+        "red_total_losses": red.ants_lost,           # all red losses (for reference)
+        "min_chebyshev_dist_to_queen": min_chebyshev_dist_to_queen,
+        "peak_red_soldiers_near_nest": peak_red_soldiers_near_nest,
         "blue_spitters_at_end": sum(1 for a in blue.ants if a.type == A_SPITTER),
         "blue_structures_alive": len([s for s in w.structures
                                       if s["colony"] == blue.id and s.get("active")]),
@@ -164,10 +207,12 @@ if __name__ == "__main__":
         BULWARK_HP, BULWARK_CONTACT_DMG, GUARD_POST_DMG, GUARD_POST_RANGE,
     )
     print("=" * 60)
-    print("RUSH-VS-COUNTER HARNESS")
+    print("RUSH-VS-COUNTER HARNESS (hardened)")
     print(f"  Spitter: HP={SPITTER_HP} DMG={SPITTER_DMG} RANGE={SPITTER_RANGE} CD={SPITTER_CD}")
     print(f"  Bulwark: HP={BULWARK_HP} CONTACT_DMG={BULWARK_CONTACT_DMG}")
     print(f"  GuardPost: DMG={GUARD_POST_DMG} RANGE={GUARD_POST_RANGE}")
+    print("  Metrics: RED SOLDIER losses (not omnibus), min Chebyshev dist to BLUE queen,")
+    print("           peak RED soldiers within 6 tiles of BLUE nest")
     print("=" * 60)
 
     seeds = [42, 7, 13, 99, 256]
@@ -177,23 +222,37 @@ if __name__ == "__main__":
         results.append(r)
         print(f"\nSeed {s:3d}: winner={r['winner']:18s}  tick={r['decision_tick']:4d}  "
               f"BLUE_queen_hp={r['blue_queen_hp_final']:5.0f}  "
-              f"peak_RED_sol={r['peak_red_soldiers']:3d}  RED_losses={r['red_losses']:3d}")
+              f"peak_RED_sol={r['peak_red_soldiers']:3d}  "
+              f"RED_sol_losses={r['red_soldier_losses']:3d}  (total_losses={r['red_total_losses']})")
+        print(f"         min_dist_to_BLUE_queen={r['min_chebyshev_dist_to_queen']}  "
+              f"peak_near_nest={r['peak_red_soldiers_near_nest']}")
         print(f"         BLUE queen HP timeline: {r['blue_queen_hp_log']}")
 
     print()
     print("=" * 60)
-    print("ACCEPTANCE CHECK")
-    # Acceptance: BLUE queen alive at tick 600+ (blue_queen_hp_log[5] is tick 600)
+    print("ACCEPTANCE CHECK  (PRIMARY GOAL: rush is blunted)")
+    print("  Criteria: BLUE queen alive at end AND red_soldier_losses >= 50 AND BLUE not wiped")
     passes = 0
     for r in results:
         # Find hp at or after tick 600
         hp_at_600 = next((hp for t, hp in r["blue_queen_hp_log"] if t >= 600), 0)
         alive_at_600 = hp_at_600 > 0
-        high_red_losses = r["red_losses"] >= 10  # at least 10 red soldiers killed
-        ok = alive_at_600 and high_red_losses
+        # PRIMARY: soldier losses (not omnibus) must be substantial
+        high_red_sol_losses = r["red_soldier_losses"] >= 50
+        blue_not_wiped = r["winner"] != "RED"
+        ok = alive_at_600 and high_red_sol_losses and blue_not_wiped
         status = "PASS" if ok else "FAIL"
         if ok: passes += 1
+        perimeter_note = ""
+        if r["min_chebyshev_dist_to_queen"] <= 6:
+            perimeter_note = " [RED BROKE perimeter — was stopped near queen]"
+        elif r["min_chebyshev_dist_to_queen"] <= 15:
+            perimeter_note = " [RED approached nest — defense held]"
+        else:
+            perimeter_note = " [RED never reached nest — test may be too easy]"
         print(f"  Seed {r['seed']:3d}: {status}  (BLUE_queen@600={hp_at_600:.0f}  "
-              f"RED_losses={r['red_losses']}  winner={r['winner']})")
+              f"RED_sol_losses={r['red_soldier_losses']}  winner={r['winner']})")
+        print(f"           min_dist_to_queen={r['min_chebyshev_dist_to_queen']}  "
+              f"peak_near_nest={r['peak_red_soldiers_near_nest']}{perimeter_note}")
     overall = "PASS" if passes >= 3 else "FAIL"
     print(f"\nOVERALL: {overall} ({passes}/{len(seeds)} seeds pass)")

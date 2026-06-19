@@ -5,18 +5,26 @@ Both colonies: identical mixed build — soldier + spitter + bulwark.
 Neither side starts with inherent advantage. Real economy (workers gather food).
 
 Acceptance:
-  - Resolves (one side wins OR one side establishes a clear military lead >2x the
-    other in combined soldiers+spitters) within 2000 ticks — no permanent stalemate.
+  - Resolves (one side wins OR one side establishes a SUSTAINED clear military
+    lead >2.5x the other for 3 consecutive checks at 200-tick intervals) within
+    2000 ticks — no permanent stalemate.
+  - ALTERNATIVELY: one queen takes >30% HP damage (hp_margin > 0.30 * QUEEN_HP).
+  - If none fire by the tick budget → STALEMATE. Reported honestly as stalemate,
+    NOT relabeled as resolved.
   - Neither side has a structural runaway from tick 1 (queen HP stays within 50%
     of each other for the first 800 ticks — no instant-wipe from imbalanced spawn).
-  - NOTE: with perfectly mirrored starting resources a true tie is possible.
-    "Clear lead" catches the asymmetric-outcome cases that prove it's not a
-    pure frozen-front stalemate.
+
+NOTE: Symmetric draws are NOT automatically a bug. This harness reports truth:
+  how many seeds resolve vs stalemate, and the attrition character of each.
+  Do NOT force a pass — stalemate seeds are reported honestly.
 
 Tuning log (before→after + effect):
   v1: used 5000 food (unlimited) + pre-placed defences → stalemate every seed.
   v2: realistic food (1200), no initial dirt, no pre-placed defences.
       Let natural variance + food economy break the symmetry.
+  v3: removed total_losses >= 100 fallback from resolved (masked stalemates).
+      Requires winner OR sustained lead (3 consecutive checks) OR >30% HP margin.
+      Stalemate seeds reported as STALEMATE, not resolved.
 
 Run: PYTHONPATH=. python3 tools/repro/spitter_symmetry.py
 """
@@ -73,9 +81,15 @@ def run(seed, ticks=2000, verbose=False):
 
     winner = None
     decision_tick = None
-    clear_lead_tick = None
     runaway_early = False
     hp_log = []   # (tick, red_qhp, blue_qhp) every 200 ticks
+    mil_log = []  # (tick, r_mil, b_mil) every 200 ticks
+
+    # Sustained clear lead tracking: require the lead to hold for 3 consecutive
+    # 200-tick checks before declaring it "clear". A single-tick spike is not a lead.
+    consecutive_lead_checks = 0
+    LEAD_CHECKS_REQUIRED = 3
+    clear_lead_tick = None
 
     for t in range(1, ticks + 1):
         w.step()
@@ -88,6 +102,7 @@ def run(seed, ticks=2000, verbose=False):
 
         if t % 200 == 0:
             hp_log.append((t, rq_hp, bq_hp))
+            mil_log.append((t, r_mil, b_mil))
             if verbose:
                 rs = sum(1 for a in red.ants  if a.type == A_SOLDIER)
                 bs = sum(1 for a in blue.ants if a.type == A_SOLDIER)
@@ -96,6 +111,19 @@ def run(seed, ticks=2000, verbose=False):
                 print(f"  t={t:4d}  RED queen={rq_hp:5.0f} sol={rs} spit={rsp}  "
                       f"BLUE queen={bq_hp:5.0f} sol={bs} spit={bsp}  "
                       f"RED_mil={r_mil} BLUE_mil={b_mil}")
+
+            # Sustained clear-lead check: one side has >2.5x military at this 200-tick
+            # sample AND it's been 3 consecutive checks. A brief blip is NOT a lead.
+            if clear_lead_tick is None and t > 400:
+                if r_mil > 0 and b_mil > 0:
+                    if r_mil >= b_mil * 2.5 or b_mil >= r_mil * 2.5:
+                        consecutive_lead_checks += 1
+                    else:
+                        consecutive_lead_checks = 0
+                    if consecutive_lead_checks >= LEAD_CHECKS_REQUIRED:
+                        clear_lead_tick = t
+                else:
+                    consecutive_lead_checks = 0
 
         # Track runaway: queen dips to <50% while opponent stays >80% before t=800
         if t <= 800:
@@ -112,12 +140,6 @@ def run(seed, ticks=2000, verbose=False):
         if winner:
             break
 
-        # Clear-lead check: one side has >2x military of the other (sustained 3 checks)
-        if clear_lead_tick is None and t > 400:
-            if r_mil > 0 and b_mil > 0:
-                if r_mil >= b_mil * 2.5 or b_mil >= r_mil * 2.5:
-                    clear_lead_tick = t
-
     rq_final = red_queen.hp  if red_queen  in red.ants  else 0
     bq_final = blue_queen.hp if blue_queen in blue.ants else 0
     r_mil_final = sum(1 for a in red.ants  if a.type in (A_SOLDIER, A_SPITTER))
@@ -125,12 +147,11 @@ def run(seed, ticks=2000, verbose=False):
     hp_margin = abs(rq_final - bq_final)
     mil_ratio = max(r_mil_final, b_mil_final) / max(1, min(r_mil_final, b_mil_final))
 
-    total_losses = red.ants_lost + blue.ants_lost
-    resolved = (winner is not None
-                or clear_lead_tick is not None
-                or hp_margin > QUEEN_HP * 0.30     # one queen took >30% damage
-                or mil_ratio >= 2.0                # military 2:1 imbalance
-                or total_losses >= 100)            # active fight: 100+ ants killed (not frozen)
+    # REAL resolution criteria — no total_losses fallback (that masked stalemates)
+    # A stalemate is a stalemate. Report it as such.
+    resolved = (winner is not None                      # queen death
+                or clear_lead_tick is not None          # sustained 3-check military lead
+                or hp_margin > QUEEN_HP * 0.30)         # one queen took >30% damage
 
     return {
         "seed": seed,
@@ -143,7 +164,9 @@ def run(seed, ticks=2000, verbose=False):
         "mil_ratio": mil_ratio,
         "runaway_early": runaway_early,
         "resolved": resolved,
+        "stalemate": not resolved,
         "hp_log": hp_log,
+        "mil_log": mil_log,
         "red_losses": red.ants_lost,
         "blue_losses": blue.ants_lost,
     }
@@ -155,11 +178,13 @@ if __name__ == "__main__":
         BULWARK_HP, BULWARK_CONTACT_DMG, GUARD_POST_DMG,
     )
     print("=" * 60)
-    print("SPITTER-SYMMETRY HARNESS")
+    print("SPITTER-SYMMETRY HARNESS (hardened)")
     print(f"  Spitter: HP={SPITTER_HP} DMG={SPITTER_DMG} RANGE={SPITTER_RANGE} CD={SPITTER_CD}")
     print(f"  Bulwark: HP={BULWARK_HP} CONTACT_DMG={BULWARK_CONTACT_DMG}")
     print(f"  GuardPost: DMG={GUARD_POST_DMG}")
     print("  Economy: realistic (1200 starting food, workers gather)")
+    print("  Resolution: winner OR sustained 3-check lead OR >30% HP margin")
+    print("  Stalemates reported HONESTLY — no total_losses fallback")
     print("=" * 60)
 
     seeds = [42, 7, 13, 99, 256]
@@ -168,25 +193,39 @@ if __name__ == "__main__":
         print(f"\n--- Seed {s} ---")
         r = run(s, ticks=2000, verbose=True)
         results.append(r)
-        print(f"  Winner={r['winner']}  tick={r['decision_tick']}  "
+        outcome = "STALEMATE" if r["stalemate"] else ("WINNER: " + r["winner"])
+        print(f"  {outcome}  tick={r['decision_tick']}  "
               f"RED_qhp={r['red_queen_hp_final']:.0f}  BLUE_qhp={r['blue_queen_hp_final']:.0f}  "
               f"margin={r['hp_margin']:.0f}  mil_ratio={r['mil_ratio']:.2f}  "
               f"runaway={r['runaway_early']}  resolved={r['resolved']}")
         print(f"  RED_losses={r['red_losses']}  BLUE_losses={r['blue_losses']}  "
               f"clear_lead_at={r['clear_lead_tick']}")
+        # Print military ratio over time
+        mil_str = "  mil_over_time: " + " | ".join(
+            f"t{t}: R{rm} B{bm}" for t, rm, bm in r["mil_log"]
+        )
+        print(mil_str)
 
     print()
     print("=" * 60)
     print("ACCEPTANCE CHECK")
+    print("  Stalemates are reported honestly — NOT forced to pass.")
+    resolved_count = sum(1 for r in results if r["resolved"])
+    stalemate_count = sum(1 for r in results if r["stalemate"])
+    print(f"  Resolved: {resolved_count}/{len(seeds)}  Stalemates: {stalemate_count}/{len(seeds)}")
+    print()
     passes = 0
     for r in results:
         resolved = r["resolved"]
         no_runaway = not r["runaway_early"]
         ok = resolved and no_runaway
         if ok: passes += 1
-        status = "PASS" if ok else "FAIL"
+        status = "PASS" if ok else ("STALEMATE" if r["stalemate"] else "FAIL (runaway)")
         print(f"  Seed {r['seed']:3d}: {status}  resolved={resolved}  no_runaway={no_runaway}  "
               f"winner={r['winner']}  mil_ratio={r['mil_ratio']:.2f}  "
               f"hp_margin={r['hp_margin']:.0f}")
+        print(f"           RED_qhp={r['red_queen_hp_final']:.0f}  BLUE_qhp={r['blue_queen_hp_final']:.0f}  "
+              f"clear_lead_at={r['clear_lead_tick']}")
     overall = "PASS" if passes >= 3 else "FAIL"
     print(f"\nOVERALL: {overall} ({passes}/{len(seeds)} seeds pass)")
+    print(f"TRUTH: {resolved_count} resolved, {stalemate_count} stalemate out of {len(seeds)} seeds")
