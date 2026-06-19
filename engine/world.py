@@ -589,7 +589,7 @@ class World:
                     t = None
                     for _tc, _tk in _TYPE_KEYS:
                         if _PAUSED[_tc]: continue
-                        _min = sp[_tk].get("min", 0)
+                        _min = sp.get(_tk, {}).get("min", 0)
                         if not _min: continue
                         _cur = sum(1 for a in c.ants if a.type == _tc)
                         _queued = sum(1 for qt, _, _ in c.spawn_queue if qt == _tc)

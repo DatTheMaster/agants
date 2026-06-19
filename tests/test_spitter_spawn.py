@@ -18,6 +18,22 @@ def test_high_spitter_ratio_spawns_spitters():
             seen = True; break
     assert seen, "no spitter ever spawned/queued at target_ratio 1.0"
 
+def test_legacy_directive_without_spitter_key_no_crash():
+    """Regression: directives deserialized before spitter schema should not KeyError."""
+    w = World(); w.finalize_placement((14, 50), (136, 50))
+    c = w.colonies[0]
+    c.food = 100000
+    DirectiveEngine.patch(c, {"spawn": {
+        "worker": {"target_ratio": 1.0, "min": 10},
+        "scout": {"target_ratio": 0.0},
+        "soldier": {"target_ratio": 0.0},
+        "spitter": {"target_ratio": 0.0}}})
+    # Simulate legacy directive: remove spitter key to test guard.
+    del c.directive["spawn"]["spitter"]
+    # This should not crash; the spawn loop must guard against missing keys.
+    for _ in range(30):
+        w.step()
+
 if __name__ == "__main__":
     import traceback
     fns=[v for k,v in sorted(globals().items()) if k.startswith("test_")]; failed=0
