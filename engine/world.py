@@ -545,12 +545,14 @@ class World:
                     w_paused   = sp["worker"].get("pause", False)
                     sc_paused  = sp["scout"].get("pause", False)
                     sol_paused = sp["soldier"].get("pause", False)
+                    spit_paused = sp.get("spitter", {}).get("pause", False)
                     wshare   = 0.0 if w_paused   else max(sp["worker"]["target_ratio"],  sp["worker"].get("min_ratio", 0.0))
                     sshare   = 0.0 if sc_paused  else max(sp["scout"]["target_ratio"],   sp["scout"].get("min_ratio", 0.0))
                     solshare = 0.0 if sol_paused else max(sp["soldier"]["target_ratio"], sp["soldier"].get("min_ratio", 0.0))
-                    total_sh = wshare + sshare + solshare
+                    spitshare = 0.0 if spit_paused else max(sp.get("spitter", {}).get("target_ratio", 0.0), sp.get("spitter", {}).get("min_ratio", 0.0))
+                    total_sh = wshare + sshare + solshare + spitshare
                     if total_sh > 0:
-                        wshare /= total_sh; sshare /= total_sh; solshare /= total_sh
+                        wshare /= total_sh; sshare /= total_sh; solshare /= total_sh; spitshare /= total_sh
                     worker_max = sp["worker"]["max"]
                     n_workers = sum(1 for a in c.ants if a.type == A_WORKER)
                     worker_capped = worker_max is not None and n_workers >= worker_max
@@ -582,8 +584,8 @@ class World:
 
                     # Enforce spawn.{type}.min counts: if any type is below its
                     # minimum (ants + queued), prioritize it regardless of ratios.
-                    _TYPE_KEYS = [(A_WORKER, "worker"), (A_SCOUT, "scout"), (A_SOLDIER, "soldier")]
-                    _PAUSED = {A_WORKER: w_paused, A_SCOUT: sc_paused, A_SOLDIER: sol_paused}
+                    _TYPE_KEYS = [(A_WORKER, "worker"), (A_SCOUT, "scout"), (A_SOLDIER, "soldier"), (A_SPITTER, "spitter")]
+                    _PAUSED = {A_WORKER: w_paused, A_SCOUT: sc_paused, A_SOLDIER: sol_paused, A_SPITTER: spit_paused}
                     t = None
                     for _tc, _tk in _TYPE_KEYS:
                         if _PAUSED[_tc]: continue
@@ -595,19 +597,18 @@ class World:
                             t = _tc
                             break
 
-                    if t is None:
-                        r = random.random()
-                        if total_sh == 0:
-                            t = None
-                        elif worker_capped:
-                            non_w = sshare + solshare
-                            t = A_SCOUT if (r < sshare / max(non_w, 0.01)) else A_SOLDIER
-                        elif r < wshare:
-                            t = A_WORKER
-                        elif r < wshare + sshare:
-                            t = A_SCOUT
+                    if t is None and total_sh > 0:
+                        if worker_capped:
+                            shares = [(A_SCOUT, sshare), (A_SOLDIER, solshare), (A_SPITTER, spitshare)]
                         else:
-                            t = A_SOLDIER
+                            shares = [(A_WORKER, wshare), (A_SCOUT, sshare), (A_SOLDIER, solshare), (A_SPITTER, spitshare)]
+                        tot = sum(s for _, s in shares) or 1.0
+                        r = random.random() * tot
+                        acc = 0.0
+                        for _tc, _s in shares:
+                            acc += _s
+                            if r < acc:
+                                t = _tc; break
 
                     if t is not None:
                         cost = c.SPAWN_COST[t]
