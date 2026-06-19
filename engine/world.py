@@ -2172,9 +2172,11 @@ class World:
                 sq_summary["reserved"] += cost
             if c.spawn_queue:
                 sq_summary["next_t"] = min(tr for _, tr, _ in c.spawn_queue)
-            aging_soon = [0, 0, 0]
+            # Indexed by ant type (worker/soldier/scout/queen/spitter). Queen (3)
+            # never ages; index 3 stays 0 so worker/soldier/scout slots are unchanged.
+            aging_soon = [0] * NUM_ANT_TYPES
             for a in c.ants:
-                if a.type < 3 and a.lifespan and a.age >= int(a.lifespan * 0.80):
+                if a.type != A_QUEEN and a.lifespan and a.age >= int(a.lifespan * 0.80):
                     aging_soon[a.type] += 1
             from engine.constants import (WORKER_UPGRADE_COSTS, SCOUT_UPGRADE_COSTS,
                                           SOLDIER_UPGRADE_COSTS)

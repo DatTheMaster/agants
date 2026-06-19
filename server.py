@@ -960,16 +960,17 @@ def build_llm_prompt(colony, tick, world=None, memory=None,
                             f"expect 15-30t before units appear in queue. "
                             f"Build times: W={colony.SPAWN_TIME[A_WORKER]}t  S={colony.SPAWN_TIME[A_SOLDIER]}t  sc={colony.SPAWN_TIME[A_SCOUT]}t")
 
-    # Aging ants — those in final 20% of lifespan
-    _TNAME = ["W", "S", "sc"]
-    aging_counts = [0, 0, 0]
-    aging_min_rem = [9999, 9999, 9999]
+    # Aging ants — those in final 20% of lifespan. Indexed by ant type; queen (3)
+    # never ages so it stays at 0 and is skipped below.
+    _TNAME = {A_WORKER: "W", A_SOLDIER: "S", A_SCOUT: "sc", A_SPITTER: "sp"}
+    aging_counts = [0] * NUM_ANT_TYPES
+    aging_min_rem = [9999] * NUM_ANT_TYPES
     for a in colony.ants:
-        if a.type < 3 and a.lifespan and a.age >= int(a.lifespan * 0.80):
+        if a.type != A_QUEEN and a.lifespan and a.age >= int(a.lifespan * 0.80):
             aging_counts[a.type] += 1
             aging_min_rem[a.type] = min(aging_min_rem[a.type], a.lifespan - a.age)
     aging_parts = [f"{aging_counts[t]}{_TNAME[t]} (~{aging_min_rem[t]}t left)"
-                   for t in range(3) if aging_counts[t]]
+                   for t in (A_WORKER, A_SOLDIER, A_SCOUT, A_SPITTER) if aging_counts[t]]
     aging_line = f"AGING OUT SOON: {' · '.join(aging_parts)}" if aging_parts else ""
 
     # Convert reminder — show always; especially useful with aging ants near queen
@@ -2708,6 +2709,8 @@ class Server:
             sum(1 for a in c.ants if a.type == A_WORKER  and a.lifespan and a.age >= int(a.lifespan * 0.80)),
             sum(1 for a in c.ants if a.type == A_SOLDIER and a.lifespan and a.age >= int(a.lifespan * 0.80)),
             sum(1 for a in c.ants if a.type == A_SCOUT   and a.lifespan and a.age >= int(a.lifespan * 0.80)),
+            0,  # queen never ages
+            sum(1 for a in c.ants if a.type == A_SPITTER and a.lifespan and a.age >= int(a.lifespan * 0.80)),
         ]
         # Advisor: contextual nudges toward neglected game levers. Agents reliably act
         # on hints that live in state; they rarely re-read tool docs mid-game.
@@ -2905,7 +2908,7 @@ class Server:
             "counts": {"workers": counts[0], "soldiers": counts[1], "scouts": counts[2], "queen": counts[3], "spitters": counts[4]},
             "tiers": {"worker": c.worker_tier, "scout": c.scout_tier, "soldier": c.soldier_tier},
             "spawn_queue": sq_summary,
-            "aging_soon": {"workers": aging_soon[0], "soldiers": aging_soon[1], "scouts": aging_soon[2]},
+            "aging_soon": {"workers": aging_soon[0], "soldiers": aging_soon[1], "scouts": aging_soon[2], "spitters": aging_soon[4]},
             "directive": c.directive,
             "trigger_log": list(c.trigger_log)[-10:],
             "events": [list(c.events)[i] for i in range(min(20, len(c.events)))],

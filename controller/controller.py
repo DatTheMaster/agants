@@ -270,9 +270,9 @@ TOOLS = [
         "name": "send_command",
         "description": "One-shot command. command_type is one of: "
                        "'buy_upgrade' (data {\"unit\":\"worker|scout|soldier\"}), "
-                       "'build' (data {\"build\":{\"type\":\"larder|watchtower|guard_post|barracks|wall\",\"x\":N,\"y\":M}}), "
+                       "'build' (data {\"build\":{\"type\":\"larder|watchtower|guard_post|barracks|wall|bulwark\",\"x\":N,\"y\":M}}), "
                        "'convert' (data {\"convert\":{\"id\":antId,\"to\":\"soldier\"}}), "
-                       "'cancel_spawn' (data {\"unit_type\":\"worker|soldier|scout|all\"}), "
+                       "'cancel_spawn' (data {\"unit_type\":\"worker|soldier|scout|spitter|all\"}), "
                        "'unit_command' (data {\"ant_id\":N,\"command\":\"move_to|attack_move|attack_xy|gather|hold|patrol|clear\",\"x\":X,\"y\":Y}). move_to is a PURE move (no attacking); attack_move advances AND fights through; attack_xy is queen-focused. "
                        "For unit_command: command is a flat key alongside ant_id, x, y — do NOT nest inside an 'override' dict. "
                        "gather (workers only): sends worker to collect food at the given food node — do NOT use on scouts or soldiers, do NOT use on dirt deposit coords.",
@@ -301,10 +301,10 @@ TOOLS = [
     {"type": "function", "function": {
         "name": "get_units",
         "description": "Fetch a SLIM list of just your units of one type (id,x,y,hp,state) without the full "
-                       "state dump — the cheap way to grab soldier/worker/scout IDs and positions for "
-                       "unit_command. 'type' is worker|soldier|scout|queen.",
+                       "state dump — the cheap way to grab soldier/worker/scout/spitter IDs and positions for "
+                       "unit_command. 'type' is worker|soldier|scout|spitter|queen.",
         "parameters": {"type": "object", "properties": {
-            "type": {"type": "string", "enum": ["worker", "soldier", "scout", "queen"]}},
+            "type": {"type": "string", "enum": ["worker", "soldier", "scout", "spitter", "queen"]}},
             "required": ["type"]}}},
     {"type": "function", "function": {
         "name": "submit_feedback",
@@ -331,13 +331,16 @@ Win by killing the enemy queen; lose if yours dies. Act every tick via tools.
 MAP "The Crossing" 150x100. Your nest {nest}. Enemy nest {enemy_nest}.
 Ridges (rock, choke through gaps) at x=48-50 and x=100-102. Midfield x=75.
 
-UNITS  worker (gather food/dirt, build), soldier (HP200 dmg22), scout (vision/intel), queen (HP900, never command).
-SPAWN COST/TIME  worker 25food/20t, soldier 50food/35t, scout 35food/25t. Queue max 10. Food reserved at queue time.
-BUILDINGS (cost dirt)  larder 150 (+6food/t passive income), watchtower 80 (vision), guard_post 150 (turret), barracks 200, wall 25.
-LIFESPAN  worker 500t, soldier 300t, scout 200t.
+UNITS  worker (gather food/dirt, build), soldier (HP200 dmg22), scout (vision/intel),
+ spitter (ranged anti-mass: HP70, range5, ~16dmg+~8 splash to adjacent, slow, fragile vs focused
+ soldier fire — counter to massed workers/scouts), queen (HP900, never command).
+SPAWN COST/TIME  worker 25food/20t, soldier 50food/35t, scout 35food/25t, spitter 45food/30t. Queue max 10. Food reserved at queue time.
+BUILDINGS (cost dirt)  larder 150 (+6food/t passive income), watchtower 80 (vision), guard_post 150 (turret),
+ barracks 200, wall 25, bulwark 50 (cheap spiked barricade: HP250, blocks + chips adjacent enemies ~4/t).
+LIFESPAN  worker 500t, soldier 300t, scout 200t, spitter 300t.
 
 DIRECTIVE LEVERS (patch_directive):
- spawn.<worker|soldier|scout>.target_ratio (sum ~1.0), .min, .max
+ spawn.<worker|soldier|scout|spitter>.target_ratio (sum ~1.0), .min, .max
  economy.upgrade_priority [list], economy.auto_upgrade, economy.priority_food [x,y], economy.gather_dirt true/false
  military.stance, military.rally_point [x,y], military.rally_release_at <count>,
    military.attack_target [x,y], military.auto_attack, military.retreat,
@@ -406,9 +409,12 @@ def format_state_message(state: dict, notifs: list[dict]) -> str:
     lines = [
         f"TICK {state['tick']} phase={state['phase']}",
         f"food={state['food']} dirt={state['dirt']} income={state['income_per_s']}/s dirt_income={state.get('dirt_per_s',0)}/s",
-        f"workers={c['workers']} soldiers={c['soldiers']} scouts={c['scouts']} queen_hp={state.get('queen_hp')}",
+        f"workers={c['workers']} soldiers={c['soldiers']} scouts={c['scouts']}"
+        + (f" spitters={c['spitters']}" if c.get('spitters') else "")
+        + f" queen_hp={state.get('queen_hp')}",
         f"tiers W{state['tiers']['worker']}/Sc{state['tiers']['scout']}/So{state['tiers']['soldier']} "
-        f"aging(w/s/sc)={state['aging_soon']['workers']}/{state['aging_soon']['soldiers']}/{state['aging_soon']['scouts']}",
+        f"aging(w/s/sc)={state['aging_soon']['workers']}/{state['aging_soon']['soldiers']}/{state['aging_soon']['scouts']}"
+        + (f"/sp{state['aging_soon']['spitters']}" if state['aging_soon'].get('spitters') else ""),
         f"siege={cb.get('soldiers_in_siege')} near_enemy={cb.get('soldiers_near_enemy_nest')} "
         f"enemy_near_us={cb.get('enemy_soldiers_near_nest')} enemy_queen_hp={cb.get('enemy_queen_hp')} "
         f"queen_dps={cb.get('queen_dps_actual')} dps_potential={cb.get('siege_dps_potential')}",
@@ -798,7 +804,8 @@ def render_colony(ui: UI, client: GameClient) -> Panel:
     head.append(f"{colony}  ", style=f"bold {cstyle}")
     head.append(f"food:{s['food']} dirt:{s['dirt']} income:{s['income_per_s']}/s\n")
     head.append(f"Workers:{c['workers']} Soldiers:{c['soldiers']} Scouts:{c['scouts']} "
-                f"QueenHP:{s.get('queen_hp')}\n")
+                + (f"Spitters:{c['spitters']} " if c.get('spitters') else "")
+                + f"QueenHP:{s.get('queen_hp')}\n")
     head.append(f"Siege:{cb.get('soldiers_in_siege',0)} EnemyQueenHP:{cb.get('enemy_queen_hp')} "
                 f"QueenDPS:{cb.get('queen_dps_actual',0)}\n", style="dim")
     ev = Table.grid()
