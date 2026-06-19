@@ -16,7 +16,9 @@ TERRITORY_DECAY = 60   # ticks without ant presence before tile reverts to neutr
 T_DIRT, T_LEAF, T_WATER, T_ROCK, T_NEST = range(5)
 
 # ── Ant types / states ─────────────────────────────────────────────────────────
-A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN = range(4)
+A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER = range(5)
+NUM_ANT_TYPES = 5
+ANT_TYPE_NAMES = ["worker", "soldier", "scout", "queen", "spitter"]
 
 S_IDLE, S_FORAGING, S_RETURNING, S_EXPLORING, S_FIGHTING, S_PATROLLING, S_RECRUITED, S_BUILDING = range(8)
 
@@ -60,6 +62,17 @@ SOLDIER_HP  = 200
 WORKER_HP   = 55
 SCOUT_HP    = 45
 
+# Spitter — fragile ranged anti-mass unit
+SPITTER_HP    = 70
+SPITTER_DMG   = 16
+SPITTER_RANGE = 5
+SPITTER_CD    = 7
+SPLASH_RADIUS  = 1      # Chebyshev radius of splash from the primary target
+SPLASH_FALLOFF = 0.5    # splash damage = round(dmg * SPLASH_FALLOFF)
+SPITTER_SPAWN_COST = 45
+SPITTER_SPAWN_TIME = 30
+SPITTER_LIFESPAN   = 300
+
 # ── Soldier engagement ranges ───────────────────────────────────────────────────
 # How far a soldier will break formation to chase an enemy, by intent. A large
 # range makes every soldier independently sprint at its own nearest target, which
@@ -73,11 +86,12 @@ SOLDIER_ENGAGE_SIEGE     = 15  # once at the enemy nest — lock onto the queen
 
 # ── Guard Post ─────────────────────────────────────────────────────────────────
 GUARD_POST_COST  = 150
-GUARD_POST_HP    = 300
-GUARD_POST_DMG   = 18
+GUARD_POST_HP    = 400
+GUARD_POST_DMG   = 22
 GUARD_POST_CD    = 3
 GUARD_POST_RANGE = 10
 GUARD_POST_MAX   = 3
+GUARD_POST_SPLASH_RADIUS = 1
 
 # ── Watchtower ─────────────────────────────────────────────────────────────────
 WATCHTOWER_COST   = 80
@@ -95,6 +109,12 @@ BARRACKS_MAX        = 2
 WALL_COST = 25
 WALL_HP   = 500
 WALL_MAX  = 12
+
+# Bulwark — cheap fast spiked barricade (block + contact damage)
+BULWARK_COST        = 50
+BULWARK_HP          = 250
+BULWARK_MAX         = 6
+BULWARK_CONTACT_DMG = 4     # damage/tick to each adjacent enemy
 
 # ── Larder ─────────────────────────────────────────────────────────────────────
 LARDER_COST   = 150
@@ -114,7 +134,7 @@ DIRT_INIT_MAX     = 160
 DIRT_CAP          = 600
 
 # ── Construction ───────────────────────────────────────────────────────────────
-BUILD_WORK_REQUIRED = {"guard_post": 100, "watchtower": 60, "barracks": 150, "larder": 120, "wall": 25}
+BUILD_WORK_REQUIRED = {"guard_post": 100, "watchtower": 60, "barracks": 150, "larder": 120, "wall": 25, "bulwark": 40}
 BUILD_WORKER_CAP    = 4
 BUILD_RATE          = [1, 2, 3, 4]   # work/tick per worker, indexed by worker tier
 BUILD_RANGE         = 2              # Manhattan distance counted as "at site"
