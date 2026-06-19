@@ -2,7 +2,8 @@
 # Agants deploy script.
 #
 # Usage:
-#   ./deploy.sh            — sync + restart game server
+#   ./deploy.sh            — sync (additive, no --delete) + restart game server
+#   ./deploy.sh --prune    — sync WITH --delete (mirror remote to repo); combine w/ any mode
 #   ./deploy.sh --full     — sync + restart game server + restart cloudflared
 #   ./deploy.sh --install  — first-time: install deps, enable systemd services
 #   ./deploy.sh --pages    — deploy frontend to Cloudflare Pages + update backend URL
@@ -28,11 +29,28 @@ CF_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 
 STABLE_BACKEND="https://api.datthemaster.com/agants"
 
+# --prune (anywhere in args) opts in to `rsync --delete` (mirror remote to repo exactly).
+# Default sync is additive so a deploy can never wipe remote-only state.
+PRUNE=0
+ARGS=()
+for a in "$@"; do
+  if [[ "$a" == "--prune" ]]; then PRUNE=1; else ARGS+=("$a"); fi
+done
+set -- "${ARGS[@]}"
 MODE="${1:-}"
 
 _sync() {
+  # The remote ~/projects/agants is NOT a git checkout, so `rsync --delete` would wipe
+  # any remote-only state that isn't in this repo (this clobbered routing config in s51).
+  # Default is therefore ADDITIVE (no --delete). Pass `--prune` to opt in to --delete
+  # when you deliberately want the remote to mirror the repo exactly.
+  local DELETE_FLAG=""
+  if [[ "$PRUNE" == "1" ]]; then
+    DELETE_FLAG="--delete"
+    echo "==> PRUNE mode: remote files not in this repo WILL be deleted."
+  fi
   echo "==> Syncing code to $REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR …"
-  rsync -az --delete \
+  rsync -az $DELETE_FLAG \
     --exclude '__pycache__' \
     --exclude '*.pyc' \
     --exclude '.git' \

@@ -67,6 +67,31 @@ def test_enemy_army_unseen_respects_fog():
     assert "composition" not in ea
 
 
+def test_attack_eta_none_when_enemy_unseen():
+    """Enemy soldiers parked in their own base (not in our fog) => no attack ETA leak."""
+    w, me, enemy = _fresh()
+    for _ in range(8):
+        enemy.ants.append(Ant(134, 50, enemy.id, A_SOLDIER))
+    w.step()
+    assert server.compute_enemy_attack_eta(me, w) is None, "attack ETA leaked an unseen force"
+
+
+def test_attack_eta_populates_for_visible_force():
+    """A visible enemy soldier force yields a fog-legitimate ETA from our nest (14,50)."""
+    w, me, enemy = _fresh()
+    # enemy soldiers near our nest, with our soldiers adjacent so they're in our fog
+    for _ in range(5):
+        enemy.ants.append(Ant(40, 50, enemy.id, A_SOLDIER))
+    for _ in range(3):
+        me.ants.append(Ant(41, 50, me.id, A_SOLDIER))
+    for _ in range(3):
+        w.step()
+    eta = server.compute_enemy_attack_eta(me, w)
+    assert eta is not None, "visible enemy force produced no ETA"
+    assert eta["source"] in ("visible", "sighting"), eta
+    assert eta["soldiers"] >= 1 and eta["eta_t"] >= 0 and eta["dist"] >= 0, eta
+
+
 if __name__ == "__main__":
     import traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

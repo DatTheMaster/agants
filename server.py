@@ -803,6 +803,33 @@ def format_enemy_sightings(colony, world_tick, limit=8):
     return out
 
 
+def compute_enemy_attack_eta(colony, world):
+    """FOG-RESPECTING estimate of when the nearest KNOWN enemy soldier force could reach
+    our nest. Uses ONLY fog-visible enemy soldiers; falls back to the most recent soldier
+    SIGHTING (recorded visible-only) with its staleness. Returns None when nothing is
+    seen — never leaks an unobserved enemy position. eta_t ≈ Chebyshev distance (soldiers
+    move ~1 tile/tick, diagonals allowed) assuming a straight march at the nest."""
+    c = colony
+    if not c.enemy:
+        return None
+    vis = getattr(c, "fog_visible", set())
+    vis_sol = [a for a in c.enemy.ants if a.type == A_SOLDIER and (a.y * MAP_W + a.x) in vis]
+    if vis_sol:
+        near = min(vis_sol, key=lambda a: max(abs(a.x - c.nx), abs(a.y - c.ny)))
+        d = max(abs(near.x - c.nx), abs(near.y - c.ny))
+        return {"source": "visible", "pos": [near.x, near.y], "soldiers": len(vis_sol),
+                "dist": d, "eta_t": d, "age_t": 0,
+                "note": "estimate: ~1 tile/tick if it advances on your nest"}
+    recent = next((s for s in format_enemy_sightings(c, world.tick)
+                   if (s.get("soldiers") or 0) > 0), None)
+    if recent:
+        d = max(abs(recent["pos"][0] - c.nx), abs(recent["pos"][1] - c.ny))
+        return {"source": "sighting", "pos": recent["pos"], "soldiers": recent["soldiers"],
+                "dist": d, "eta_t": d, "age_t": recent["ticks_ago"],
+                "note": "from a stale sighting; the force may have moved"}
+    return None
+
+
 def build_llm_prompt(colony, tick, world=None, memory=None,
                      my_color="BLUE", enemy_color="RED"):
     s = colony.get_state(world_tick=tick)
@@ -2626,7 +2653,7 @@ class Server:
             return await self._api_cors(web.json_response({"ok": True, "phase": "lobby"}))
         return await self._api_cors(web.json_response({"error": f"invalid action '{action}' for phase '{m.world.phase}'"}, status=400))
 
-    def _build_colony_state(self, cid: int, m: Match = None) -> dict:
+    def _build_colony_state(self, cid: int, m: Match = None, compact: bool = False) -> dict:
         m = m or self._m
         w = m.world
         if not w.colonies or cid >= len(w.colonies):
@@ -2793,6 +2820,61 @@ class Server:
             _food_depletion_eta = round(_frontline_food / _w_income)
         else:
             _food_depletion_eta = round(_home_appr_food / _w_income)
+
+        # --- #5 DIRT timeline: ticks to AFFORD each not-yet-maxed structure at current
+        # dirt income (the dirt analog of the food timer — dirt accrues, it doesn't deplete). ---
+        _dirt_rate = max(0.0, c.dirt_per_s)
+        _struct_costs = {"guard_post": GUARD_POST_COST, "watchtower": WATCHTOWER_COST,
+                         "barracks": BARRACKS_COST, "larder": LARDER_COST, "wall": WALL_COST}
+        _struct_caps = {"guard_post": GUARD_POST_MAX, "watchtower": WATCHTOWER_MAX,
+                        "barracks": BARRACKS_MAX, "larder": LARDER_MAX, "wall": WALL_MAX}
+        _dirt_eta = {}
+        for _st, _cost in _struct_costs.items():
+            if _struct_counts.get(_st, 0) >= _struct_caps[_st]:
+                continue
+            if c.dirt >= _cost:
+                _dirt_eta[_st] = 0
+            elif _dirt_rate > 0:
+                _dirt_eta[_st] = round((_cost - c.dirt) / _dirt_rate)
+            else:
+                _dirt_eta[_st] = None  # no dirt income → not affordable at the current rate
+
+        # --- #5 ENEMY ATTACK ETA (FOG-RESPECTING): est. ticks for the nearest KNOWN enemy
+        # soldier force to reach our nest if it marches straight at us. Uses ONLY fog-visible
+        # enemy soldiers; else the most-recent soldier SIGHTING (recorded visible-only) with
+        # its staleness (age_t). Never leaks unobserved positions — None when nothing is seen. ---
+        _attack_eta = compute_enemy_attack_eta(c, w)
+
+        # --- #4 CURRENT ORDERS: directive intent + unit groups by activity (no unit dump) ---
+        _mil = c.directive["military"]
+        _current_orders = {
+            "stance": _mil.get("stance"),
+            "active_directive": {
+                "rally_point": _mil.get("rally_point"),
+                "rally_release_at": _mil.get("rally_release_at"),
+                "attack_target": _mil.get("attack_target"),
+                "auto_attack": _mil.get("auto_attack"),
+                "retreat": _mil.get("retreat"),
+                "priority_food": c.directive["economy"].get("priority_food"),
+            },
+            "soldiers": {
+                "fighting": sum(1 for a in c.ants if a.type == A_SOLDIER and a.state == S_FIGHTING),
+                "advancing_or_patrolling": sum(1 for a in c.ants if a.type == A_SOLDIER and a.state in (S_PATROLLING, S_FORAGING)),
+                "in_siege": soldiers_in_siege,
+                "idle": sum(1 for a in c.ants if a.type == A_SOLDIER and a.state == S_IDLE),
+                "with_override": sum(1 for a in c.ants if a.type == A_SOLDIER and a.unit_override),
+            },
+            "workers": {
+                "foraging": sum(1 for a in c.ants if a.type == A_WORKER and a.state in (S_FORAGING, S_RECRUITED)),
+                "returning": sum(1 for a in c.ants if a.type == A_WORKER and a.state == S_RETURNING),
+                "building": sum(1 for a in c.ants if a.type == A_WORKER and a.unit_override and a.unit_override.get("cmd") == "build"),
+                "idle": sum(1 for a in c.ants if a.type == A_WORKER and a.state == S_IDLE and getattr(a, "_idle_ticks", 0) >= 3),
+            },
+            "scouts": {
+                "exploring": sum(1 for a in c.ants if a.type == A_SCOUT and a.state == S_EXPLORING),
+                "other": sum(1 for a in c.ants if a.type == A_SCOUT and a.state != S_EXPLORING),
+            },
+        }
         return {
             "tick": w.tick, "phase": w.phase, "colony_id": cid,
             "nest": [c.nx, c.ny],
@@ -2804,6 +2886,9 @@ class Server:
             "income_smooth": round(c.income_smooth if c.income_history else c.income_per_s, 2),
             "larder_income": LARDER_INCOME * sum(1 for st in w.structures if st["colony"] == cid and st.get("type") == "larder"),
             "dirt_per_s": round(c.dirt_per_s, 2),
+            "dirt_eta_t": _dirt_eta,  # ticks to afford each not-yet-maxed structure
+            "enemy_attack_eta": _attack_eta,  # fog-respecting; None when no enemy soldiers seen
+            "current_orders": _current_orders,
             "food_depletion_eta_t": _food_depletion_eta,
             "food_depletion_sustained_by_frontline": _sustained_by_frontline,
             "frontline_food_eta_t": (
@@ -2901,16 +2986,21 @@ class Server:
                  for dn in w.dirt_nodes],
                 key=lambda n: n["dist"]
             )[:5],
-            "units": [
-                {"id": a.id, "type": ["worker","soldier","scout","queen"][a.type],
-                 "x": a.x, "y": a.y, "hp": int(a.hp), "max_hp": a.max_hp,
-                 "age": a.age, "lifespan": a.lifespan, "carrying": a.carrying,
-                 "carrying_type": getattr(a, "carrying_type", "food"),
-                 "state": ["idle","foraging","returning","exploring","fighting","patrolling","recruited","building"][a.state] if a.state < 8 else "idle",
-                 "override": a.unit_override,
-                 **({"recruit_target": list(a.recruit_target)} if a.type == A_WORKER and a.recruit_target else {})}
-                for a in c.ants
-            ],
+            # compact=true omits the full per-unit dump (the bulk of get_state for big
+            # armies) — use current_orders / military_summary, or get_units(type=) for detail.
+            **({"units_omitted": "compact=true — use current_orders / get_units(type=...) for unit detail"}
+               if compact else {
+                "units": [
+                    {"id": a.id, "type": ["worker","soldier","scout","queen"][a.type],
+                     "x": a.x, "y": a.y, "hp": int(a.hp), "max_hp": a.max_hp,
+                     "age": a.age, "lifespan": a.lifespan, "carrying": a.carrying,
+                     "carrying_type": getattr(a, "carrying_type", "food"),
+                     "state": ["idle","foraging","returning","exploring","fighting","patrolling","recruited","building"][a.state] if a.state < 8 else "idle",
+                     "override": a.unit_override,
+                     **({"recruit_target": list(a.recruit_target)} if a.type == A_WORKER and a.recruit_target else {})}
+                    for a in c.ants
+                ],
+            }),
         }
 
     async def api_state(self, req):
@@ -2921,7 +3011,8 @@ class Server:
         if cid not in (0, 1):
             return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
         self._touch_presence_from_req(req, m)
-        return await self._api_cors(web.json_response(self._build_colony_state(cid, m)))
+        compact = req.query.get("compact", "").lower() in ("1", "true", "yes")
+        return await self._api_cors(web.json_response(self._build_colony_state(cid, m, compact=compact)))
 
     async def api_units(self, req):
         m = self._get_match_or_default(req)
@@ -3210,15 +3301,33 @@ class Server:
             d = body["directive"]
             if not isinstance(d, dict):
                 return await self._api_cors(web.json_response({"error": "directive must be an object"}, status=400))
-            m._pending_strategies.append((cid, {"directive": d}))
         elif "patches" in body:
             d = body["patches"]
             if not isinstance(d, dict):
                 return await self._api_cors(web.json_response({"error": "patches must be an object"}, status=400))
-            m._pending_strategies.append((cid, {"directive": d}))
         else:
-            m._pending_strategies.append((cid, {"directive": body}))
-        return await self._api_cors(web.json_response({"ok": True}))
+            d = body
+        m._pending_strategies.append((cid, {"directive": d}))
+        # Echo what the patch RESOLVES TO (flat keys auto-routed into their section) so the
+        # agent can confirm it landed where intended — applied at the next tick, not now.
+        import copy as _copy
+
+        class _Preview:
+            pass
+        _pv = _Preview()
+        _pv.directive = _copy.deepcopy(m.world.colonies[cid].directive)
+        try:
+            DirectiveEngine.patch(_pv, d)
+            _applied = {"military": _pv.directive.get("military", {}),
+                        "economy": _pv.directive.get("economy", {}),
+                        "spawn": _pv.directive.get("spawn", {})}
+        except Exception as e:
+            _applied = {"error": f"preview failed: {e!r}"}
+        return await self._api_cors(web.json_response({
+            "ok": True,
+            "note": "queued — applies on the next tick; re-read state to confirm",
+            "applied_preview": _applied,
+        }))
 
     def _apply_unit_command(self, cid: int, body: dict, m: Match = None) -> dict:
         """Apply a unit-level override command to a specific ant. Returns result dict."""

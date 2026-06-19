@@ -270,11 +270,14 @@ def game_control(action: str) -> dict:
 # ─── Colony state ─────────────────────────────────────────────────────────────
 
 @mcp.tool()
-def get_state(colony_id: int) -> dict:
+def get_state(colony_id: int, compact: bool = False) -> dict:
     """Get full colony state for strategic decision-making.
 
     Args:
         colony_id: 0 for RED, 1 for BLUE
+        compact: when True, OMIT the full per-unit array (the bulk of the payload for big
+            armies). You still get counts, current_orders, military_summary, combat, ETAs,
+            etc. Use get_units(type=...) for unit-level detail when you actually need it.
 
     Returns a comprehensive state snapshot including:
     - food, dirt, income_per_s, dirt_per_s
@@ -314,8 +317,16 @@ def get_state(colony_id: int) -> dict:
       Null if income is 0. Complements food_depletion_eta_t (which covers home/approach nodes only).
     - units: full list of ants with id, type, state, hp, max_hp, x, y, carrying, override.
       Each unit's "state" field is now: "idle"|"foraging"|"returning"|"exploring"|"fighting"|"patrolling"|"recruited"|"building"
+      (omitted when compact=True → replaced by "units_omitted").
+    - current_orders: directive intent (stance + active rally/attack/auto_attack/retreat/
+      priority_food) plus soldier/worker/scout counts by activity — read this instead of units.
+    - dirt_eta_t: {structure: ticks_to_afford} at current dirt income (0 = affordable now).
+    - enemy_attack_eta: FOG-RESPECTING estimate of when the nearest KNOWN enemy soldier force
+      reaches your nest — {source: visible|sighting, pos, soldiers, dist, eta_t, age_t}.
+      None when no enemy soldiers are currently visible or in recent sightings (no fog leak).
     """
-    return _get(_match_path(colony_id, f"/state/{colony_id}"))
+    return _get(_match_path(colony_id, f"/state/{colony_id}"),
+                params={"compact": "true"} if compact else None)
 
 
 @mcp.tool()
