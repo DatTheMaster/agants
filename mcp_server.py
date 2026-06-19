@@ -338,7 +338,7 @@ def get_units(colony_id: int, type: str = "") -> dict:
 
     Args:
         colony_id: 0 for RED, 1 for BLUE
-        type:      "worker" | "soldier" | "scout" | "queen". Omit (or "") for all types.
+        type:      "worker" | "soldier" | "scout" | "queen" | "spitter". Omit (or "") for all types.
 
     Returns:
         colony_id, type (the filter applied, or null for all), count, and
@@ -484,6 +484,7 @@ def get_directive(colony_id: int) -> dict:
     Key directive sections:
     - spawn: target ratios, min ratios, reserve_food, burst_at, per-type min/max/pause
         spawn.{type}.pause=true  — stop adding this type to the queue (save food for upgrades)
+        spawn.spitter.target_ratio — queue spitters (ranged anti-mass, 40HP, splash dmg, fragile vs soldiers)
     - economy: upgrade_priority, auto_upgrade, priority_food, gather_dirt, upgrade_reserve
         economy.upgrade_reserve={"scout": 450}  — protect 450♦ from spawn queue for scout T1
     - military: stance, formation, rally_point, rally_release_at, auto_attack, retreat
@@ -603,7 +604,7 @@ def build_structure(colony_id: int, structure_type: str, x: int, y: int) -> dict
 
     Args:
         colony_id: 0 for RED, 1 for BLUE
-        structure_type: "watchtower" | "barracks" | "guard_post" | "wall" | "larder"
+        structure_type: "watchtower" | "barracks" | "guard_post" | "wall" | "larder" | "bulwark"
         x: tile x coordinate (0-149)
         y: tile y coordinate (0-99)
 
@@ -613,6 +614,7 @@ def build_structure(colony_id: int, structure_type: str, x: int, y: int) -> dict
         barracks:   200◆  — HP=200, spawns soldiers every 20 ticks, max 2 [build: 150 work]
         wall:       25◆   — impassable tile, max 12 segments          [build: 25 work]
         larder:     150◆  — HP=150, +6♦/tick passive food income, max 2 [build: 120 work]
+        bulwark:    50◆   — HP=100, contact splash damage (spiked barricade), max 6 [build: 40 work]
 
     CONSTRUCTION: Dirt is deducted immediately, but the structure starts INACTIVE
     (not functional, shown as scaffolding on the map). Workers within 2 tiles auto-
