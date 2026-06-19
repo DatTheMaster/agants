@@ -3,10 +3,12 @@ from collections import deque
 
 from engine.constants import (
     MAP_W, MAP_H,
-    A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN,
+    A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER,
+    NUM_ANT_TYPES, ANT_TYPE_NAMES,
     S_IDLE, S_FORAGING, S_RETURNING, S_EXPLORING,
     S_FIGHTING, S_PATROLLING, S_RECRUITED, S_BUILDING,
-    WORKER_HP, SOLDIER_HP, SCOUT_HP, QUEEN_HP,
+    WORKER_HP, SOLDIER_HP, SCOUT_HP, QUEEN_HP, SPITTER_HP,
+    SPITTER_LIFESPAN, SPITTER_SPAWN_COST, SPITTER_SPAWN_TIME,
     SOLDIER_CD, MAX_EVENTS, DIRT_CAP, DIRT_DELIVER, FOOD_DELIVER,
     WORKER_UPGRADE_COSTS, SCOUT_UPGRADE_COSTS, SOLDIER_UPGRADE_COSTS,
     UPGRADE_LABELS, UPGRADE_EFFECTS,
@@ -35,7 +37,7 @@ def _apply_upgrade_effects(c, unit_type, tier):
 
 class Ant:
     _id = 0
-    LIFESPAN = {0: 500, 1: 300, 2: 200, 3: None}   # worker, soldier, scout, queen
+    LIFESPAN = {0: 500, 1: 300, 2: 200, 3: None, 4: SPITTER_LIFESPAN}   # worker, soldier, scout, queen, spitter
 
     def __init__(self, x, y, colony, ant_type, born_tick=0):
         Ant._id += 1
@@ -48,7 +50,8 @@ class Ant:
         self.carrying = False
         self.carrying_type = "food"   # "food" | "dirt"
         self.hp = {A_WORKER: WORKER_HP, A_SOLDIER: SOLDIER_HP,
-                   A_SCOUT: SCOUT_HP, A_QUEEN: QUEEN_HP}[ant_type]
+                   A_SCOUT: SCOUT_HP, A_QUEEN: QUEEN_HP,
+                   A_SPITTER: SPITTER_HP}[ant_type]
         self.max_hp = self.hp
         self.prev_x = x
         self.prev_y = y
@@ -99,12 +102,13 @@ class Ant:
 
     def resolved_config(self, colony_directive):
         """Merge: individual override > birth_config > directive.unit_types[type] > hardcoded defaults."""
-        type_name = ["worker", "soldier", "scout", "queen"][self.type]
+        type_name = ANT_TYPE_NAMES[self.type]
         defaults = {
             "worker":  {"flee_distance": 4},
             "soldier": {"expansion": [1, 1]},
             "scout":   {"expansion": [1, 1], "revisit_pct": 0.12},
             "queen":   {},
+            "spitter": {"expansion": [1, 1]},
         }[type_name]
         cfg = {**defaults}
         cfg.update(colony_directive.get("unit_types", {}).get(type_name, {}))
@@ -128,6 +132,7 @@ class DirectiveEngine:
                 "worker":  {"target_ratio": 0.45, "min_ratio": 0.0, "min": 4,  "max": 40, "pause": False, "birth_config": {}},
                 "soldier": {"target_ratio": 0.35, "min_ratio": 0.0, "min": 2,  "max": 30, "pause": False, "birth_config": {}},
                 "scout":   {"target_ratio": 0.20, "min_ratio": 0.0, "min": 2,  "max": 12, "pause": False, "birth_config": {}},
+                "spitter": {"target_ratio": 0.0,  "min_ratio": 0.0, "min": 0,  "max": 20, "pause": False, "birth_config": {}},
                 "reserve_food": 50,
                 "burst_at": 800,
             },
@@ -215,7 +220,7 @@ class DirectiveEngine:
     @staticmethod
     def _build_ns(colony, world):
         """Build the shared evaluation namespace used by triggers and alerts."""
-        counts = [0, 0, 0, 0]
+        counts = [0] * NUM_ANT_TYPES
         for a in colony.ants:
             counts[a.type] += 1
         queen = next((a for a in colony.ants if a.type == A_QUEEN), None)
@@ -381,7 +386,7 @@ class Colony:
         self.events = deque(maxlen=MAX_EVENTS)
         self.notifications = deque(maxlen=50)
         self.enemy_scouted_tick   = -9999
-        self.enemy_scouted_counts = [0, 0, 0, 0]
+        self.enemy_scouted_counts = [0] * NUM_ANT_TYPES
         self.fog_explored = bytearray(MAP_W * MAP_H)
         self.fog_visible  = set()
         self.trigger_log      = deque(maxlen=30)
@@ -419,8 +424,8 @@ class Colony:
         self.enemy = None
 
         self.spawn_queue = []
-        self.SPAWN_COST = {A_WORKER: 25, A_SOLDIER: 50, A_SCOUT: 35}
-        self.SPAWN_TIME = {A_WORKER: 20, A_SOLDIER: 35, A_SCOUT: 25}
+        self.SPAWN_COST = {A_WORKER: 25, A_SOLDIER: 50, A_SCOUT: 35, A_SPITTER: SPITTER_SPAWN_COST}
+        self.SPAWN_TIME = {A_WORKER: 20, A_SOLDIER: 35, A_SCOUT: 25, A_SPITTER: SPITTER_SPAWN_TIME}
         self.MAX_SPAWN_QUEUE = 10
 
         self.emergency_command = None
@@ -490,7 +495,7 @@ class Colony:
         c.seen_structs = d.get("seen_structs", {})
         c.enemy_sightings = d.get("enemy_sightings", [])
         c.enemy_scouted_tick = d.get("enemy_scouted_tick", -9999)
-        c.enemy_scouted_counts = d.get("enemy_scouted_counts", [0, 0, 0, 0])
+        c.enemy_scouted_counts = d.get("enemy_scouted_counts", [0] * NUM_ANT_TYPES)
         c.fog_explored = bytearray(base64.b64decode(d["fog_explored"]))
         c.fog_visible = set()
         c.trigger_cooldowns = {k: v for k, v in d.get("trigger_cooldowns", {}).items()}
@@ -518,8 +523,8 @@ class Colony:
         c.soldier_fast_cd  = d.get("soldier_fast_cd", SOLDIER_CD)
         c.soldier_splash   = d.get("soldier_splash", False)
         c.spawn_queue = d.get("spawn_queue", [])
-        c.SPAWN_COST = {A_WORKER: 25, A_SOLDIER: 50, A_SCOUT: 35}
-        c.SPAWN_TIME = {A_WORKER: 20, A_SOLDIER: 35, A_SCOUT: 25}
+        c.SPAWN_COST = {A_WORKER: 25, A_SOLDIER: 50, A_SCOUT: 35, A_SPITTER: SPITTER_SPAWN_COST}
+        c.SPAWN_TIME = {A_WORKER: 20, A_SOLDIER: 35, A_SCOUT: 25, A_SPITTER: SPITTER_SPAWN_TIME}
         c.MAX_SPAWN_QUEUE = 10
         c.emergency_command = d.get("emergency_command")
         c.emergency_ticks_left = d.get("emergency_ticks_left", 0)
@@ -664,7 +669,7 @@ class Colony:
 
     def get_state(self, world_tick=0):
         """Return colony state dict for LLM prompt — enemy intel gated by fog of war."""
-        counts = [0, 0, 0, 0]
+        counts = [0] * NUM_ANT_TYPES
         for a in self.ants: counts[a.type] += 1
         queen = next((a for a in self.ants if a.type == A_QUEEN), None)
 
@@ -679,7 +684,7 @@ class Colony:
         enemy_queen      = next((a for a in self.enemy.ants if a.type == A_QUEEN), None) if self.enemy else None
         enemy_queen_pos  = (enemy_queen.x, enemy_queen.y) if enemy_queen else None
 
-        enemy_counts = [0, 0, 0, 0]
+        enemy_counts = [0] * NUM_ANT_TYPES
         enemy_queen_hp = 0
         if self.enemy:
             for a in self.enemy.ants: enemy_counts[a.type] += 1
@@ -689,7 +694,7 @@ class Colony:
         own_soldiers  = counts[1]
 
         ticks_since_recon = (world_tick - self.enemy_scouted_tick) if hasattr(self, 'enemy_scouted_tick') else 9999
-        sc = self.enemy_scouted_counts if hasattr(self, 'enemy_scouted_counts') else [0,0,0,0]
+        sc = self.enemy_scouted_counts if hasattr(self, 'enemy_scouted_counts') else [0] * NUM_ANT_TYPES
         if ticks_since_recon < 150:
             intel_status   = "fresh"
             intel_soldiers = sc[1]

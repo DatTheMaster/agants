@@ -2,9 +2,9 @@
 of a colony's situation and the effect of its own orders. Instrument, not coach: facts
 only, never prescriptions. See docs/superpowers/specs/2026-06-18-agent-situation-report-design.md
 """
-from engine.constants import A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN
+from engine.constants import A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER, NUM_ANT_TYPES
 
-UNIT_VALUE = {A_WORKER: 5, A_SOLDIER: 20, A_SCOUT: 8}
+UNIT_VALUE = {A_WORKER: 5, A_SOLDIER: 20, A_SCOUT: 8, A_SPITTER: 15}
 ADVANCE_EPS = 3        # tiles of net COM movement over the window below which an attack is "no_effect"
 
 
@@ -55,7 +55,7 @@ def _orders(colony, world):
         out.append({"intent": "rally", "point": [rx, ry], "status": status, "detail": detail})
 
     # spawn — target vs actual ratios
-    counts = [sum(1 for a in colony.ants if a.type == t) for t in range(4)]
+    counts = [sum(1 for a in colony.ants if a.type == t) for t in range(NUM_ANT_TYPES)]
     total = counts[A_WORKER] + counts[A_SOLDIER] + counts[A_SCOUT]
     if total > 0:
         spawn = colony.directive.get("spawn", {})
@@ -85,12 +85,12 @@ def _verdict(you, enemy, margin_floor=1):
 
 def _standing(colony, world):
     from engine.constants import MAP_W, MAP_H
-    counts = [sum(1 for a in colony.ants if a.type == t) for t in range(4)]
+    counts = [sum(1 for a in colony.ants if a.type == t) for t in range(NUM_ANT_TYPES)]
     you_mil = counts[A_SOLDIER] * UNIT_VALUE[A_SOLDIER] + counts[A_SCOUT] * UNIT_VALUE[A_SCOUT] \
         + counts[A_WORKER] * UNIT_VALUE[A_WORKER]
 
     # enemy military: scouted-only (coarse counts), with staleness
-    sc = getattr(colony, "enemy_scouted_counts", [0, 0, 0, 0])
+    sc = getattr(colony, "enemy_scouted_counts", [0] * NUM_ANT_TYPES)
     seen_tick = getattr(colony, "enemy_scouted_tick", -9999)
     if seen_tick < 0:
         enemy_mil, stale, mverdict, mmargin = "unknown", None, "unknown", None

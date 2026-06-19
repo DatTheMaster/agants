@@ -6,7 +6,8 @@ import time
 from engine.constants import (
     MAP_W, MAP_H, TILE, TERRITORY_DECAY,
     T_DIRT, T_LEAF, T_WATER, T_ROCK, T_NEST,
-    A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN,
+    A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER,
+    ANT_TYPE_NAMES, NUM_ANT_TYPES,
     S_IDLE, S_FORAGING, S_RETURNING, S_EXPLORING,
     S_FIGHTING, S_PATROLLING, S_RECRUITED, S_BUILDING,
     WORKER_HP, SOLDIER_HP, SCOUT_HP, QUEEN_HP,
@@ -113,7 +114,7 @@ class Predator:
                     nearest.hp -= 60; self.cooldown = 5
                     if nearest.hp <= 0:
                         col = world.colonies[nearest.colony]
-                        col.push_event(f"predator killed a {['worker','soldier','scout','queen'][nearest.type]}")
+                        col.push_event(f"predator killed a {ANT_TYPE_NAMES[nearest.type]}")
                         world._kill(nearest)
         else:
             if self.tx is None or random.random() < 0.1:
@@ -466,7 +467,7 @@ class World:
                         best.hp -= GUARD_POST_DMG
                         new_hp = max(0, int(best.hp))
                         owner = self.colonies[struct["colony"]]
-                        owner.push_event(f"Guard Post ({struct['x']},{struct['y']}) hit {['worker','soldier','scout','queen'][best.type]}! HP {old_hp}→{new_hp}")
+                        owner.push_event(f"Guard Post ({struct['x']},{struct['y']}) hit {ANT_TYPE_NAMES[best.type]}! HP {old_hp}→{new_hp}")
                         if best.hp <= 0: self._kill(best)
 
             elif stype == "larder":
@@ -504,14 +505,14 @@ class World:
                 if ant.lifespan is not None:
                     ant.age += 1
                     if ant.age >= ant.lifespan:
-                        c.push_event(f"aged out: {['worker','soldier','scout'][ant.type]} died at age {ant.age}")
+                        c.push_event(f"aged out: {ANT_TYPE_NAMES[ant.type]} died at age {ant.age}")
                         self._kill(ant)
 
             if c.food < -50:
                 non_queens = [a for a in c.ants if a.type != A_QUEEN]
                 if non_queens:
                     victim = random.choice(non_queens)
-                    c.push_event(f"starved: lost a {['worker','soldier','scout'][victim.type]}")
+                    c.push_event(f"starved: lost a {ANT_TYPE_NAMES[victim.type]}")
                     self._kill(victim)
                 else:
                     if c.food < -55:
@@ -837,7 +838,7 @@ class World:
         if c.enemy and abs(ant.x - c.enemy.nx) + abs(ant.y - c.enemy.ny) <= 18:
             c.enemy_scouted_tick = self.tick
             c.enemy_scouted_counts = [sum(1 for a in c.enemy.ants if a.type == t)
-                                      for t in range(4)]
+                                      for t in range(NUM_ANT_TYPES)]
 
     def _assign_food_target(self, ant, c):
         """Pick the best known food node for this worker, set it as recruit_target and
@@ -1333,8 +1334,8 @@ class World:
                     self._apply_splash(ant.colony, adj, dmg, radius=1, falloff=0.4)
                 if adj.hp <= 0:
                     ec = self.colonies[adj.colony]
-                    ec.push_event(f"{['worker','soldier','scout','queen'][adj.type]} killed in battle!")
-                    c.push_event(f"killed enemy {['worker','soldier','scout','queen'][adj.type]}")
+                    ec.push_event(f"{ANT_TYPE_NAMES[adj.type]} killed in battle!")
+                    c.push_event(f"killed enemy {ANT_TYPE_NAMES[adj.type]}")
                     self._kill(adj)
             return
 
@@ -1449,8 +1450,8 @@ class World:
                     self._apply_splash(ant.colony, adj, dmg, radius=1, falloff=0.4)
                 if adj.hp <= 0:
                     ec = self.colonies[adj.colony]
-                    ec.push_event(f"{['worker','soldier','scout','queen'][adj.type]} killed in battle!")
-                    c.push_event(f"killed enemy {['worker','soldier','scout','queen'][adj.type]}")
+                    ec.push_event(f"{ANT_TYPE_NAMES[adj.type]} killed in battle!")
+                    c.push_event(f"killed enemy {ANT_TYPE_NAMES[adj.type]}")
                     self._kill(adj)
             # Movement (attack-move): if ANY enemy is adjacent, STAND and fight it — defend,
             # never march past, and grind down a blocking worker ring. Otherwise CLOSE on the
@@ -1867,8 +1868,8 @@ class World:
                 c.push_event(f"★ QUEEN fighting back! Killed/hit soldier HP {old_hp}→{new_hp}")
             if best.hp <= 0:
                 ec = self.colonies[best.colony]
-                ec.push_event(f"queen killed a {['worker','soldier','scout','queen'][best.type]}!")
-                c.push_event(f"queen defended nest! Killed {['worker','soldier','scout','queen'][best.type]}")
+                ec.push_event(f"queen killed a {ANT_TYPE_NAMES[best.type]}!")
+                c.push_event(f"queen defended nest! Killed {ANT_TYPE_NAMES[best.type]}")
                 self._kill(best)
         else:
             ant.state = S_IDLE
@@ -2072,11 +2073,12 @@ class World:
         corpses = [[int(c["x"]), int(c["y"]), int(c["amt"])] for c in self.corpses]
         cols = []
         for c in self.colonies:
-            counts = [0, 0, 0, 0]
+            counts = [0] * NUM_ANT_TYPES
             for a in c.ants: counts[a.type] += 1
-            sq_summary = {"w": 0, "so": 0, "sc": 0, "reserved": 0, "next_t": None}
+            _sq_key = {A_WORKER: "w", A_SOLDIER: "so", A_SCOUT: "sc", A_SPITTER: "sp"}
+            sq_summary = {"w": 0, "so": 0, "sc": 0, "sp": 0, "reserved": 0, "next_t": None}
             for ant_type, ticks_rem, cost in c.spawn_queue:
-                sq_summary[["w", "so", "sc"][ant_type]] += 1
+                sq_summary[_sq_key.get(ant_type, "w")] += 1
                 sq_summary["reserved"] += cost
             if c.spawn_queue:
                 sq_summary["next_t"] = min(tr for _, tr, _ in c.spawn_queue)
