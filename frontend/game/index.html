@@ -256,6 +256,103 @@ canvas { display: block; }
 .ico-dot     { width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0; }
 
 /* ── Chat ── */
+/* ── AI Activity: floating, collapsible broadcast overlay (bottom-left of map) ── */
+#ai-overlay {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 460px;
+  max-width: calc(100% - 24px);
+  z-index: 30;
+  background: rgba(10, 10, 12, 0.86);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  border: 1px solid #242424;
+  border-radius: 7px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: inherit;
+}
+#ai-overlay-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid #1c1c1c;
+  background: rgba(255, 255, 255, 0.02);
+}
+#ai-overlay-head:hover { background: rgba(255, 255, 255, 0.05); }
+#ai-overlay-head .ai-ov-title {
+  font-size: 11px; letter-spacing: 1.5px; color: #7a7a7a; font-weight: 600;
+}
+#ai-overlay-arrow { font-size: 11px; color: #666; }
+#ai-overlay.collapsed #ai-overlay-body { display: none; }
+#ai-overlay.collapsed #ai-overlay-head { border-bottom: none; }
+#ai-overlay.collapsed #ai-overlay-arrow { transform: rotate(-90deg); }
+#ai-overlay-body {
+  display: flex;
+  flex-direction: column;
+  max-height: min(46vh, 420px);
+  overflow: hidden;
+}
+#ai-thinking {
+  flex-shrink: 0;
+  padding: 7px 12px;
+  border-bottom: 1px solid #1a1a1a;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.015);
+}
+.think-card {
+  font-size: 12px;
+  line-height: 1.4;
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+}
+.think-card .think-team { flex-shrink: 0; font-weight: 700; }
+.think-card.red  .think-team { color: #e66; }
+.think-card.blue .think-team { color: #88f; }
+.think-card .think-text { color: #bbb; }
+#ai-ticker {
+  flex: 1;
+  min-height: 80px;
+  overflow-y: auto;
+  padding: 4px 12px 6px;
+  display: flex;
+  flex-direction: column-reverse;
+}
+#ai-ticker::-webkit-scrollbar { width: 5px; }
+#ai-ticker::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+.tick-row {
+  font-size: 11.5px;
+  padding: 3px 0;
+  border-bottom: 1px solid #141414;
+  line-height: 1.45;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.tick-row .tick-ico { flex-shrink: 0; }
+.tick-row .tick-t { color: #444; flex-shrink: 0; font-variant-numeric: tabular-nums; min-width: 34px; }
+.tick-row .tick-msg { color: inherit; }
+.tick-row.red  { color: #b88; }
+.tick-row.blue { color: #88b; }
+.tick-row.decision { font-style: italic; }
+.tick-row.decision.red  { color: #e88; }
+.tick-row.decision.blue { color: #9ad; }
+.tick-row.crit { color: #f55 !important; font-weight: 600; }
+
+@media (max-width: 720px) {
+  #ai-overlay { width: calc(100% - 24px); }
+}
+
 #chat-section {
   flex: 1;
   overflow: hidden;
@@ -583,6 +680,21 @@ canvas { display: block; }
     </div>
 
     <div id="status">connecting…</div>
+
+    <!-- AI Activity: collapsible broadcast overlay (what each brain is thinking + live ticker) -->
+    <div id="ai-overlay" class="expanded">
+      <div id="ai-overlay-head" onclick="toggleAiOverlay()" title="Collapse / expand AI activity">
+        <span class="ai-ov-title">🧠 AI ACTIVITY</span>
+        <span id="ai-overlay-arrow">▾</span>
+      </div>
+      <div id="ai-overlay-body">
+        <div id="ai-thinking">
+          <div class="think-card red"><span class="think-team">🔴 RED</span><span class="think-text" id="r-think">—</span></div>
+          <div class="think-card blue"><span class="think-team">🔵 BLUE</span><span class="think-text" id="b-think">—</span></div>
+        </div>
+        <div id="ai-ticker"></div>
+      </div>
+    </div>
   </div>
 
   <div id="panel">
@@ -2273,11 +2385,23 @@ function render() {
 const FOOD_MAX = 1500;
 
 function updateSidebar(now) {
-  // Clock — anchored to real elapsed seconds from server
+  // Clock — real elapsed seconds from server, shown against the draw deadline.
+  // The match auto-resolves by score at draw_timeout_s (see STALEMATE_TIMEOUT);
+  // surface that as a countdown so a dragging game has a visible finish line.
   const secs = Math.floor(state.elapsed_s ?? state.tick / 10);
-  const m = Math.floor(secs / 60).toString().padStart(2, "0");
-  const s = (secs % 60).toString().padStart(2, "0");
-  document.getElementById("clock").textContent = `${m}:${s}`;
+  const _fmt = (t) => `${Math.floor(t / 60).toString().padStart(2, "0")}:${(t % 60).toString().padStart(2, "0")}`;
+  const clockEl = document.getElementById("clock");
+  const cap = state.draw_timeout_s || 0;
+  if (cap > 0) {
+    const left = Math.max(0, cap - secs);
+    clockEl.textContent = `${_fmt(secs)} / ${_fmt(cap)}`;
+    // Amber under 5 min to the draw, red under 1 min.
+    clockEl.style.color = left <= 60 ? "#e55" : left <= 300 ? "#d90" : "#444";
+    clockEl.title = `Match auto-resolves by score in ${_fmt(left)} (draw if tied)`;
+  } else {
+    clockEl.textContent = _fmt(secs);
+    clockEl.style.color = "#444";
+  }
 
   const ids = [
     { prefix: "r", col: state.colonies[0], cls: "red" },
@@ -2851,6 +2975,143 @@ function cyclePov() {
 
 // ─── Window resize ───────────────────────────────────────────────────────────
 window.addEventListener("resize", resizeCanvas);
+
+// ─── AI Activity feed: poll the append-only spectator feed (events + reasoning) ──
+// Surfaces what each colony's brain is doing and WHY — the single biggest spectator
+// gap was that the AI's decisions were invisible. The /api/feed endpoint is
+// non-destructive and seq-paged, so this never competes with the agents' own
+// (destructive) notification consumption.
+const _feedSeq = [0, 0];
+let _feedItems = [];
+const _lastDecision = [null, null];
+
+function _apiBase() { return (window.AGANTS_BACKEND || "").replace(/\/$/, ""); }
+function _feedUrl(cid) {
+  const matchId = new URLSearchParams(location.search).get("match");
+  const p = matchId
+    ? `/api/matches/${encodeURIComponent(matchId)}/feed/${cid}`
+    : `/api/feed/${cid}`;
+  return `${_apiBase()}${p}?since=${_feedSeq[cid]}`;
+}
+
+const _EVENT_ICON = {
+  enemy_contact: "⚔️", queen_under_attack: "👑", structure_complete: "🏗️",
+  upgrade_complete: "⬆️", rally_released: "🚀", rally_stalled: "⏳",
+  workers_idle: "💤", priority_food_cleared: "🍃", worker_explored: "🔭",
+  alert: "❗", game_over: "🏁", food_depleted: "🥀",
+};
+const _CRIT_EVENTS = new Set(["queen_under_attack", "game_over"]);
+
+function _fmtEvent(type, data) {
+  data = data || {};
+  switch (type) {
+    case "enemy_contact":
+      return `enemy contact — ${data.soldiers ?? data.total ?? "?"} soldiers @ (${data.cx},${data.cy})`;
+    case "queen_under_attack":
+      return `QUEEN HIT −${data.dmg} → ${data.hp} HP`;
+    case "structure_complete":
+      return `${data.type || "structure"} built @ (${data.x},${data.y})`;
+    case "upgrade_complete":
+      return `${data.unit || "?"} → T${data.tier} (${data.label || ""})`.trim();
+    case "rally_released":
+      return `wave released${data.count != null ? ` — ${data.count} soldiers` : ""}`;
+    case "rally_stalled":
+      return "rally stalled — wave not growing";
+    case "workers_idle":
+      return `${data.count ?? "some"} workers idle`;
+    case "priority_food_cleared":
+      return "priority food cleared";
+    case "alert":
+      return data.msg || data.label || "alert";
+    case "game_over":
+      return `game over — ${data.winner != null ? (data.winner === 0 ? "RED" : data.winner === 1 ? "BLUE" : data.winner) + " wins" : "ended"}`;
+    default:
+      return (type || "event").replace(/_/g, " ");
+  }
+}
+
+function renderAiFeed() {
+  for (let cid = 0; cid < 2; cid++) {
+    const el = document.getElementById(cid === 0 ? "r-think" : "b-think");
+    if (el) {
+      const d = _lastDecision[cid];
+      el.textContent = d && d.text ? d.text : "—";
+      el.title = d && d.text ? d.text : "";
+    }
+  }
+  const box = document.getElementById("ai-ticker");
+  if (!box) return;
+  // newest first (column-reverse flips to bottom); show last ~50
+  const rows = _feedItems.slice(-50);
+  let html = "";
+  for (const it of rows) {
+    const colCls = it.colony === 0 ? "red" : "blue";
+    const isDec = it.kind === "decision";
+    const data = it.data || {};
+    let ico, text, crit = false;
+    if (isDec) {
+      ico = data.source === "llm" ? "💭" : "🧠";
+      text = data.text || data.strategy || "decision";
+    } else {
+      ico = _EVENT_ICON[it.type] || "•";
+      text = _fmtEvent(it.type, data);
+      crit = _CRIT_EVENTS.has(it.type);
+    }
+    const cls = ["tick-row", colCls, isDec ? "decision" : "", crit ? "crit" : ""].join(" ").trim();
+    html += `<div class="${cls}"><span class="tick-ico">${ico}</span>`
+          + `<span class="tick-t">t${it.tick}</span>`
+          + `<span class="tick-msg">${_escapeHtml(text)}</span></div>`;
+  }
+  box.innerHTML = html;
+}
+
+function _escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function toggleAiOverlay() {
+  const el = document.getElementById("ai-overlay");
+  if (!el) return;
+  const collapsed = el.classList.toggle("collapsed");
+  el.classList.toggle("expanded", !collapsed);
+  try { localStorage.setItem("agants_ai_overlay_collapsed", collapsed ? "1" : "0"); } catch (e) {}
+}
+// Restore collapsed state from last visit.
+(function initAiOverlay() {
+  try {
+    if (localStorage.getItem("agants_ai_overlay_collapsed") === "1") {
+      const el = document.getElementById("ai-overlay");
+      if (el) { el.classList.add("collapsed"); el.classList.remove("expanded"); }
+    }
+  } catch (e) {}
+})();
+
+async function pollAiFeed() {
+  for (let cid = 0; cid < 2; cid++) {
+    try {
+      const r = await fetch(_feedUrl(cid), { cache: "no-store" });
+      if (!r.ok) continue;
+      const j = await r.json();
+      // Detect a server-side seq reset (new match / restart) and re-sync from 0.
+      if (typeof j.last_seq === "number" && j.last_seq < _feedSeq[cid]) {
+        _feedSeq[cid] = 0;
+        _feedItems = _feedItems.filter(it => it.colony !== cid);
+      }
+      if (Array.isArray(j.feed) && j.feed.length) {
+        for (const it of j.feed) { it.colony = cid; _feedItems.push(it); }
+      }
+      if (typeof j.last_seq === "number") _feedSeq[cid] = j.last_seq;
+      if (j.last_decision) _lastDecision[cid] = j.last_decision;
+    } catch (e) { /* network blip — keep last state */ }
+  }
+  // Order by tick so RED/BLUE interleave chronologically; cap memory.
+  _feedItems.sort((a, b) => (a.tick - b.tick) || (a.seq - b.seq));
+  if (_feedItems.length > 120) _feedItems = _feedItems.slice(-120);
+  renderAiFeed();
+}
+setInterval(pollAiFeed, 1500);
+pollAiFeed();
 
 // The Canvas client (WS + control/DOM + render loop) ALWAYS runs — it owns the game
 // lifecycle for both renderers. When ?pixi=1, render() skips 2D world drawing and the

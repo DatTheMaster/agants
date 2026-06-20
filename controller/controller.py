@@ -333,7 +333,8 @@ Ridges (rock, choke through gaps) at x=48-50 and x=100-102. Midfield x=75.
 
 UNITS  worker (gather food/dirt, build), soldier (HP200 dmg22), scout (vision/intel),
  spitter (ranged anti-mass: HP70, range5, ~16dmg+~8 splash to adjacent, slow, fragile vs focused
- soldier fire — counter to massed workers/scouts), queen (HP900, never command).
+ soldier fire — counter to massed soldiers/workers; hold-and-fire, never chases. Reposition it with
+ send_command unit_command move_to/hold; it auto-fires at anything within range 5), queen (HP900, never command).
 SPAWN COST/TIME  worker 25food/20t, soldier 50food/35t, scout 35food/25t, spitter 45food/30t. Queue max 10. Food reserved at queue time.
 BUILDINGS (cost dirt)  larder 150 (+6food/t passive income), watchtower 80 (vision), guard_post 150 (turret),
  barracks 200, wall 25, bulwark 50 (cheap spiked barricade: HP250, blocks + chips adjacent enemies ~4/t).

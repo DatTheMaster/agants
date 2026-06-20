@@ -673,6 +673,31 @@ def _trim_memory(mem):
         del mem[oldest]
     return mem
 
+def _summarize_strategy(strategy):
+    """Compact human-readable summary of an LLM directive patch for the spectator feed.
+    e.g. {'roles': {...}, 'attack_target': [x,y]} -> 'soldiers↑ 55% · attack (14,50)'."""
+    if not strategy or not isinstance(strategy, dict):
+        return ""
+    parts = []
+    roles = strategy.get("roles") or (strategy.get("spawn") if isinstance(strategy.get("spawn"), dict) else None)
+    if isinstance(roles, dict):
+        sol = roles.get("soldier"); spit = roles.get("spitter")
+        if isinstance(sol, (int, float)):  parts.append(f"{int(round(sol*100))}% soldier")
+        if isinstance(spit, (int, float)) and spit: parts.append(f"{int(round(spit*100))}% spitter")
+    if strategy.get("defense"):     parts.append(str(strategy["defense"]))
+    at = strategy.get("attack_target")
+    if isinstance(at, (list, tuple)) and len(at) == 2:
+        parts.append(f"attack ({int(at[0])},{int(at[1])})")
+    rp = strategy.get("rally_point")
+    if isinstance(rp, (list, tuple)) and len(rp) == 2:
+        parts.append(f"rally ({int(rp[0])},{int(rp[1])})")
+    if strategy.get("retreat"):     parts.append("retreat")
+    if strategy.get("build"):
+        b = strategy["build"]
+        parts.append(f"build {b.get('type','?')}" if isinstance(b, dict) else "build")
+    if strategy.get("buy_upgrade"): parts.append(f"upgrade {strategy['buy_upgrade']}")
+    return " · ".join(parts)
+
 def apply_memory_update(current, update):
     """Merge an LLM memory update dict into current memory. Null values delete keys."""
     if not isinstance(update, dict):
@@ -2160,6 +2185,18 @@ class Server:
                 m._pending_strategies.append((colony_id, strategy))
                 colony.push_event(f"[LLM] strategy → {json.dumps(strategy)}")
 
+            # Surface the LLM's thinking to spectators: a trimmed rationale + a compact
+            # strategy summary land on the append-only feed (the reasoning panel/ticker).
+            _rtext = (reasoning or "").strip().replace("\n", " ")
+            if _rtext:
+                if len(_rtext) > 240:
+                    _rtext = _rtext[:237] + "…"
+                colony.push_decision(_rtext, tick=world.tick, source="llm",
+                                     data={"strategy": _summarize_strategy(strategy)})
+            elif strategy:
+                colony.push_decision(_summarize_strategy(strategy) or "directive updated",
+                                     tick=world.tick, source="llm")
+
             if memory_update:
                 m.llm_memories[colony_id] = _trim_memory(
                     apply_memory_update(m.llm_memories[colony_id], memory_update)
@@ -3209,6 +3246,30 @@ class Server:
         notifs = list(colony.notifications) if peek else colony.pop_notifications()
         return await self._api_cors(web.json_response({"notifications": notifs, "count": len(notifs), "consumed": not peek}))
 
+    async def api_feed(self, req):
+        """Spectator feed: append-only stream of events + AI decisions for a colony.
+        Non-destructive (unlike /api/notifications). ?since=<seq> returns only newer
+        items; ?colony or path colony_id selects RED(0)/BLUE(1). This powers the
+        spectator event ticker + AI reasoning panel."""
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
+        cid = int(req.match_info["colony_id"])
+        if cid not in (0, 1):
+            return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
+        if not m.world.colonies:
+            return await self._api_cors(web.json_response({"feed": [], "last_seq": 0}))
+        try:
+            since = int(req.rel_url.query.get("since", "0"))
+        except ValueError:
+            since = 0
+        colony = m.world.colonies[cid]
+        items, last_seq = colony.feed_since(since)
+        return await self._api_cors(web.json_response({
+            "feed": items, "last_seq": last_seq,
+            "last_decision": getattr(colony, "last_decision", None),
+        }))
+
     async def api_intel_map(self, req):
         m = self._get_match_or_default(req)
         if m is None:
@@ -3973,6 +4034,7 @@ class Server:
         router.add_get("/api/match_status",                  self.api_match_status)
         router.add_post("/api/forfeit",                      self.api_forfeit)
         router.add_get("/api/notifications/{colony_id}",     self.api_notifications)
+        router.add_get("/api/feed/{colony_id}",              self.api_feed)
         router.add_get("/api/intel_map/{colony_id}",         self.api_intel_map)
         router.add_get("/api/directive/{colony_id}",         self.api_directive)
         router.add_post("/api/directive/{colony_id}",        self.api_patch_directive)
@@ -3993,6 +4055,7 @@ class Server:
         router.add_get("/api/matches/{match_id}/battle_summary/{colony_id}",   self.api_battle_summary)
         router.add_get("/api/matches/{match_id}/match_status",                  self.api_match_status)
         router.add_get("/api/matches/{match_id}/notifications/{colony_id}",     self.api_notifications)
+        router.add_get("/api/matches/{match_id}/feed/{colony_id}",              self.api_feed)
         router.add_get("/api/matches/{match_id}/intel_map/{colony_id}",         self.api_intel_map)
         router.add_get("/api/matches/{match_id}/directive/{colony_id}",         self.api_directive)
         router.add_post("/api/matches/{match_id}/directive/{colony_id}",        self.api_patch_directive)

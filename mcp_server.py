@@ -749,8 +749,11 @@ def command_type(colony_id: int, unit_type: str, command: str,
 
     Args:
         colony_id: 0 for RED, 1 for BLUE
-        unit_type: "soldier", "worker", or "scout"
+        unit_type: "soldier", "worker", "scout", or "spitter"
         command: "move_to", "attack_move", "attack_xy", "gather", "build", "hold", "patrol", or "clear"
+            NOTE: spitters are hold-and-fire — they only act on "move_to", "hold", and
+            "clear" (they auto-fire at any enemy within range 5 but never chase). Other
+            commands are accepted but a spitter will just reposition + fire in range.
         x, y: target coordinates (required for move_to / attack_xy / patrol / build)
         filter_state: optional — only command ants in this state.
             Valid values: "idle", "foraging", "returning", "exploring",
@@ -765,7 +768,7 @@ def command_type(colony_id: int, unit_type: str, command: str,
         Command only idle scouts to explore the south flank:
             command_type(1, "scout", "move_to", x=75, y=80, filter_state="idle")
     """
-    type_names = {"worker": "worker", "soldier": "soldier", "scout": "scout"}
+    type_names = {"worker": "worker", "soldier": "soldier", "scout": "scout", "spitter": "spitter"}
     if unit_type not in type_names:
         return {"error": f"unit_type must be one of: {list(type_names)}"}
     state = _get(_match_path(colony_id, f"/state/{colony_id}"))
@@ -799,7 +802,7 @@ def cancel_spawn(colony_id: int, unit_type: str = "all") -> dict:
 
     Args:
         colony_id: 0 for RED, 1 for BLUE
-        unit_type: "worker", "soldier", "scout", or "all" (default: "all")
+        unit_type: "worker", "soldier", "scout", "spitter", or "all" (default: "all")
 
     Returns:
         {"ok": True, "cancelled": N, "food_refunded": M}
@@ -810,7 +813,7 @@ def cancel_spawn(colony_id: int, unit_type: str = "all") -> dict:
         Cancel only queued soldiers to redirect food:
             cancel_spawn(0, unit_type="soldier")
     """
-    valid = {"worker", "soldier", "scout", "all"}
+    valid = {"worker", "soldier", "scout", "spitter", "all"}
     if unit_type not in valid:
         return {"error": f"unit_type must be one of: {sorted(valid)}"}
     return _post(_match_path(colony_id, f"/command/{colony_id}"), {"type": "cancel_spawn", "unit_type": unit_type}, headers=_auth(colony_id))

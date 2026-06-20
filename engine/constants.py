@@ -44,7 +44,7 @@ FOOD_CONTESTED_MIN_DIST  = 28
 FOOD_REGROW_CONTESTED    = 20.0
 FOOD_REGROW_APPROACH     = 0.5
 
-STALEMATE_TIMEOUT = 7200   # 2 hours — effectively never fires
+STALEMATE_TIMEOUT = 1800   # 30 min (wall-clock) — match is decided by score, draw if tied
 
 # ── Corpses ────────────────────────────────────────────────────────────────────
 CORPSE_FOOD  = [12, 25, 17, 0, 20]   # worker / soldier / scout / queen / spitter

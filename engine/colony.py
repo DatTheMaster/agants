@@ -385,6 +385,13 @@ class Colony:
         self.dirt_per_s = 0.0
         self.events = deque(maxlen=MAX_EVENTS)
         self.notifications = deque(maxlen=50)
+        # Append-only spectator feed: events + AI decisions, never consumed (unlike
+        # notifications, which agents pop). Each item has a monotonic seq so the
+        # frontend can poll /api/feed?since=<seq> for only what's new. This is the
+        # data source for the spectator ticker + reasoning panel.
+        self.feed = deque(maxlen=120)
+        self._feed_seq = 0
+        self.last_decision = None   # most recent AI rationale, for the "thinking" panel
         self.enemy_scouted_tick   = -9999
         self.enemy_scouted_counts = [0] * NUM_ANT_TYPES
         self.fog_explored = bytearray(MAP_W * MAP_H)
@@ -530,6 +537,9 @@ class Colony:
         c.emergency_ticks_left = d.get("emergency_ticks_left", 0)
         c.events = deque(maxlen=MAX_EVENTS)
         c.notifications = deque(maxlen=50)
+        c.feed = deque(maxlen=120)
+        c._feed_seq = 0
+        c.last_decision = None
         c.trigger_log = deque(maxlen=30)
         c.log_queue = []
         c.food_prev = c.food
@@ -548,6 +558,25 @@ class Colony:
 
     def push_notification(self, notif_type: str, data: dict = None, tick: int = 0):
         self.notifications.append({"type": notif_type, "tick": tick, "data": data or {}})
+        self._push_feed("event", notif_type, data or {}, tick)
+
+    def _push_feed(self, kind: str, ftype: str, data: dict, tick: int):
+        """Append to the append-only spectator feed (events + decisions)."""
+        self._feed_seq += 1
+        self.feed.append({"seq": self._feed_seq, "kind": kind, "type": ftype,
+                          "tick": tick, "data": data or {}})
+
+    def push_decision(self, text: str, tick: int = 0, source: str = "bot", data: dict = None):
+        """Record a one-line AI rationale for the spectator reasoning panel + ticker.
+        `source` is 'bot' or 'llm'. `data` may carry a directive diff or summary."""
+        entry = {"source": source, "text": text, **(data or {})}
+        self.last_decision = {"tick": tick, **entry}
+        self._push_feed("decision", "decision", entry, tick)
+
+    def feed_since(self, seq: int = 0):
+        """Spectator-facing: feed items with seq > `seq`, plus the current max seq."""
+        items = [it for it in self.feed if it["seq"] > seq]
+        return items, self._feed_seq
 
     def pop_notifications(self):
         notifs = list(self.notifications)

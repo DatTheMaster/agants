@@ -2216,6 +2216,7 @@ class World:
             "tick": self.tick,
             "phase": self.phase,
             "elapsed_s": round(time.time() - self.start_time, 1) if self.start_time else 0,
+            "draw_timeout_s": STALEMATE_TIMEOUT,  # match auto-resolves by score at this elapsed
             "ants": ants, "food": foods,
             "corpses": corpses,
             "structures": structs,

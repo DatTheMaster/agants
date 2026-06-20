@@ -14,6 +14,45 @@ from engine.constants import (
 _BOT_BULWARK_MAX = 3
 
 
+def _emit_bot_reason(c, world, roles, defense, enemy_rush, rally_update,
+                     workers, soldiers, food, income, rush_defense=False):
+    """Build a short human-readable rationale and push it to the spectator feed on
+    meaningful change. Deduped via c._last_reason_sig so steady-state ticks stay quiet."""
+    sol = int(round(roles.get("soldier", 0) * 100))
+    spit = int(round(roles.get("spitter", 0) * 100))
+    wrk = int(round(roles.get("worker", 0) * 100))
+
+    # Rally action is a transient event — always worth narrating when it fires.
+    rally_phrase = None
+    if "attack_target" in rally_update and rally_update.get("attack_target"):
+        rally_phrase = f"wave released → marching on enemy queen ({soldiers} soldiers)"
+    elif "rally_point" in rally_update and rally_update.get("rally_point"):
+        ra = rally_update.get("rally_release_at", "?")
+        rally_phrase = f"massing a wave (release at {ra})"
+    elif rush_defense and rally_update:
+        rally_phrase = "holding the bulwark line — won't march while out-massed"
+    elif "rally_point" in rally_update and rally_update.get("rally_point") is None and rally_update:
+        rally_phrase = "regrouping — too few soldiers to commit"
+
+    if rush_defense:
+        head = f"⚠ out-massed under rush — turtling: {spit}% spitter + bulwarks, {sol}% soldier"
+    elif enemy_rush:
+        head = f"⚠ rush detected — {defense}, leaning {sol}% soldier / {spit}% spitter+bulwark"
+    elif food < 150:
+        head = f"{defense} — rebuilding economy ({wrk}% worker, {sol}% soldier)"
+    else:
+        head = f"{defense} — {sol}% soldier / {spit}% spitter, {wrk}% worker"
+
+    text = head if not rally_phrase else f"{head}; {rally_phrase}"
+    sig = (defense, sol // 10, spit // 10, enemy_rush, rush_defense, rally_phrase or "")
+    if getattr(c, "_last_reason_sig", None) == sig:
+        return
+    c._last_reason_sig = sig
+    c.push_decision(text, tick=world.tick, source="bot",
+                    data={"stance": defense, "soldier_pct": sol, "spitter_pct": spit,
+                          "worker_pct": wrk, "rush": bool(enemy_rush)})
+
+
 def update_bot_strategy(world, colony_id):
     """Adaptive heuristic strategy for a bot colony."""
     c = world.colonies[colony_id]
@@ -32,6 +71,19 @@ def update_bot_strategy(world, colony_id):
             and abs(a.x - c.nx) + abs(a.y - c.ny) <= 30
         )
         enemy_rush = enemy_near >= 3
+
+    # Army strength comparison — drives the rush-defense override below. A soldier is
+    # worth ~20, spitter ~15, scout ~8; workers don't fight. Cheap to compute.
+    def _army(col):
+        v = 0
+        for a in col.ants:
+            if   a.type == A_SOLDIER: v += 20
+            elif a.type == A_SPITTER: v += 15
+            elif a.type == A_SCOUT:   v += 8
+        return v
+    my_army = _army(c)
+    enemy_army = _army(c.enemy) if c.enemy else 0
+    behind = enemy_army > my_army * 1.1   # being out-massed
 
     # Spitters are HOLD-AND-FIRE defenders: keep them a small supplement.
     # Soldiers must stay the clear majority of combat (~80% baseline, never < ~70%
@@ -68,10 +120,30 @@ def update_bot_strategy(world, colony_id):
         else:
             roles, cap, defense = {"worker": 0.55, "scout": 0.20, "soldier": 0.21, "spitter": 0.04}, 65, "balanced"
 
+    # ── Rush-defense emergency override ──────────────────────────────────────────
+    # The bench showed the bot LOSING to a committed soldier rush (~37% vs rush)
+    # despite a spitter+bulwark turtle beating that same rush 100%. The gap was
+    # usage: the bot fielded too few spitters under rush and kept trying to counter-
+    # charge instead of holding. When we're actively rushed AND out-massed, adopt the
+    # proven defensive posture — spitter-heavy behind a forward bulwark line, hold
+    # until we have the army edge — then revert to the soldier-majority offense that
+    # wins games (handled by the branches above once `behind` clears).
+    rush_defense = enemy_rush and behind
+    if rush_defense:
+        roles = {"worker": 0.28, "scout": 0.05, "soldier": 0.42, "spitter": 0.25}
+        defense = "defensive"
+
     # Rally to mass, then release as a wave — avoids 1-by-1 trickle deaths
     rally_update = {}
     mil = c.directive["military"]
-    if c.enemy and c.alive:
+    if rush_defense:
+        # Do NOT march out while being out-massed — hold the line behind bulwarks +
+        # spitters and let the rush break on it. Clear any standing attack order.
+        if mil.get("attack_target") or mil.get("rally_point") or mil.get("auto_attack"):
+            rally_update = {"rally_point": None, "rally_release_at": None,
+                            "attack_target": None, "siege_priority": "queen",
+                            "auto_attack": False, "retreat": False}
+    elif c.enemy and c.alive:
         rx = int(c.nx + (c.enemy.nx - c.nx) * 0.40)
         ry = int(c.ny + (c.enemy.ny - c.ny) * 0.40)
         if soldiers < 3:
@@ -97,6 +169,13 @@ def update_bot_strategy(world, colony_id):
 
     c.set_strategy({**{"roles": roles, "worker_cap": cap, "defense": defense}, **rally_update})
 
+    # ── Spectator reasoning: surface WHY the bot just did what it did ────────────
+    # The frontend reasoning panel + ticker read colony.feed; emit a 1-line
+    # rationale on meaningful transitions (stance/composition change or a rally
+    # action) rather than every interval, so the feed reads as a narrative.
+    _emit_bot_reason(c, world, roles, defense, enemy_rush, rally_update,
+                     workers, soldiers, food, income, rush_defense=rush_defense)
+
     # Build structures from dirt when stable
     dirt = c.dirt
     own_structs = [st for st in world.structures if st["colony"] == c.id]
@@ -114,8 +193,12 @@ def update_bot_strategy(world, colony_id):
 
         # Bulwark: build a spiked forward barrier — prioritize when under rush
         # Place ~20% of the way toward the enemy (just outside our nest approach)
-        bw_cap = _BOT_BULWARK_MAX
-        if own_bw < bw_cap and dirt >= BULWARK_COST and workers >= 6:
+        # Under a rush we're losing, commit to a deeper bulwark line (4) and build it
+        # off a lower worker threshold — the barricade is what lets spitters win the
+        # trade. Otherwise stay conservative (3) and leave headroom for humans/agents.
+        bw_cap = (_BOT_BULWARK_MAX + 1) if rush_defense else _BOT_BULWARK_MAX
+        min_workers_bw = 4 if rush_defense else 6
+        if own_bw < bw_cap and dirt >= BULWARK_COST and workers >= min_workers_bw:
             # Under rush: build immediately; otherwise wait for modest stability
             should_build_bw = enemy_rush or (workers >= 12 and world.tick > 100)
             if should_build_bw:
