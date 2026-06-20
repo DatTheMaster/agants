@@ -133,6 +133,24 @@ def update_bot_strategy(world, colony_id):
         roles = {"worker": 0.28, "scout": 0.05, "soldier": 0.42, "spitter": 0.25}
         defense = "defensive"
 
+    # ── Anti-turtle: bring raiders when pushing a fortified enemy ────────────────
+    # A spitter+bulwark turtle hard-counters a pure soldier push (that's the 100%
+    # defensive matchup that drags games to the draw timer). Raiders melt the bulwark/
+    # larder line, so when we're on the offensive against a structured enemy, carve a
+    # raider share out of soldiers to crack the turtle instead of stalling on it.
+    enemy_structs = 0
+    if c.enemy and not rush_defense:
+        enemy_structs = sum(1 for st in world.structures
+                            if st["colony"] == c.enemy.id and st.get("hp", 0) > 0
+                            and st.get("type") in ("bulwark", "larder", "guard_post", "wall"))
+    if enemy_structs >= 2 and defense in ("aggressive", "balanced") and roles.get("soldier", 0) > 0.30:
+        raid = min(0.16, 0.04 * enemy_structs)
+        take = min(raid, roles["soldier"] - 0.25)
+        if take > 0:
+            roles = dict(roles)
+            roles["soldier"] -= take
+            roles["raider"] = roles.get("raider", 0.0) + take
+
     # Rally to mass, then release as a wave — avoids 1-by-1 trickle deaths
     rally_update = {}
     mil = c.directive["military"]

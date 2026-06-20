@@ -249,6 +249,7 @@ canvas { display: block; }
 .ico-scout   { width:6px;height:6px;background:#888;border-radius:50%;display:inline-block;flex-shrink:0; }
 .ico-queen   { width:11px;height:11px;background:#cfcfcf;border-radius:50%;box-shadow:0 0 3px #999;display:inline-block;flex-shrink:0; }
 .ico-spitter { width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #9a9a9a;display:inline-block;flex-shrink:0; }
+.ico-raider { width:8px;height:8px;background:#d9863a;display:inline-block;flex-shrink:0;transform:rotate(45deg); }
 .ico-bulwark { width:16px;height:14px;border:1.5px solid #2a4010;background:#6a7a50;display:inline-flex;align-items:flex-end;justify-content:center;border-radius:2px;flex-shrink:0;overflow:hidden;position:relative; }
 .ico-bulwark::before { content:''; position:absolute;top:-2px;left:2px;border-left:2px solid transparent;border-right:2px solid transparent;border-bottom:5px solid #88cc44;display:inline-block; }
 .ico-team    { width:9px;height:9px;border-radius:2px;display:inline-block;flex-shrink:0; }
@@ -724,6 +725,7 @@ canvas { display: block; }
         <div class="r"><span class="k">Soldiers</span><span class="v" id="r-s">—</span></div>
         <div class="r"><span class="k">Scouts</span><span class="v" id="r-c">—</span></div>
         <div class="r"><span class="k">Spitters</span><span class="v" id="r-spit">—</span></div>
+        <div class="r"><span class="k">Raiders</span><span class="v" id="r-raid">—</span></div>
         <div class="r"><span class="k">Queen HP</span><span class="v" id="r-qhp">—</span></div>
       </div>
       <div class="queue-line" id="r-queue">QUEUE: —</div>
@@ -765,6 +767,7 @@ canvas { display: block; }
         <div class="r"><span class="k">Soldiers</span><span class="v" id="b-s">—</span></div>
         <div class="r"><span class="k">Scouts</span><span class="v" id="b-c">—</span></div>
         <div class="r"><span class="k">Spitters</span><span class="v" id="b-spit">—</span></div>
+        <div class="r"><span class="k">Raiders</span><span class="v" id="b-raid">—</span></div>
         <div class="r"><span class="k">Queen HP</span><span class="v" id="b-qhp">—</span></div>
       </div>
       <div class="queue-line" id="b-queue">QUEUE: —</div>
@@ -810,6 +813,7 @@ canvas { display: block; }
           <div class="lgnd-row"><span class="ico-scout"></span> Scout — fast, reveals map</div>
           <div class="lgnd-row"><span class="ico-queen"></span> Queen — nest, spawns ants</div>
           <div class="lgnd-row"><span class="ico-spitter"></span> Spitter — ranged acid attack</div>
+          <div class="lgnd-row"><span class="ico-raider"></span> Raider — fast; wrecks structures</div>
         </div>
         <div class="lgnd-section">
           <div class="lgnd-title">Buildings</div>
@@ -1617,7 +1621,7 @@ function onTick(d) {
     colTiers[ci] = d.colonies[ci][11] || [0, 0, 0];
   }
 
-  const TYPE_TIER_IDX = [0, 2, 1, 0, 2]; // worker→[0], soldier→[2], scout→[1], queen special-cased, spitter→[2] (soldier slot)
+  const TYPE_TIER_IDX = [0, 2, 1, 0, 2, 1]; // worker→[0], soldier→[2], scout→[1], queen special-cased, spitter→[2], raider→[1] (scout slot)
   const nextIds = new Set();
 
   for (const a of d.ants) {
@@ -1642,7 +1646,7 @@ function onTick(d) {
   }
 
   const TIER_SCALE = [1.0, 1.25, 1.5, 1.8];
-  const BASE_SZ    = [2.8, 3.8, 2.6, 6.0];
+  const BASE_SZ    = [2.8, 3.8, 2.6, 6.0, 3.6, 3.2];
   for (const [id, ant] of antMap) {
     if (!nextIds.has(id)) {
       const sz = BASE_SZ[ant.type] * TS / 8 * (TIER_SCALE[ant.tier] || 1);
@@ -1659,7 +1663,7 @@ function onTick(d) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const TIER_SCALE = [1.0, 1.25, 1.5, 1.8];
-const BASE_SZ    = [2.8, 3.8, 2.6, 6.0, 3.6];   // worker, soldier, scout, queen, spitter
+const BASE_SZ    = [2.8, 3.8, 2.6, 6.0, 3.6, 3.2];   // worker, soldier, scout, queen, spitter, raider
 
 const CACHE_SIZE = 80, CACHE_HALF = CACHE_SIZE / 2;
 let antCache = {};
@@ -1818,6 +1822,12 @@ function drawSpitterShape(ctx, sz, r, g, b, tier) {
   drawSoldierShape(ctx, sz, r, g, b, tier);
 }
 
+function drawRaiderShape(ctx, sz, r, g, b, tier) {
+  // Reuse the lean scout silhouette (fast harasser) — distinguished by the
+  // rust-orange RAIDER_RGB tint supplied by the caller.
+  drawScoutShape(ctx, sz, r, g, b, tier);
+}
+
 function drawQueenShape(sz, r, g, b, now) {
   const pulse = 0.5 + 0.5 * Math.sin(now / 520);
   const grd = X.createRadialGradient(0, 0, sz*0.3, 0, 0, sz*2.8);
@@ -1848,23 +1858,25 @@ function drawQueenShape(sz, r, g, b, now) {
   X.shadowBlur = 0;
 }
 
-// Acid-green RGB used for spitter tinting (blended with colony color).
+// Acid-green RGB for spitter tinting; rust-orange for raider (blended w/ colony color).
 const SPITTER_RGB = [136, 204, 68];
+const RAIDER_RGB  = [255, 140, 42];
 
 function initAntCache() {
   antCache = {};
-  // Types 0-2: worker/soldier/scout (colony-tinted). Type 4: spitter (acid-green).
-  const typeList = [0, 1, 2, 4];
+  // Types 0-2: worker/soldier/scout (colony-tinted). 4: spitter (green). 5: raider (orange).
+  const typeList = [0, 1, 2, 4, 5];
   for (const type of typeList) {
     for (let col = 0; col < 2; col++) {
-      // Spitter: blend colony color 50% + acid-green 50% so RED vs BLUE remains
-      // clearly distinguishable while still reading green-tinged as a distinct type.
+      // Spitter/raider: blend colony color 50% + accent 50% so RED vs BLUE remains
+      // clearly distinguishable while still reading as a distinct type.
       let r, g, b;
-      if (type === 4) {
+      if (type === 4 || type === 5) {
         const [cr, cg, cb] = CCOL[col];
-        r = Math.round(cr * 0.50 + SPITTER_RGB[0] * 0.50);
-        g = Math.round(cg * 0.50 + SPITTER_RGB[1] * 0.50);
-        b = Math.round(cb * 0.50 + SPITTER_RGB[2] * 0.50);
+        const acc = type === 4 ? SPITTER_RGB : RAIDER_RGB;
+        r = Math.round(cr * 0.50 + acc[0] * 0.50);
+        g = Math.round(cg * 0.50 + acc[1] * 0.50);
+        b = Math.round(cb * 0.50 + acc[2] * 0.50);
       } else {
         [r, g, b] = CCOL[col];
       }
@@ -1886,6 +1898,7 @@ function initAntCache() {
         if      (type === 0) drawWorkerShape(ctx, sz, r, g, b, tier);
         else if (type === 1) drawSoldierShape(ctx, sz, r, g, b, tier);
         else if (type === 4) drawSpitterShape(ctx, sz, r, g, b, tier);
+        else if (type === 5) drawRaiderShape(ctx, sz, r, g, b, tier);
         else                 drawScoutShape(ctx, sz, r, g, b, tier);
         antCache[`${type}-${col}-${tier}`] = cv;
       }
@@ -2410,7 +2423,7 @@ function updateSidebar(now) {
 
   for (const { prefix, col } of ids) {
     const ct = col[4];
-    const total = ct[0] + ct[1] + ct[2] + ct[3] + (ct[4] || 0);
+    const total = ct[0] + ct[1] + ct[2] + ct[3] + (ct[4] || 0) + (ct[5] || 0);
     const food  = col[3];
     const strat = col[5];
     const foodCollected = col[8] || 0;
@@ -2438,6 +2451,8 @@ function updateSidebar(now) {
     document.getElementById(`${prefix}-s`).textContent = ct[1];
     document.getElementById(`${prefix}-c`).textContent = ct[2];
     document.getElementById(`${prefix}-spit`).textContent = ct[4] || 0;
+    const raidEl = document.getElementById(`${prefix}-raid`);
+    if (raidEl) raidEl.textContent = ct[5] || 0;
     document.getElementById(`${prefix}-qhp`).textContent = queen ? qhp : "DEAD";
     document.getElementById(`${prefix}-fed`).textContent  = foodCollected;
     document.getElementById(`${prefix}-lost`).textContent = antsLost;
@@ -2506,12 +2521,14 @@ function updateSidebar(now) {
     const sqData = col[13];
     const sqEl = document.getElementById(`${prefix}-queue`);
     if (sqData !== undefined) {
-      const total = (sqData.w || 0) + (sqData.so || 0) + (sqData.sc || 0);
+      const total = (sqData.w || 0) + (sqData.so || 0) + (sqData.sc || 0) + (sqData.sp || 0) + (sqData.rd || 0);
       if (total > 0) {
         const parts = [];
         if (sqData.w)  parts.push(`${sqData.w}W`);
         if (sqData.so) parts.push(`${sqData.so}S`);
         if (sqData.sc) parts.push(`${sqData.sc}sc`);
+        if (sqData.sp) parts.push(`${sqData.sp}sp`);
+        if (sqData.rd) parts.push(`${sqData.rd}rd`);
         const nextStr = sqData.next_t != null ? ` · next ${sqData.next_t}t` : "";
         sqEl.textContent = `QUEUE: ${parts.join(" ")}${nextStr} · ${sqData.reserved}♦`;
         sqEl.className = "queue-line active";

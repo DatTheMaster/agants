@@ -11,7 +11,9 @@ import { TS } from '../scene/Camera.js';
 
 const COLONY_TINT = { 0: 0xff3c3c, 1: 0x3c3cff };
 function tintFor(c) { return COLONY_TINT[c] ?? 0xffffff; }
-const TYPE_NAME = ['Worker', 'Soldier', 'Scout', 'Queen'];
+// Indexed by ant.type (A_WORKER..A_RAIDER). Must stay aligned with
+// engine/constants.py ANT_TYPE_NAMES or clicked units show as '?'.
+const TYPE_NAME = ['Worker', 'Soldier', 'Scout', 'Queen', 'Spitter', 'Raider'];
 const STATE_NAME = ['Idle', 'Foraging', 'Returning', 'Exploring',
                     'Fighting', 'Patrolling', 'Recruited', 'Building'];
 

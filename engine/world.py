@@ -6,7 +6,7 @@ import time
 from engine.constants import (
     MAP_W, MAP_H, TILE, TERRITORY_DECAY,
     T_DIRT, T_LEAF, T_WATER, T_ROCK, T_NEST,
-    A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER,
+    A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER, A_RAIDER,
     ANT_TYPE_NAMES, NUM_ANT_TYPES,
     S_IDLE, S_FORAGING, S_RETURNING, S_EXPLORING,
     S_FIGHTING, S_PATROLLING, S_RECRUITED, S_BUILDING,
@@ -35,6 +35,7 @@ from engine.constants import (
     STALEMATE_TIMEOUT,
     SPITTER_RANGE, SPITTER_DMG, SPITTER_CD, SPLASH_RADIUS, SPLASH_FALLOFF,
     BULWARK_COST, BULWARK_HP, BULWARK_MAX, BULWARK_CONTACT_DMG,
+    RAIDER_DMG, RAIDER_STRUCT_DMG, RAIDER_CD,
 )
 from engine.colony import Ant, Colony, DirectiveEngine, _apply_upgrade_effects
 
@@ -558,13 +559,15 @@ class World:
                     sc_paused  = sp["scout"].get("pause", False)
                     sol_paused = sp["soldier"].get("pause", False)
                     spit_paused = sp.get("spitter", {}).get("pause", False)
+                    raid_paused = sp.get("raider", {}).get("pause", False)
                     wshare   = 0.0 if w_paused   else max(sp["worker"]["target_ratio"],  sp["worker"].get("min_ratio", 0.0))
                     sshare   = 0.0 if sc_paused  else max(sp["scout"]["target_ratio"],   sp["scout"].get("min_ratio", 0.0))
                     solshare = 0.0 if sol_paused else max(sp["soldier"]["target_ratio"], sp["soldier"].get("min_ratio", 0.0))
                     spitshare = 0.0 if spit_paused else max(sp.get("spitter", {}).get("target_ratio", 0.0), sp.get("spitter", {}).get("min_ratio", 0.0))
-                    total_sh = wshare + sshare + solshare + spitshare
+                    raidshare = 0.0 if raid_paused else max(sp.get("raider", {}).get("target_ratio", 0.0), sp.get("raider", {}).get("min_ratio", 0.0))
+                    total_sh = wshare + sshare + solshare + spitshare + raidshare
                     if total_sh > 0:
-                        wshare /= total_sh; sshare /= total_sh; solshare /= total_sh; spitshare /= total_sh
+                        wshare /= total_sh; sshare /= total_sh; solshare /= total_sh; spitshare /= total_sh; raidshare /= total_sh
                     worker_max = sp["worker"]["max"]
                     n_workers = sum(1 for a in c.ants if a.type == A_WORKER)
                     worker_capped = worker_max is not None and n_workers >= worker_max
@@ -596,8 +599,8 @@ class World:
 
                     # Enforce spawn.{type}.min counts: if any type is below its
                     # minimum (ants + queued), prioritize it regardless of ratios.
-                    _TYPE_KEYS = [(A_WORKER, "worker"), (A_SCOUT, "scout"), (A_SOLDIER, "soldier"), (A_SPITTER, "spitter")]
-                    _PAUSED = {A_WORKER: w_paused, A_SCOUT: sc_paused, A_SOLDIER: sol_paused, A_SPITTER: spit_paused}
+                    _TYPE_KEYS = [(A_WORKER, "worker"), (A_SCOUT, "scout"), (A_SOLDIER, "soldier"), (A_SPITTER, "spitter"), (A_RAIDER, "raider")]
+                    _PAUSED = {A_WORKER: w_paused, A_SCOUT: sc_paused, A_SOLDIER: sol_paused, A_SPITTER: spit_paused, A_RAIDER: raid_paused}
                     t = None
                     for _tc, _tk in _TYPE_KEYS:
                         if _PAUSED[_tc]: continue
@@ -611,9 +614,9 @@ class World:
 
                     if t is None and total_sh > 0:
                         if worker_capped:
-                            shares = [(A_SCOUT, sshare), (A_SOLDIER, solshare), (A_SPITTER, spitshare)]
+                            shares = [(A_SCOUT, sshare), (A_SOLDIER, solshare), (A_SPITTER, spitshare), (A_RAIDER, raidshare)]
                         else:
-                            shares = [(A_WORKER, wshare), (A_SCOUT, sshare), (A_SOLDIER, solshare), (A_SPITTER, spitshare)]
+                            shares = [(A_WORKER, wshare), (A_SCOUT, sshare), (A_SOLDIER, solshare), (A_SPITTER, spitshare), (A_RAIDER, raidshare)]
                         tot = sum(s for _, s in shares) or 1.0
                         r = random.random() * tot
                         acc = 0.0
@@ -840,6 +843,7 @@ class World:
         elif ant.type == A_SCOUT:   self._behavior_scout(ant)
         elif ant.type == A_QUEEN:   self._behavior_queen(ant)
         elif ant.type == A_SPITTER: self._behavior_spitter(ant)
+        elif ant.type == A_RAIDER:  self._behavior_raider(ant)
 
         # Track consecutive idle ticks so the agent can be shown SUSTAINED idle (truly
         # unassigned workers) rather than the transient 1-tick churn of the gather cycle
@@ -1829,6 +1833,80 @@ class World:
                 ant.state = S_IDLE
         self._dep(ant.x, ant.y, 1, 0.3)
 
+    def _behavior_raider(self, ant):
+        """Fast, fragile structure-breaker. Top priority is wrecking enemy STRUCTURES
+        (bulwarks, larders, guard posts, walls) with heavy structure damage — that's
+        how it cracks a turtle open. It strikes adjacent enemy ants only in self-defense
+        (low damage; soldiers shred raiders, so it avoids straight fights) and, with no
+        structures in reach, pushes the enemy queen like a soldier. Respects unit
+        overrides for agent control."""
+        c = self.colonies[ant.colony]
+        ov = ant.unit_override
+
+        # 1) Adjacent enemy structure → wreck it (the raider's whole point).
+        if ant.cooldown <= 0:
+            adj_st = next((st for st in self.structures
+                           if st["colony"] != ant.colony and st.get("hp", 0) > 0
+                           and abs(st["x"] - ant.x) <= 1 and abs(st["y"] - ant.y) <= 1), None)
+            if adj_st is not None:
+                ant.state = S_FIGHTING
+                self._raider_strike_struct(ant, adj_st, c)
+                self._dep(ant.x, ant.y, 1, 0.4)
+                return
+            # else self-defense: smack an adjacent enemy ant (low damage)
+            adj = self._adjacent_enemy(ant)
+            if adj is not None:
+                ant.cooldown = RAIDER_CD
+                adj.hp -= RAIDER_DMG + c.dmg_bonus
+                if adj.hp <= 0:
+                    ec = self.colonies[adj.colony]
+                    ec.push_event(f"{ANT_TYPE_NAMES[adj.type]} killed in battle!")
+                    c.push_event(f"raider killed enemy {ANT_TYPE_NAMES[adj.type]}")
+                    self._kill(adj)
+
+        # 2) Agent override: reposition toward the commanded point (still strikes above).
+        if ov:
+            cmd = ov.get("cmd")
+            if cmd != "clear" and ov.get("x") is not None:
+                tx, ty = int(ov["x"]), int(ov["y"])
+                if abs(ant.x - tx) + abs(ant.y - ty) > 1:
+                    self._move_to(ant, tx, ty, 1)
+                    ant.state = S_PATROLLING
+            self._dep(ant.x, ant.y, 1, 0.4)
+            return
+
+        # 3) Seek the nearest enemy structure to destroy.
+        target_st = self._nearest_enemy_struct(ant, 80)
+        if target_st is not None:
+            self._move_to(ant, target_st["x"], target_st["y"], 1)
+            ant.state = S_PATROLLING
+            self._dep(ant.x, ant.y, 1, 0.4)
+            return
+
+        # 4) No structures in reach → push the enemy queen like a soldier.
+        if c.enemy:
+            eq = self._nearest_enemy(ant, 12, queen_focus=True)
+            if eq is not None:
+                self._move_to(ant, eq.x, eq.y, 1)
+                ant.state = S_FIGHTING
+            else:
+                self._move_to(ant, c.enemy.nx, c.enemy.ny, 1)
+                ant.state = S_PATROLLING
+        self._dep(ant.x, ant.y, 1, 0.4)
+
+    def _raider_strike_struct(self, ant, st, c):
+        """Heavy raider hit to an enemy structure (RAIDER_STRUCT_DMG)."""
+        ant.cooldown = RAIDER_CD
+        ant.fired_at = [st["x"], st["y"]]; ant.fire_tick = self.tick
+        st["hp"] -= RAIDER_STRUCT_DMG + c.dmg_bonus
+        if st["hp"] <= 0:
+            stype = st.get("type", "structure").replace("_", " ").title()
+            ec = self.colonies[st["colony"]]
+            ec.push_event(f"★ {stype} at ({st['x']},{st['y']}) DESTROYED by raider!")
+            c.push_event(f"raider destroyed enemy {stype} at ({st['x']},{st['y']})!")
+            if st in self.structures:
+                self.structures.remove(st)
+
     def _move_to(self, ant, tx, ty, layer):
         # A* first step: routes around wall lines (re-planned every tick so
         # destroyed walls are picked up immediately). Falls back to greedy if
@@ -2165,8 +2243,8 @@ class World:
         for c in self.colonies:
             counts = [0] * NUM_ANT_TYPES
             for a in c.ants: counts[a.type] += 1
-            _sq_key = {A_WORKER: "w", A_SOLDIER: "so", A_SCOUT: "sc", A_SPITTER: "sp"}
-            sq_summary = {"w": 0, "so": 0, "sc": 0, "sp": 0, "reserved": 0, "next_t": None}
+            _sq_key = {A_WORKER: "w", A_SOLDIER: "so", A_SCOUT: "sc", A_SPITTER: "sp", A_RAIDER: "rd"}
+            sq_summary = {"w": 0, "so": 0, "sc": 0, "sp": 0, "rd": 0, "reserved": 0, "next_t": None}
             for ant_type, ticks_rem, cost in c.spawn_queue:
                 sq_summary[_sq_key.get(ant_type, "w")] += 1
                 sq_summary["reserved"] += cost

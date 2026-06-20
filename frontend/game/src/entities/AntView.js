@@ -40,17 +40,17 @@ export const TIER_SCALE = [1.0, 1.25, 1.5, 1.8];
 const ART_FACING_OFFSET = Math.PI / 2;
 
 // Type idx -> atlas subject name.
-const TYPE_NAME = ['worker', 'soldier', 'scout', 'queen', 'spitter'];
+const TYPE_NAME = ['worker', 'soldier', 'scout', 'queen', 'spitter', 'raider'];
 
 // Display size (world px) of a type at tier 0, before TIER_SCALE. Derived from
 // the Canvas BASE_SZ*TS/8 so the Pixi sprites read at parity sizes.
 //   BASE_SZ = [2.8, 3.8, 2.6, 6.0, 3.6]  ->  *TS/8  (TS=32)
-const BASE_DISPLAY = [2.8, 3.8, 2.6, 6.0, 3.6].map((b) => (b * TS) / 8 * 2.0);
+const BASE_DISPLAY = [2.8, 3.8, 2.6, 6.0, 3.6, 3.2].map((b) => (b * TS) / 8 * 2.0);
 // (x2.0: BASE_SZ was a *radius* in the Canvas; sprites use width/height.)
 
 // Placeholder body color per type (used when no atlas frame exists).
 // Spitter (idx 4) is neutral-gray so the blended team tint shows correctly.
-const PLACEHOLDER_COLOR = [0xcfcfcf, 0xe0e0e0, 0xb8b8b8, 0xf0f0f0, 0xe0e0e0];
+const PLACEHOLDER_COLOR = [0xcfcfcf, 0xe0e0e0, 0xb8b8b8, 0xf0f0f0, 0xe0e0e0, 0xe0e0e0];
 
 // State values (engine/constants.py:21), verified.
 const S = { IDLE: 0, FORAGING: 1, RETURNING: 2, EXPLORING: 3, FIGHTING: 4,
@@ -92,6 +92,13 @@ const CLIP_TABLE = {
     [S.IDLE]: 'soldier_idle',
     [S.FIGHTING]: 'soldier_attack',
     default: 'soldier_walk',
+  },
+  // Raider: reuses scout clips (fast harasser silhouette — no dedicated sprite yet).
+  // Distinguished by a rust-orange tint overlay below (see RAIDER tint).
+  raider: {
+    [S.IDLE]: 'scout_idle',
+    [S.FIGHTING]: 'scout_attack',
+    default: 'scout_walk',
   },
 };
 
@@ -267,8 +274,11 @@ export class AntView {
     // Spitter (type 4): blend team color with acid-green (55% green / 45% team)
     // so RED vs BLUE spitters remain distinguishable while still reading as a
     // distinct type (green cast). blendHex(team, green, 0.55).
+    // Raider (type 5): rust-orange cast (aggressive harasser); spitter (4): acid-green.
     const tint = entry.type === 4
       ? blendHex(tintFor(entry.colony), 0x88ee22, 0.55)
+      : entry.type === 5
+      ? blendHex(tintFor(entry.colony), 0xff8c2a, 0.5)
       : tintFor(entry.colony);
     if (tint !== this._tint && this.body && 'tint' in this.body) {
       this.body.tint = tint; this._tint = tint;

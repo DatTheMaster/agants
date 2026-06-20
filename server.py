@@ -403,9 +403,13 @@ SPAWN COSTS & TIMES:
   Each worker delivery = 30♦ to treasury. Workers carry 20♦ from each food node per trip.
   Food is RESERVED immediately when an ant is queued — not when it spawns.
   If spawn fails (refunded), you'll see "spawn failed" in events.
-LIFESPAN: worker=500t   soldier=300t   scout=200t   queen=∞   spitter=300t
+LIFESPAN: worker=500t   soldier=300t   scout=200t   queen=∞   spitter=300t   raider=280t
   Spitter (ranged, anti-mass): 70HP, ranged; deals ~16 + ~8 splash to adjacent enemies per shot, range 5, slow (speed 1). Use spawn.spitter.target_ratio to queue.
   Role: cheap counter to massed workers/scouts — fragile vs focused soldier fire.
+  Raider (structure-breaker): 90HP, 40 food; light vs ants (~13) but HEAVY vs structures
+  (~55/hit) — melts bulwarks/larders/guard posts to crack a turtle open. Fragile vs
+  soldiers (loses straight fights). Use spawn.raider.target_ratio. Counter to bulwark/
+  larder turtles; the rock-paper-scissors is soldiers > raiders > structures, spitters > soldiers.
   → SPAWN QUEUE in your state shows what is cooking + food already reserved.
   → AGING OUT SOON shows ants in final 20% of lifespan — plan replacements NOW.
 
@@ -987,7 +991,7 @@ def build_llm_prompt(colony, tick, world=None, memory=None,
 
     # Aging ants — those in final 20% of lifespan. Indexed by ant type; queen (3)
     # never ages so it stays at 0 and is skipped below.
-    _TNAME = {A_WORKER: "W", A_SOLDIER: "S", A_SCOUT: "sc", A_SPITTER: "sp"}
+    _TNAME = {A_WORKER: "W", A_SOLDIER: "S", A_SCOUT: "sc", A_SPITTER: "sp", A_RAIDER: "rd"}
     aging_counts = [0] * NUM_ANT_TYPES
     aging_min_rem = [9999] * NUM_ANT_TYPES
     for a in colony.ants:
@@ -995,7 +999,7 @@ def build_llm_prompt(colony, tick, world=None, memory=None,
             aging_counts[a.type] += 1
             aging_min_rem[a.type] = min(aging_min_rem[a.type], a.lifespan - a.age)
     aging_parts = [f"{aging_counts[t]}{_TNAME[t]} (~{aging_min_rem[t]}t left)"
-                   for t in (A_WORKER, A_SOLDIER, A_SCOUT, A_SPITTER) if aging_counts[t]]
+                   for t in (A_WORKER, A_SOLDIER, A_SCOUT, A_SPITTER, A_RAIDER) if aging_counts[t]]
     aging_line = f"AGING OUT SOON: {' · '.join(aging_parts)}" if aging_parts else ""
 
     # Convert reminder — show always; especially useful with aging ants near queen
@@ -2748,6 +2752,7 @@ class Server:
             sum(1 for a in c.ants if a.type == A_SCOUT   and a.lifespan and a.age >= int(a.lifespan * 0.80)),
             0,  # queen never ages
             sum(1 for a in c.ants if a.type == A_SPITTER and a.lifespan and a.age >= int(a.lifespan * 0.80)),
+            sum(1 for a in c.ants if a.type == A_RAIDER  and a.lifespan and a.age >= int(a.lifespan * 0.80)),
         ]
         # Advisor: contextual nudges toward neglected game levers. Agents reliably act
         # on hints that live in state; they rarely re-read tool docs mid-game.
@@ -2922,6 +2927,10 @@ class Server:
                 "firing": sum(1 for a in c.ants if a.type == A_SPITTER and a.state == S_FIGHTING),
                 "total": sum(1 for a in c.ants if a.type == A_SPITTER),
             },
+            "raiders": {
+                "raiding": sum(1 for a in c.ants if a.type == A_RAIDER and a.state in (S_FIGHTING, S_PATROLLING)),
+                "total": sum(1 for a in c.ants if a.type == A_RAIDER),
+            },
         }
         return {
             "tick": w.tick, "phase": w.phase, "colony_id": cid,
@@ -2942,10 +2951,10 @@ class Server:
             "frontline_food_eta_t": (
                 round(_frontline_food / _w_income) if _w_income > 0 else None
             ),
-            "counts": {"workers": counts[0], "soldiers": counts[1], "scouts": counts[2], "queen": counts[3], "spitters": counts[4]},
+            "counts": {"workers": counts[0], "soldiers": counts[1], "scouts": counts[2], "queen": counts[3], "spitters": counts[4], "raiders": counts[5]},
             "tiers": {"worker": c.worker_tier, "scout": c.scout_tier, "soldier": c.soldier_tier},
             "spawn_queue": sq_summary,
-            "aging_soon": {"workers": aging_soon[0], "soldiers": aging_soon[1], "scouts": aging_soon[2], "spitters": aging_soon[4]},
+            "aging_soon": {"workers": aging_soon[0], "soldiers": aging_soon[1], "scouts": aging_soon[2], "spitters": aging_soon[4], "raiders": aging_soon[5]},
             "directive": c.directive,
             "trigger_log": list(c.trigger_log)[-10:],
             "events": [list(c.events)[i] for i in range(min(20, len(c.events)))],
@@ -2980,6 +2989,7 @@ class Server:
             "units_summary": {
                 "total": len(c.ants),
                 "workers": counts[0], "soldiers": counts[1], "scouts": counts[2],
+                "spitters": counts[4], "raiders": counts[5],
                 "with_override": sum(1 for a in c.ants if a.unit_override),
                 # Sustained idle only (workers idle ≥3t) — excludes the harmless 1-tick
                 # churn of the gather cycle so this reads as truly-unassigned economy.
@@ -3192,6 +3202,8 @@ class Server:
                     "soldiers": counts_arr[A_SOLDIER],
                     "scouts":   counts_arr[A_SCOUT],
                     "queen":    counts_arr[A_QUEEN],
+                    "spitters": counts_arr[A_SPITTER],
+                    "raiders":  counts_arr[A_RAIDER],
                 },
             })
 
@@ -3579,9 +3591,9 @@ class Server:
             m._pending_strategies.append((cid, {"convert": body.get("convert", {})}))
         elif cmd_type == "cancel_spawn":
             unit_type = body.get("unit_type", "all")
-            if unit_type not in {"worker", "soldier", "scout", "spitter", "all"}:
+            if unit_type not in {"worker", "soldier", "scout", "spitter", "raider", "all"}:
                 return await self._api_cors(web.json_response(
-                    {"error": "unit_type must be 'worker', 'soldier', 'scout', 'spitter', or 'all'"}, status=400))
+                    {"error": "unit_type must be 'worker', 'soldier', 'scout', 'spitter', 'raider', or 'all'"}, status=400))
             c = m.world.colonies[cid]
             _type_map = {"worker": A_WORKER, "soldier": A_SOLDIER, "scout": A_SCOUT, "spitter": A_SPITTER}
             if unit_type == "all":

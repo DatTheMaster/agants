@@ -281,7 +281,7 @@ def get_state(colony_id: int, compact: bool = False) -> dict:
 
     Returns a comprehensive state snapshot including:
     - food, dirt, income_per_s, dirt_per_s
-    - counts: {workers, soldiers, scouts, queen}
+    - counts: {workers, soldiers, scouts, queen, spitters, raiders}
     - tiers: current upgrade level per unit type (0-3)
     - spawn_queue: pending units currently cooking + food reserved for them. NOTE: after you
       change spawn targets in the directive, expect a 15-30 tick delay before units begin
@@ -338,7 +338,7 @@ def get_units(colony_id: int, type: str = "") -> dict:
 
     Args:
         colony_id: 0 for RED, 1 for BLUE
-        type:      "worker" | "soldier" | "scout" | "queen" | "spitter". Omit (or "") for all types.
+        type:      "worker" | "soldier" | "scout" | "queen" | "spitter" | "raider". Omit (or "") for all types.
 
     Returns:
         colony_id, type (the filter applied, or null for all), count, and
@@ -356,7 +356,7 @@ def get_battle_summary(colony_id: int) -> dict:
     Returns only the fields that matter tick-to-tick:
     - tick, phase
     - food, dirt, income_per_s, food_in_transit
-    - counts: {workers, soldiers, scouts, queen}
+    - counts: {workers, soldiers, scouts, queen, spitters, raiders}
     - queen_hp, queen_alive
     - combat: soldiers_in_siege, enemy_queen_hp, queen_dps_actual, ttk_s, siege_hint
     - military_summary: {total_soldiers, fighting, patrolling, idle, healthy, wounded, avg_hp_pct}
@@ -485,6 +485,7 @@ def get_directive(colony_id: int) -> dict:
     - spawn: target ratios, min ratios, reserve_food, burst_at, per-type min/max/pause
         spawn.{type}.pause=true  — stop adding this type to the queue (save food for upgrades)
         spawn.spitter.target_ratio — queue spitters (ranged anti-mass, 70HP, ranged ~16+8 splash, range 5, fragile vs soldiers)
+        spawn.raider.target_ratio — queue raiders (structure-breaker, 90HP, 40 food; ~55 dmg vs structures, light vs ants; melts bulwarks/larders to crack turtles; fragile vs soldiers)
     - economy: upgrade_priority, auto_upgrade, priority_food, gather_dirt, upgrade_reserve
         economy.upgrade_reserve={"scout": 450}  — protect 450♦ from spawn queue for scout T1
     - military: stance, formation, rally_point, rally_release_at, auto_attack, retreat
@@ -749,11 +750,14 @@ def command_type(colony_id: int, unit_type: str, command: str,
 
     Args:
         colony_id: 0 for RED, 1 for BLUE
-        unit_type: "soldier", "worker", "scout", or "spitter"
+        unit_type: "soldier", "worker", "scout", "spitter", or "raider"
         command: "move_to", "attack_move", "attack_xy", "gather", "build", "hold", "patrol", or "clear"
             NOTE: spitters are hold-and-fire — they only act on "move_to", "hold", and
             "clear" (they auto-fire at any enemy within range 5 but never chase). Other
             commands are accepted but a spitter will just reposition + fire in range.
+            Raiders auto-seek and wreck enemy STRUCTURES; "move_to"/"hold" repositions
+            them (e.g. point them at a specific bulwark/larder line), "clear" returns
+            control. They strike adjacent ants only in self-defense.
         x, y: target coordinates (required for move_to / attack_xy / patrol / build)
         filter_state: optional — only command ants in this state.
             Valid values: "idle", "foraging", "returning", "exploring",
@@ -768,7 +772,7 @@ def command_type(colony_id: int, unit_type: str, command: str,
         Command only idle scouts to explore the south flank:
             command_type(1, "scout", "move_to", x=75, y=80, filter_state="idle")
     """
-    type_names = {"worker": "worker", "soldier": "soldier", "scout": "scout", "spitter": "spitter"}
+    type_names = {"worker": "worker", "soldier": "soldier", "scout": "scout", "spitter": "spitter", "raider": "raider"}
     if unit_type not in type_names:
         return {"error": f"unit_type must be one of: {list(type_names)}"}
     state = _get(_match_path(colony_id, f"/state/{colony_id}"))
@@ -802,7 +806,7 @@ def cancel_spawn(colony_id: int, unit_type: str = "all") -> dict:
 
     Args:
         colony_id: 0 for RED, 1 for BLUE
-        unit_type: "worker", "soldier", "scout", "spitter", or "all" (default: "all")
+        unit_type: "worker", "soldier", "scout", "spitter", "raider", or "all" (default: "all")
 
     Returns:
         {"ok": True, "cancelled": N, "food_refunded": M}
@@ -813,7 +817,7 @@ def cancel_spawn(colony_id: int, unit_type: str = "all") -> dict:
         Cancel only queued soldiers to redirect food:
             cancel_spawn(0, unit_type="soldier")
     """
-    valid = {"worker", "soldier", "scout", "spitter", "all"}
+    valid = {"worker", "soldier", "scout", "spitter", "raider", "all"}
     if unit_type not in valid:
         return {"error": f"unit_type must be one of: {sorted(valid)}"}
     return _post(_match_path(colony_id, f"/command/{colony_id}"), {"type": "cancel_spawn", "unit_type": unit_type}, headers=_auth(colony_id))
