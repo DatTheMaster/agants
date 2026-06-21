@@ -19,7 +19,7 @@ import sys, os, time, random
 sys.path.insert(0, ".")
 
 from engine.world import World
-from engine.constants import A_WORKER, A_SOLDIER, A_SCOUT, A_SPITTER, A_QUEEN
+from engine.constants import A_WORKER, A_SOLDIER, A_SCOUT, A_SPITTER, A_QUEEN, A_RAIDER
 from engine.colony import Ant
 from bot import update_bot_strategy
 
@@ -135,6 +135,89 @@ def brain_spitter_defense(world, cid):
     c.set_strategy(upd)
 
 
+def brain_raider_push(world, cid):
+    """Anti-turtle assault archetype: solid economy, then a raider-HEAVY committed
+    push (raiders clear the bulwark/larder line, soldiers exploit the breach). Used to
+    test whether RAIDERS can crack a spitter+bulwark turtle when actually committed —
+    isolating the unit's potential from the shipped bot's passivity."""
+    c = world.colonies[cid]
+    if not c.alive: return
+    workers = sum(1 for a in c.ants if a.type == A_WORKER)
+    enemy_structs = 0
+    if c.enemy:
+        enemy_structs = sum(1 for st in world.structures if st["colony"] == c.enemy.id
+                            and st.get("hp", 0) > 0)
+    if workers < 22 and world.tick < 260:
+        roles = {"worker": 0.60, "scout": 0.06, "soldier": 0.28, "spitter": 0.0, "raider": 0.06}
+    else:
+        # raider-heavy assault composition
+        roles = {"worker": 0.22, "scout": 0.03, "soldier": 0.45, "spitter": 0.0, "raider": 0.30}
+    upd = {"roles": roles, "worker_cap": 26, "defense": "aggressive"}
+    mil = c.directive["military"]
+    soldiers = sum(1 for a in c.ants if a.type == A_SOLDIER)
+    raiders = sum(1 for a in c.ants if a.type == A_RAIDER)
+    if c.enemy:
+        rx = int(c.nx + (c.enemy.nx - c.nx) * 0.40)
+        ry = int(c.ny + (c.enemy.ny - c.ny) * 0.40)
+        force = soldiers + raiders
+        if force >= 3 and not mil.get("rally_point") and not mil.get("attack_target"):
+            upd.update({"rally_point": [rx, ry], "rally_release_at": 12,
+                        "rally_mode": "normal", "siege_priority": "queen"})
+        elif mil.get("rally_point"):
+            _rp = mil["rally_point"]
+            _rx, _ry = (int(_rp[0]), int(_rp[1])) if not isinstance(_rp[0], (list, tuple)) else (int(_rp[0][0]), int(_rp[0][1]))
+            staged = sum(1 for a in c.ants if a.type in (A_SOLDIER, A_RAIDER)
+                         and abs(a.x - _rx) + abs(a.y - _ry) <= 6)
+            if staged >= 12 or (force >= 12 and world.tick > 360):
+                upd.update({"rally_point": None, "rally_release_at": None,
+                            "attack_target": [c.enemy.nx, c.enemy.ny],
+                            "siege_priority": "queen", "auto_attack": True})
+        # once attacking, STAY committed (don't oscillate back to re-mass)
+    c.set_strategy(upd)
+
+
+def brain_balanced_aggro(world, cid):
+    """Healthy-economy aggressor: keeps a ~40-worker economy AND builds a soldier+raider
+    army, pushing in committed waves (raiders dive the structures, soldiers fight). The
+    proper test of whether *good* aggression can beat a turtle — unlike the all-in
+    rush/raider_push brains that collapse economically after a failed push."""
+    c = world.colonies[cid]
+    if not c.alive: return
+    workers = sum(1 for a in c.ants if a.type == A_WORKER)
+    soldiers = sum(1 for a in c.ants if a.type == A_SOLDIER)
+    raiders = sum(1 for a in c.ants if a.type == A_RAIDER)
+    enemy_structs = 0
+    if c.enemy:
+        enemy_structs = sum(1 for st in world.structures if st["colony"] == c.enemy.id and st.get("hp", 0) > 0)
+    if workers < 24 and world.tick < 300:
+        roles = {"worker": 0.55, "scout": 0.08, "soldier": 0.30, "spitter": 0.0, "raider": 0.07}
+    else:
+        # sustain economy (worker share replaces aging workers) + heavy mixed military
+        raid = 0.24 if enemy_structs >= 1 else 0.12
+        roles = {"worker": 0.32, "scout": 0.04, "soldier": round(0.64 - raid, 2), "spitter": 0.0, "raider": raid}
+    upd = {"roles": roles, "worker_cap": 40, "defense": "aggressive"}
+    mil = c.directive["military"]
+    if c.enemy:
+        rx = int(c.nx + (c.enemy.nx - c.nx) * 0.42)
+        ry = int(c.ny + (c.enemy.ny - c.ny) * 0.42)
+        force = soldiers + raiders
+        if force >= 4 and not mil.get("rally_point") and not mil.get("attack_target"):
+            upd.update({"rally_point": [rx, ry], "rally_release_at": 14,
+                        "rally_mode": "normal", "siege_priority": "queen"})
+        elif mil.get("rally_point"):
+            _rp = mil["rally_point"]
+            _rx, _ry = (int(_rp[0]), int(_rp[1])) if not isinstance(_rp[0], (list, tuple)) else (int(_rp[0][0]), int(_rp[0][1]))
+            staged = sum(1 for a in c.ants if a.type in (A_SOLDIER, A_RAIDER)
+                         and abs(a.x - _rx) + abs(a.y - _ry) <= 6)
+            if staged >= 14 or (force >= 16 and world.tick > 400):
+                upd.update({"rally_point": None, "rally_release_at": None,
+                            "attack_target": [c.enemy.nx, c.enemy.ny],
+                            "siege_priority": "queen", "auto_attack": True})
+        elif mil.get("attack_target") and force < 4:
+            upd.update({"attack_target": None, "auto_attack": False})  # army wiped — re-mass
+    c.set_strategy(upd)
+
+
 def brain_naive_defense(world, cid):
     """Control: economy + SOLDIERS only — no spitters, no bulwarks. A 'turtle' that
     relies purely on soldier mass to hold. If rush can't beat this, the rush brain is
@@ -163,6 +246,8 @@ BRAINS = {
     "rush": brain_rush,
     "spitter_defense": brain_spitter_defense,
     "naive_defense": brain_naive_defense,
+    "raider_push": brain_raider_push,
+    "balanced_aggro": brain_balanced_aggro,
 }
 
 
