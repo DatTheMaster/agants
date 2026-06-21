@@ -181,6 +181,18 @@ The agent is a *supervisor*, not a *driver*. It sets intent and lets the simulat
 
 **Combat:** Soldiers target nearest enemy; queen focus requires `siege_priority="queen"`. Guard posts auto-attack in range. Barracks spawn soldiers at front-line positions.
 
+**Unit roster:**
+
+| Unit | Role |
+|------|------|
+| Worker | Gathers food & dirt, builds structures |
+| Soldier | Main melee fighter (HP 200, dmg 22) |
+| Scout | Fast, reveals the map, recruits |
+| Spitter | Ranged splash (range 5), hold-and-fire — anti-mass counter to a soldier rush; fragile vs focused fire |
+| Raider | **Ranged siege** (range 7, out-ranges spitters) — bombards structures & picks off spitters from outside the kill-zone; hard-countered by soldiers (armor blunts it). The counter to a spitter+bulwark turtle |
+
+The roster forms a rock-paper-scissors: **soldiers beat raiders, raiders beat the spitter/bulwark turtle, spitters (anti-mass) beat a soldier rush.**
+
 **Buildings (cost dirt):**
 
 | Structure | Cost | Effect |
@@ -189,6 +201,7 @@ The agent is a *supervisor*, not a *driver*. It sets intent and lets the simulat
 | Watchtower | 80◆ | Permanent fog-of-war reveal, r=12 |
 | Barracks | 200◆ | Front-line soldier spawner |
 | Wall | 25◆/tile | Impassable terrain |
+| Bulwark | 50◆ | Cheap spiked barricade — blocks + contact damage |
 | Larder | 150◆ | +6♦/tick passive income |
 
 **Upgrades (cost food):** 3 tiers each for worker (carry capacity), scout (vision radius), and soldier (damage/HP/splash).
