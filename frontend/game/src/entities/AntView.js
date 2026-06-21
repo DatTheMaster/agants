@@ -93,7 +93,7 @@ const CLIP_TABLE = {
     [S.FIGHTING]: 'soldier_attack',
     default: 'soldier_walk',
   },
-  // Raider: reuses scout clips (fast harasser silhouette — no dedicated sprite yet).
+  // Raider: reuses scout clips (lean ranged-siege silhouette — no dedicated sprite yet).
   // Distinguished by a rust-orange tint overlay below (see RAIDER tint).
   raider: {
     [S.IDLE]: 'scout_idle',

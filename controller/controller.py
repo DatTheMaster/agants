@@ -335,9 +335,10 @@ UNITS  worker (gather food/dirt, build), soldier (HP200 dmg22), scout (vision/in
  spitter (ranged anti-mass: HP70, range5, ~16dmg+~8 splash to adjacent, slow, fragile vs focused
  soldier fire — counter to massed soldiers/workers; hold-and-fire, never chases. Reposition it with
  send_command unit_command move_to/hold; it auto-fires at anything within range 5),
- raider (structure-breaker: HP90, 40 food, ~13 vs ants but ~55 vs STRUCTURES — melts bulwarks/larders/
- guard posts to crack a turtle open; fragile vs soldiers. Auto-seeks enemy structures; move_to/hold to
- aim it at a wall/larder line. RPS: soldiers>raiders>structures, spitters>soldiers), queen (HP900, never command).
+ raider (RANGED SIEGE: HP65, 45 food, range7 — OUT-RANGES spitters5. Hold-and-fire, no chase. ~95 vs
+ STRUCTURES + ~16 vs spitters from safety, but only ~6 vs soldiers (armor). THE counter to a spitter+
+ bulwark turtle; hard-countered by soldiers. Auto-seeks structures; move_to/hold to aim it. RPS:
+ spitters>soldiers>raiders>turtle), queen (HP900, never command).
 SPAWN COST/TIME  worker 25food/20t, soldier 50food/35t, scout 35food/25t, spitter 45food/30t. Queue max 10. Food reserved at queue time.
 BUILDINGS (cost dirt)  larder 150 (+6food/t passive income), watchtower 80 (vision), guard_post 150 (turret),
  barracks 200, wall 25, bulwark 50 (cheap spiked barricade: HP250, blocks + chips adjacent enemies ~4/t).

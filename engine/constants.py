@@ -73,17 +73,23 @@ SPITTER_SPAWN_COST = 45
 SPITTER_SPAWN_TIME = 30
 SPITTER_LIFESPAN   = 300
 
-# Raider — fast, fragile structure-breaker / harasser. Melts bulwarks & larders
-# (heavy structure damage) to crack a turtle open, but dies fast to soldiers. The
-# anti-turtle leg of the rock-paper-scissors: soldiers > raiders > structures,
-# spitters > soldiers. Weak vs ants on purpose so it isn't a general-purpose unit.
-RAIDER_HP          = 90
-RAIDER_DMG         = 13    # vs ants (low — fragile harasser, loses straight fights)
-RAIDER_STRUCT_DMG  = 55    # vs structures (melts bulwark 250 in ~5 hits, larder in ~3)
-RAIDER_CD          = 3     # fast attack cadence
-RAIDER_VISION      = 6
-RAIDER_SPAWN_COST  = 40
-RAIDER_SPAWN_TIME  = 25
+# Raider — RANGED SIEGE unit. Bombards enemy STRUCTURES (and the queen) from range 7,
+# OUT-RANGING the spitter's 5 — so it can sit outside a turtle's kill-zone and dismantle
+# the bulwark/larder line that walls off a fortified defense. Hold-and-fire (does NOT
+# kite), slow, and fragile, so a soldier squad that closes the gap kills it. The
+# anti-turtle leg of the rock-paper-scissors: soldiers > raiders > (structures + spitters,
+# out-ranged) ... and spitters > soldiers. Weak vs ants so it isn't a general-purpose unit.
+RAIDER_HP          = 65    # fragile
+RAIDER_DMG         = 16    # vs spitters/workers/scouts/queen — shreds out-ranged spitters (cracks turtle)
+RAIDER_DMG_SOLDIER = 6     # vs SOLDIERS — soldier armor blunts the siege weapon, so a soldier-heavy
+                           # army counters raiders (keeps RPS: soldiers > raiders). This anti-emplacement
+                           # profile (strong vs spitters/structures, weak vs soldiers) is the whole design.
+RAIDER_STRUCT_DMG  = 95    # vs structures, per shot — demolishes the bulwark/larder wall fast
+RAIDER_RANGE       = 7     # out-ranges spitter (5) — sieges + kills spitters from outside their range
+RAIDER_CD          = 5     # ranged attack cadence
+RAIDER_VISION      = 7
+RAIDER_SPAWN_COST  = 45
+RAIDER_SPAWN_TIME  = 28
 RAIDER_LIFESPAN    = 280
 
 # ── Soldier engagement ranges ───────────────────────────────────────────────────

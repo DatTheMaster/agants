@@ -485,7 +485,7 @@ def get_directive(colony_id: int) -> dict:
     - spawn: target ratios, min ratios, reserve_food, burst_at, per-type min/max/pause
         spawn.{type}.pause=true  — stop adding this type to the queue (save food for upgrades)
         spawn.spitter.target_ratio — queue spitters (ranged anti-mass, 70HP, ranged ~16+8 splash, range 5, fragile vs soldiers)
-        spawn.raider.target_ratio — queue raiders (structure-breaker, 90HP, 40 food; ~55 dmg vs structures, light vs ants; melts bulwarks/larders to crack turtles; fragile vs soldiers)
+        spawn.raider.target_ratio — queue raiders (RANGED SIEGE, 65HP, 45 food, range 7 > spitter's 5; ~95 vs structures + ~16 vs spitters from outside their range, but only ~6 vs soldiers; THE counter to a spitter+bulwark turtle, hard-countered by soldiers)
     - economy: upgrade_priority, auto_upgrade, priority_food, gather_dirt, upgrade_reserve
         economy.upgrade_reserve={"scout": 450}  — protect 450♦ from spawn queue for scout T1
     - military: stance, formation, rally_point, rally_release_at, auto_attack, retreat
@@ -755,9 +755,10 @@ def command_type(colony_id: int, unit_type: str, command: str,
             NOTE: spitters are hold-and-fire — they only act on "move_to", "hold", and
             "clear" (they auto-fire at any enemy within range 5 but never chase). Other
             commands are accepted but a spitter will just reposition + fire in range.
-            Raiders auto-seek and wreck enemy STRUCTURES; "move_to"/"hold" repositions
-            them (e.g. point them at a specific bulwark/larder line), "clear" returns
-            control. They strike adjacent ants only in self-defense.
+            Raiders are RANGED SIEGE (range 7, hold-and-fire): they auto-seek and bombard
+            enemy STRUCTURES (and pick off spitters) from outside the kill-zone; "move_to"/
+            "hold" repositions them (e.g. aim them at a bulwark/larder line), "clear" returns
+            control. They never chase/kite and are weak vs soldiers.
         x, y: target coordinates (required for move_to / attack_xy / patrol / build)
         filter_state: optional — only command ants in this state.
             Valid values: "idle", "foraging", "returning", "exploring",

@@ -406,10 +406,12 @@ SPAWN COSTS & TIMES:
 LIFESPAN: worker=500t   soldier=300t   scout=200t   queen=∞   spitter=300t   raider=280t
   Spitter (ranged, anti-mass): 70HP, ranged; deals ~16 + ~8 splash to adjacent enemies per shot, range 5, slow (speed 1). Use spawn.spitter.target_ratio to queue.
   Role: cheap counter to massed workers/scouts — fragile vs focused soldier fire.
-  Raider (structure-breaker): 90HP, 40 food; light vs ants (~13) but HEAVY vs structures
-  (~55/hit) — melts bulwarks/larders/guard posts to crack a turtle open. Fragile vs
-  soldiers (loses straight fights). Use spawn.raider.target_ratio. Counter to bulwark/
-  larder turtles; the rock-paper-scissors is soldiers > raiders > structures, spitters > soldiers.
+  Raider (RANGED SIEGE): 65HP, 45 food, range 7 (OUT-RANGES spitters at 5). Hold-and-fire,
+  does NOT chase/kite. Anti-emplacement: HEAVY vs structures (~95/hit, demolishes bulwarks/
+  larders) and strong vs spitters (~16, picks them off from outside their range) — but soldier
+  armor blunts it (~6 vs soldiers), so a soldier army hard-counters raiders. Use
+  spawn.raider.target_ratio. THE counter to a spitter+bulwark turtle. Rock-paper-scissors:
+  spitters > soldiers > raiders > spitters/structures(turtle).
   → SPAWN QUEUE in your state shows what is cooking + food already reserved.
   → AGING OUT SOON shows ants in final 20% of lifespan — plan replacements NOW.
 

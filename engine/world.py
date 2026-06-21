@@ -35,7 +35,7 @@ from engine.constants import (
     STALEMATE_TIMEOUT,
     SPITTER_RANGE, SPITTER_DMG, SPITTER_CD, SPLASH_RADIUS, SPLASH_FALLOFF,
     BULWARK_COST, BULWARK_HP, BULWARK_MAX, BULWARK_CONTACT_DMG,
-    RAIDER_DMG, RAIDER_STRUCT_DMG, RAIDER_CD,
+    RAIDER_DMG, RAIDER_DMG_SOLDIER, RAIDER_STRUCT_DMG, RAIDER_CD, RAIDER_RANGE,
 )
 from engine.colony import Ant, Colony, DirectiveEngine, _apply_upgrade_effects
 
@@ -1834,78 +1834,93 @@ class World:
         self._dep(ant.x, ant.y, 1, 0.3)
 
     def _behavior_raider(self, ant):
-        """Fast, fragile structure-breaker. Top priority is wrecking enemy STRUCTURES
-        (bulwarks, larders, guard posts, walls) with heavy structure damage — that's
-        how it cracks a turtle open. It strikes adjacent enemy ants only in self-defense
-        (low damage; soldiers shred raiders, so it avoids straight fights) and, with no
-        structures in reach, pushes the enemy queen like a soldier. Respects unit
-        overrides for agent control."""
+        """Ranged SIEGE unit. Bombards the nearest enemy STRUCTURE within RAIDER_RANGE
+        (Chebyshev) — out-ranging spitters (5), so it dismantles a turtle's bulwark/larder
+        wall from outside the kill-zone. With no structure in range it fires on the nearest
+        enemy ant/queen in range instead. Hold-and-fire: it does NOT chase or kite — when
+        nothing is in range it advances toward the nearest enemy structure (or the enemy
+        nest) to bring a target into range, then holds and fires. Fragile + slow, so a
+        soldier squad that closes the gap kills it (RPS: soldiers > raiders)."""
         c = self.colonies[ant.colony]
+        if ant.cooldown > 0:
+            ant.cooldown -= 1
         ov = ant.unit_override
 
-        # 1) Adjacent enemy structure → wreck it (the raider's whole point).
-        if ant.cooldown <= 0:
-            adj_st = next((st for st in self.structures
-                           if st["colony"] != ant.colony and st.get("hp", 0) > 0
-                           and abs(st["x"] - ant.x) <= 1 and abs(st["y"] - ant.y) <= 1), None)
-            if adj_st is not None:
-                ant.state = S_FIGHTING
-                self._raider_strike_struct(ant, adj_st, c)
-                self._dep(ant.x, ant.y, 1, 0.4)
-                return
-            # else self-defense: smack an adjacent enemy ant (low damage)
-            adj = self._adjacent_enemy(ant)
-            if adj is not None:
-                ant.cooldown = RAIDER_CD
-                adj.hp -= RAIDER_DMG + c.dmg_bonus
-                if adj.hp <= 0:
-                    ec = self.colonies[adj.colony]
-                    ec.push_event(f"{ANT_TYPE_NAMES[adj.type]} killed in battle!")
-                    c.push_event(f"raider killed enemy {ANT_TYPE_NAMES[adj.type]}")
-                    self._kill(adj)
-
-        # 2) Agent override: reposition toward the commanded point (still strikes above).
+        # Agent override: reposition (move_to/hold/etc.) — still fires below if in range.
         if ov:
             cmd = ov.get("cmd")
-            if cmd != "clear" and ov.get("x") is not None:
+            if cmd in ("move_to", "attack_move", "attack_xy", "hold", "patrol") and ov.get("x") is not None:
                 tx, ty = int(ov["x"]), int(ov["y"])
-                if abs(ant.x - tx) + abs(ant.y - ty) > 1:
+                stop = 2 if cmd == "hold" else 1
+                if abs(ant.x - tx) + abs(ant.y - ty) > stop:
                     self._move_to(ant, tx, ty, 1)
                     ant.state = S_PATROLLING
+
+        # 1) Preferred target: nearest enemy STRUCTURE within range — bombard it.
+        best_st, best_sd = None, RAIDER_RANGE + 1
+        for st in self.structures:
+            if st["colony"] == ant.colony or st.get("hp", 0) <= 0:
+                continue
+            d = max(abs(st["x"] - ant.x), abs(st["y"] - ant.y))
+            if d < best_sd:
+                best_sd = d; best_st = st
+        if best_st is not None and best_sd <= RAIDER_RANGE:
+            ant.state = S_FIGHTING
+            if ant.cooldown <= 0:
+                ant.cooldown = RAIDER_CD
+                ant.fired_at = [best_st["x"], best_st["y"]]; ant.fire_tick = self.tick
+                best_st["hp"] -= RAIDER_STRUCT_DMG + c.dmg_bonus
+                if best_st["hp"] <= 0:
+                    stype = best_st.get("type", "structure").replace("_", " ").title()
+                    ec = self.colonies[best_st["colony"]]
+                    ec.push_event(f"★ {stype} at ({best_st['x']},{best_st['y']}) DESTROYED by raider!")
+                    c.push_event(f"raider destroyed enemy {stype}!")
+                    if best_st in self.structures:
+                        self.structures.remove(best_st)
             self._dep(ant.x, ant.y, 1, 0.4)
             return
 
-        # 3) Seek the nearest enemy structure to destroy.
-        target_st = self._nearest_enemy_struct(ant, 80)
-        if target_st is not None:
-            self._move_to(ant, target_st["x"], target_st["y"], 1)
+        # 2) No structure in range — fire on the nearest enemy ant/queen in range.
+        target, best_d = None, RAIDER_RANGE + 1
+        for ec in self.colonies:
+            if ec.id == ant.colony:
+                continue
+            for e in ec.ants:
+                d = max(abs(e.x - ant.x), abs(e.y - ant.y))
+                if d < best_d:
+                    best_d = d; target = e
+        if target is not None and best_d <= RAIDER_RANGE:
+            ant.state = S_FIGHTING
+            if ant.cooldown <= 0:
+                ant.cooldown = RAIDER_CD
+                ant.fired_at = [target.x, target.y]; ant.fire_tick = self.tick
+                # Soldier armor shrugs off the raider's anti-structure weapon — so a
+                # soldier army hard-counters raiders, while spitters (out-ranged) get picked off.
+                dmg = (RAIDER_DMG_SOLDIER if target.type == A_SOLDIER else RAIDER_DMG) + c.dmg_bonus
+                old_hp = int(target.hp)
+                target.hp -= dmg
+                if target.type == A_QUEEN:
+                    c.queen_dmg_dealt_tick += dmg
+                    ec2 = self.colonies[target.colony]
+                    ec2.push_notification("queen_under_attack",
+                                          {"hp": max(0, int(target.hp)), "old_hp": old_hp, "dmg": dmg}, tick=self.tick)
+                if target.hp <= 0:
+                    self._kill(target)
+            self._dep(ant.x, ant.y, 1, 0.4)
+            return
+
+        # 3) Nothing in range. Hold under override; otherwise advance to bring the nearest
+        # enemy structure (or the enemy nest) into siege range — never kites away.
+        if ov:
+            self._dep(ant.x, ant.y, 1, 0.3)
+            return
+        if best_st is not None:
+            self._move_to(ant, best_st["x"], best_st["y"], 1)
             ant.state = S_PATROLLING
-            self._dep(ant.x, ant.y, 1, 0.4)
-            return
-
-        # 4) No structures in reach → push the enemy queen like a soldier.
-        if c.enemy:
-            eq = self._nearest_enemy(ant, 12, queen_focus=True)
-            if eq is not None:
-                self._move_to(ant, eq.x, eq.y, 1)
-                ant.state = S_FIGHTING
-            else:
-                self._move_to(ant, c.enemy.nx, c.enemy.ny, 1)
-                ant.state = S_PATROLLING
+        elif c.enemy:
+            self._move_to(ant, c.enemy.nx, c.enemy.ny, 1)
+            ant.state = S_PATROLLING
         self._dep(ant.x, ant.y, 1, 0.4)
-
-    def _raider_strike_struct(self, ant, st, c):
-        """Heavy raider hit to an enemy structure (RAIDER_STRUCT_DMG)."""
-        ant.cooldown = RAIDER_CD
-        ant.fired_at = [st["x"], st["y"]]; ant.fire_tick = self.tick
-        st["hp"] -= RAIDER_STRUCT_DMG + c.dmg_bonus
-        if st["hp"] <= 0:
-            stype = st.get("type", "structure").replace("_", " ").title()
-            ec = self.colonies[st["colony"]]
-            ec.push_event(f"★ {stype} at ({st['x']},{st['y']}) DESTROYED by raider!")
-            c.push_event(f"raider destroyed enemy {stype} at ({st['x']},{st['y']})!")
-            if st in self.structures:
-                self.structures.remove(st)
 
     def _move_to(self, ant, tx, ty, layer):
         # A* first step: routes around wall lines (re-planned every tick so

@@ -143,9 +143,12 @@ def update_bot_strategy(world, colony_id):
         enemy_structs = sum(1 for st in world.structures
                             if st["colony"] == c.enemy.id and st.get("hp", 0) > 0
                             and st.get("type") in ("bulwark", "larder", "guard_post", "wall"))
-    if enemy_structs >= 2 and defense in ("aggressive", "balanced") and roles.get("soldier", 0) > 0.30:
-        raid = min(0.16, 0.04 * enemy_structs)
-        take = min(raid, roles["soldier"] - 0.25)
+    if enemy_structs >= 1 and defense in ("aggressive", "balanced") and roles.get("soldier", 0) > 0.30:
+        # Raiders are RANGED siege — they out-range the spitter wall and demolish the
+        # bulwark/larder line, so lean into them against a fortified enemy. Keep a soldier
+        # majority though (soldiers screen the fragile raiders and hard-counter enemy soldiers).
+        raid = min(0.24, 0.06 * enemy_structs)
+        take = min(raid, roles["soldier"] - 0.28)
         if take > 0:
             roles = dict(roles)
             roles["soldier"] -= take

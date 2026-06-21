@@ -813,7 +813,7 @@ canvas { display: block; }
           <div class="lgnd-row"><span class="ico-scout"></span> Scout — fast, reveals map</div>
           <div class="lgnd-row"><span class="ico-queen"></span> Queen — nest, spawns ants</div>
           <div class="lgnd-row"><span class="ico-spitter"></span> Spitter — ranged acid attack</div>
-          <div class="lgnd-row"><span class="ico-raider"></span> Raider — fast; wrecks structures</div>
+          <div class="lgnd-row"><span class="ico-raider"></span> Raider — ranged siege; wrecks structures &amp; spitters</div>
         </div>
         <div class="lgnd-section">
           <div class="lgnd-title">Buildings</div>
@@ -1823,7 +1823,7 @@ function drawSpitterShape(ctx, sz, r, g, b, tier) {
 }
 
 function drawRaiderShape(ctx, sz, r, g, b, tier) {
-  // Reuse the lean scout silhouette (fast harasser) — distinguished by the
+  // Reuse the lean scout silhouette (ranged-siege unit) — distinguished by the
   // rust-orange RAIDER_RGB tint supplied by the caller.
   drawScoutShape(ctx, sz, r, g, b, tier);
 }
