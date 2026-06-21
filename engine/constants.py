@@ -16,9 +16,9 @@ TERRITORY_DECAY = 60   # ticks without ant presence before tile reverts to neutr
 T_DIRT, T_LEAF, T_WATER, T_ROCK, T_NEST = range(5)
 
 # ── Ant types / states ─────────────────────────────────────────────────────────
-A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER = range(5)
-NUM_ANT_TYPES = 5
-ANT_TYPE_NAMES = ["worker", "soldier", "scout", "queen", "spitter"]
+A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER, A_RAIDER = range(6)
+NUM_ANT_TYPES = 6
+ANT_TYPE_NAMES = ["worker", "soldier", "scout", "queen", "spitter", "raider"]
 
 S_IDLE, S_FORAGING, S_RETURNING, S_EXPLORING, S_FIGHTING, S_PATROLLING, S_RECRUITED, S_BUILDING = range(8)
 
@@ -44,10 +44,10 @@ FOOD_CONTESTED_MIN_DIST  = 28
 FOOD_REGROW_CONTESTED    = 20.0
 FOOD_REGROW_APPROACH     = 0.5
 
-STALEMATE_TIMEOUT = 7200   # 2 hours — effectively never fires
+STALEMATE_TIMEOUT = 1800   # 30 min (wall-clock) — match is decided by score, draw if tied
 
 # ── Corpses ────────────────────────────────────────────────────────────────────
-CORPSE_FOOD  = [12, 25, 17, 0, 20]   # worker / soldier / scout / queen / spitter
+CORPSE_FOOD  = [12, 25, 17, 0, 20, 16]   # worker / soldier / scout / queen / spitter / raider
 CORPSE_DECAY = 0.4
 
 # ── Queen combat ───────────────────────────────────────────────────────────────
@@ -72,6 +72,25 @@ SPLASH_FALLOFF = 0.5    # splash damage = round(dmg * SPLASH_FALLOFF)
 SPITTER_SPAWN_COST = 45
 SPITTER_SPAWN_TIME = 30
 SPITTER_LIFESPAN   = 300
+
+# Raider — RANGED SIEGE unit. Bombards enemy STRUCTURES (and the queen) from range 7,
+# OUT-RANGING the spitter's 5 — so it can sit outside a turtle's kill-zone and dismantle
+# the bulwark/larder line that walls off a fortified defense. Hold-and-fire (does NOT
+# kite), slow, and fragile, so a soldier squad that closes the gap kills it. The
+# anti-turtle leg of the rock-paper-scissors: soldiers > raiders > (structures + spitters,
+# out-ranged) ... and spitters > soldiers. Weak vs ants so it isn't a general-purpose unit.
+RAIDER_HP          = 65    # fragile
+RAIDER_DMG         = 16    # vs spitters/workers/scouts/queen — shreds out-ranged spitters (cracks turtle)
+RAIDER_DMG_SOLDIER = 6     # vs SOLDIERS — soldier armor blunts the siege weapon, so a soldier-heavy
+                           # army counters raiders (keeps RPS: soldiers > raiders). This anti-emplacement
+                           # profile (strong vs spitters/structures, weak vs soldiers) is the whole design.
+RAIDER_STRUCT_DMG  = 95    # vs structures, per shot — demolishes the bulwark/larder wall fast
+RAIDER_RANGE       = 7     # out-ranges spitter (5) — sieges + kills spitters from outside their range
+RAIDER_CD          = 5     # ranged attack cadence
+RAIDER_VISION      = 7
+RAIDER_SPAWN_COST  = 45
+RAIDER_SPAWN_TIME  = 28
+RAIDER_LIFESPAN    = 280
 
 # ── Soldier engagement ranges ───────────────────────────────────────────────────
 # How far a soldier will break formation to chase an enemy, by intent. A large

@@ -2,9 +2,9 @@
 of a colony's situation and the effect of its own orders. Instrument, not coach: facts
 only, never prescriptions. See docs/superpowers/specs/2026-06-18-agent-situation-report-design.md
 """
-from engine.constants import A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER, NUM_ANT_TYPES
+from engine.constants import A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER, A_RAIDER, NUM_ANT_TYPES
 
-UNIT_VALUE = {A_WORKER: 5, A_SOLDIER: 20, A_SCOUT: 8, A_SPITTER: 15}
+UNIT_VALUE = {A_WORKER: 5, A_SOLDIER: 20, A_SCOUT: 8, A_SPITTER: 15, A_RAIDER: 14}
 ADVANCE_EPS = 3        # tiles of net COM movement over the window below which an attack is "no_effect"
 
 
@@ -60,7 +60,7 @@ def _orders(colony, world):
     if total > 0:
         spawn = colony.directive.get("spawn", {})
         parts, drift = [], False
-        for name, idx in (("worker", A_WORKER), ("soldier", A_SOLDIER), ("scout", A_SCOUT), ("spitter", A_SPITTER)):
+        for name, idx in (("worker", A_WORKER), ("soldier", A_SOLDIER), ("scout", A_SCOUT), ("spitter", A_SPITTER), ("raider", A_RAIDER)):
             tgt = spawn.get(name, {}).get("target_ratio")
             if tgt is None:
                 continue
@@ -161,6 +161,7 @@ def _field(colony, world):
             "scouts":   sum(1 for a in seen_enemies if a.type == A_SCOUT),
             "workers":  sum(1 for a in seen_enemies if a.type == A_WORKER),
             "spitters": sum(1 for a in seen_enemies if a.type == A_SPITTER),
+            "raiders":  sum(1 for a in seen_enemies if a.type == A_RAIDER),
         }
         enemy_army = {"seen": True, "size": len(seen_enemies), "pos": [round(cx), round(cy)],
                       "composition": composition, "seen_tick": world.tick, "age_ticks": 0}

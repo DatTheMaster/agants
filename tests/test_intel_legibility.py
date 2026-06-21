@@ -29,7 +29,7 @@ def test_enemy_army_has_composition_when_seen():
     assert ea["seen"] is True, ea
     assert "composition" in ea, "enemy_army missing composition"
     comp = ea["composition"]
-    assert set(comp) == {"soldiers", "scouts", "workers", "spitters"}, comp
+    assert set(comp) == {"soldiers", "scouts", "workers", "spitters", "raiders"}, comp
     assert comp["soldiers"] >= 1 and comp["scouts"] >= 1, comp
 
 

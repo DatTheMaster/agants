@@ -4,8 +4,9 @@ import engine.constants as K
 def test_spitter_type_id():
     assert K.A_QUEEN == 3, "queen index must not move"
     assert K.A_SPITTER == 4
-    assert K.NUM_ANT_TYPES == 5
-    assert K.ANT_TYPE_NAMES == ["worker", "soldier", "scout", "queen", "spitter"]
+    assert K.A_RAIDER == 5
+    assert K.NUM_ANT_TYPES == 6
+    assert K.ANT_TYPE_NAMES == ["worker", "soldier", "scout", "queen", "spitter", "raider"]
 
 def test_spitter_and_bulwark_stats_exist():
     for name in ("SPITTER_HP", "SPITTER_DMG", "SPITTER_RANGE", "SPITTER_CD",

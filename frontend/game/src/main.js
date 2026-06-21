@@ -13,6 +13,7 @@ import { NodeViews } from './entities/NodeView.js';
 import { ViewPool } from './entities/ViewPool.js';
 import { Effects } from './fx/Effects.js';
 import { Hud } from './ui/Hud.js';
+import { IntentOverlay } from './entities/IntentOverlay.js';
 import { Loop } from './render/Loop.js';
 
 export async function main() {
@@ -54,6 +55,9 @@ export async function main() {
 
   const camera = new Camera(stage.world, stageEl, app);
   camera.attachInput();
+
+  // Live intent overlay: rally/attack markers drawn on the map from the directive.
+  const intentOverlay = new IntentOverlay(stage.world);
 
   // In-world UI (selection ring, hover tooltip, minimap). DOM #panel HUD is kept.
   // store is constructed below; Hud only reads it per frame so the order is fine.
@@ -170,6 +174,7 @@ export async function main() {
     onReset: () => {
       store.reset(); antViews.reset(); antPool.clear();
       nodeViews.reset(); nodePool.clear(); effects.reset(); hud.reset();
+      intentOverlay.reset();
     },
     onTick: (snap) => {
       store.applyTick(snap, performance.now());
@@ -193,6 +198,7 @@ export async function main() {
     nodeViews.refreshPulse(dt);
     antViews.sync(store, t);
     effects.update(dt);
+    intentOverlay.update(store, dt);
     hud.update();
   });
 

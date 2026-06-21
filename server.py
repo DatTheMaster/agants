@@ -403,9 +403,15 @@ SPAWN COSTS & TIMES:
   Each worker delivery = 30♦ to treasury. Workers carry 20♦ from each food node per trip.
   Food is RESERVED immediately when an ant is queued — not when it spawns.
   If spawn fails (refunded), you'll see "spawn failed" in events.
-LIFESPAN: worker=500t   soldier=300t   scout=200t   queen=∞   spitter=300t
+LIFESPAN: worker=500t   soldier=300t   scout=200t   queen=∞   spitter=300t   raider=280t
   Spitter (ranged, anti-mass): 70HP, ranged; deals ~16 + ~8 splash to adjacent enemies per shot, range 5, slow (speed 1). Use spawn.spitter.target_ratio to queue.
   Role: cheap counter to massed workers/scouts — fragile vs focused soldier fire.
+  Raider (RANGED SIEGE): 65HP, 45 food, range 7 (OUT-RANGES spitters at 5). Hold-and-fire,
+  does NOT chase/kite. Anti-emplacement: HEAVY vs structures (~95/hit, demolishes bulwarks/
+  larders) and strong vs spitters (~16, picks them off from outside their range) — but soldier
+  armor blunts it (~6 vs soldiers), so a soldier army hard-counters raiders. Use
+  spawn.raider.target_ratio. THE counter to a spitter+bulwark turtle. Rock-paper-scissors:
+  spitters > soldiers > raiders > spitters/structures(turtle).
   → SPAWN QUEUE in your state shows what is cooking + food already reserved.
   → AGING OUT SOON shows ants in final 20% of lifespan — plan replacements NOW.
 
@@ -672,6 +678,31 @@ def _trim_memory(mem):
         oldest = next(iter(mem))
         del mem[oldest]
     return mem
+
+def _summarize_strategy(strategy):
+    """Compact human-readable summary of an LLM directive patch for the spectator feed.
+    e.g. {'roles': {...}, 'attack_target': [x,y]} -> 'soldiers↑ 55% · attack (14,50)'."""
+    if not strategy or not isinstance(strategy, dict):
+        return ""
+    parts = []
+    roles = strategy.get("roles") or (strategy.get("spawn") if isinstance(strategy.get("spawn"), dict) else None)
+    if isinstance(roles, dict):
+        sol = roles.get("soldier"); spit = roles.get("spitter")
+        if isinstance(sol, (int, float)):  parts.append(f"{int(round(sol*100))}% soldier")
+        if isinstance(spit, (int, float)) and spit: parts.append(f"{int(round(spit*100))}% spitter")
+    if strategy.get("defense"):     parts.append(str(strategy["defense"]))
+    at = strategy.get("attack_target")
+    if isinstance(at, (list, tuple)) and len(at) == 2:
+        parts.append(f"attack ({int(at[0])},{int(at[1])})")
+    rp = strategy.get("rally_point")
+    if isinstance(rp, (list, tuple)) and len(rp) == 2:
+        parts.append(f"rally ({int(rp[0])},{int(rp[1])})")
+    if strategy.get("retreat"):     parts.append("retreat")
+    if strategy.get("build"):
+        b = strategy["build"]
+        parts.append(f"build {b.get('type','?')}" if isinstance(b, dict) else "build")
+    if strategy.get("buy_upgrade"): parts.append(f"upgrade {strategy['buy_upgrade']}")
+    return " · ".join(parts)
 
 def apply_memory_update(current, update):
     """Merge an LLM memory update dict into current memory. Null values delete keys."""
@@ -962,7 +993,7 @@ def build_llm_prompt(colony, tick, world=None, memory=None,
 
     # Aging ants — those in final 20% of lifespan. Indexed by ant type; queen (3)
     # never ages so it stays at 0 and is skipped below.
-    _TNAME = {A_WORKER: "W", A_SOLDIER: "S", A_SCOUT: "sc", A_SPITTER: "sp"}
+    _TNAME = {A_WORKER: "W", A_SOLDIER: "S", A_SCOUT: "sc", A_SPITTER: "sp", A_RAIDER: "rd"}
     aging_counts = [0] * NUM_ANT_TYPES
     aging_min_rem = [9999] * NUM_ANT_TYPES
     for a in colony.ants:
@@ -970,7 +1001,7 @@ def build_llm_prompt(colony, tick, world=None, memory=None,
             aging_counts[a.type] += 1
             aging_min_rem[a.type] = min(aging_min_rem[a.type], a.lifespan - a.age)
     aging_parts = [f"{aging_counts[t]}{_TNAME[t]} (~{aging_min_rem[t]}t left)"
-                   for t in (A_WORKER, A_SOLDIER, A_SCOUT, A_SPITTER) if aging_counts[t]]
+                   for t in (A_WORKER, A_SOLDIER, A_SCOUT, A_SPITTER, A_RAIDER) if aging_counts[t]]
     aging_line = f"AGING OUT SOON: {' · '.join(aging_parts)}" if aging_parts else ""
 
     # Convert reminder — show always; especially useful with aging ants near queen
@@ -2160,6 +2191,18 @@ class Server:
                 m._pending_strategies.append((colony_id, strategy))
                 colony.push_event(f"[LLM] strategy → {json.dumps(strategy)}")
 
+            # Surface the LLM's thinking to spectators: a trimmed rationale + a compact
+            # strategy summary land on the append-only feed (the reasoning panel/ticker).
+            _rtext = (reasoning or "").strip().replace("\n", " ")
+            if _rtext:
+                if len(_rtext) > 240:
+                    _rtext = _rtext[:237] + "…"
+                colony.push_decision(_rtext, tick=world.tick, source="llm",
+                                     data={"strategy": _summarize_strategy(strategy)})
+            elif strategy:
+                colony.push_decision(_summarize_strategy(strategy) or "directive updated",
+                                     tick=world.tick, source="llm")
+
             if memory_update:
                 m.llm_memories[colony_id] = _trim_memory(
                     apply_memory_update(m.llm_memories[colony_id], memory_update)
@@ -2711,6 +2754,7 @@ class Server:
             sum(1 for a in c.ants if a.type == A_SCOUT   and a.lifespan and a.age >= int(a.lifespan * 0.80)),
             0,  # queen never ages
             sum(1 for a in c.ants if a.type == A_SPITTER and a.lifespan and a.age >= int(a.lifespan * 0.80)),
+            sum(1 for a in c.ants if a.type == A_RAIDER  and a.lifespan and a.age >= int(a.lifespan * 0.80)),
         ]
         # Advisor: contextual nudges toward neglected game levers. Agents reliably act
         # on hints that live in state; they rarely re-read tool docs mid-game.
@@ -2885,6 +2929,10 @@ class Server:
                 "firing": sum(1 for a in c.ants if a.type == A_SPITTER and a.state == S_FIGHTING),
                 "total": sum(1 for a in c.ants if a.type == A_SPITTER),
             },
+            "raiders": {
+                "raiding": sum(1 for a in c.ants if a.type == A_RAIDER and a.state in (S_FIGHTING, S_PATROLLING)),
+                "total": sum(1 for a in c.ants if a.type == A_RAIDER),
+            },
         }
         return {
             "tick": w.tick, "phase": w.phase, "colony_id": cid,
@@ -2905,10 +2953,10 @@ class Server:
             "frontline_food_eta_t": (
                 round(_frontline_food / _w_income) if _w_income > 0 else None
             ),
-            "counts": {"workers": counts[0], "soldiers": counts[1], "scouts": counts[2], "queen": counts[3], "spitters": counts[4]},
+            "counts": {"workers": counts[0], "soldiers": counts[1], "scouts": counts[2], "queen": counts[3], "spitters": counts[4], "raiders": counts[5]},
             "tiers": {"worker": c.worker_tier, "scout": c.scout_tier, "soldier": c.soldier_tier},
             "spawn_queue": sq_summary,
-            "aging_soon": {"workers": aging_soon[0], "soldiers": aging_soon[1], "scouts": aging_soon[2], "spitters": aging_soon[4]},
+            "aging_soon": {"workers": aging_soon[0], "soldiers": aging_soon[1], "scouts": aging_soon[2], "spitters": aging_soon[4], "raiders": aging_soon[5]},
             "directive": c.directive,
             "trigger_log": list(c.trigger_log)[-10:],
             "events": [list(c.events)[i] for i in range(min(20, len(c.events)))],
@@ -2943,6 +2991,7 @@ class Server:
             "units_summary": {
                 "total": len(c.ants),
                 "workers": counts[0], "soldiers": counts[1], "scouts": counts[2],
+                "spitters": counts[4], "raiders": counts[5],
                 "with_override": sum(1 for a in c.ants if a.unit_override),
                 # Sustained idle only (workers idle ≥3t) — excludes the harmless 1-tick
                 # churn of the gather cycle so this reads as truly-unassigned economy.
@@ -3155,6 +3204,8 @@ class Server:
                     "soldiers": counts_arr[A_SOLDIER],
                     "scouts":   counts_arr[A_SCOUT],
                     "queen":    counts_arr[A_QUEEN],
+                    "spitters": counts_arr[A_SPITTER],
+                    "raiders":  counts_arr[A_RAIDER],
                 },
             })
 
@@ -3208,6 +3259,30 @@ class Server:
         colony = m.world.colonies[cid]
         notifs = list(colony.notifications) if peek else colony.pop_notifications()
         return await self._api_cors(web.json_response({"notifications": notifs, "count": len(notifs), "consumed": not peek}))
+
+    async def api_feed(self, req):
+        """Spectator feed: append-only stream of events + AI decisions for a colony.
+        Non-destructive (unlike /api/notifications). ?since=<seq> returns only newer
+        items; ?colony or path colony_id selects RED(0)/BLUE(1). This powers the
+        spectator event ticker + AI reasoning panel."""
+        m = self._get_match_or_default(req)
+        if m is None:
+            return await self._api_cors(web.json_response({"error": "match not found"}, status=404))
+        cid = int(req.match_info["colony_id"])
+        if cid not in (0, 1):
+            return await self._api_cors(web.json_response({"error": "invalid colony_id"}, status=400))
+        if not m.world.colonies:
+            return await self._api_cors(web.json_response({"feed": [], "last_seq": 0}))
+        try:
+            since = int(req.rel_url.query.get("since", "0"))
+        except ValueError:
+            since = 0
+        colony = m.world.colonies[cid]
+        items, last_seq = colony.feed_since(since)
+        return await self._api_cors(web.json_response({
+            "feed": items, "last_seq": last_seq,
+            "last_decision": getattr(colony, "last_decision", None),
+        }))
 
     async def api_intel_map(self, req):
         m = self._get_match_or_default(req)
@@ -3518,9 +3593,9 @@ class Server:
             m._pending_strategies.append((cid, {"convert": body.get("convert", {})}))
         elif cmd_type == "cancel_spawn":
             unit_type = body.get("unit_type", "all")
-            if unit_type not in {"worker", "soldier", "scout", "spitter", "all"}:
+            if unit_type not in {"worker", "soldier", "scout", "spitter", "raider", "all"}:
                 return await self._api_cors(web.json_response(
-                    {"error": "unit_type must be 'worker', 'soldier', 'scout', 'spitter', or 'all'"}, status=400))
+                    {"error": "unit_type must be 'worker', 'soldier', 'scout', 'spitter', 'raider', or 'all'"}, status=400))
             c = m.world.colonies[cid]
             _type_map = {"worker": A_WORKER, "soldier": A_SOLDIER, "scout": A_SCOUT, "spitter": A_SPITTER}
             if unit_type == "all":
@@ -3973,6 +4048,7 @@ class Server:
         router.add_get("/api/match_status",                  self.api_match_status)
         router.add_post("/api/forfeit",                      self.api_forfeit)
         router.add_get("/api/notifications/{colony_id}",     self.api_notifications)
+        router.add_get("/api/feed/{colony_id}",              self.api_feed)
         router.add_get("/api/intel_map/{colony_id}",         self.api_intel_map)
         router.add_get("/api/directive/{colony_id}",         self.api_directive)
         router.add_post("/api/directive/{colony_id}",        self.api_patch_directive)
@@ -3993,6 +4069,7 @@ class Server:
         router.add_get("/api/matches/{match_id}/battle_summary/{colony_id}",   self.api_battle_summary)
         router.add_get("/api/matches/{match_id}/match_status",                  self.api_match_status)
         router.add_get("/api/matches/{match_id}/notifications/{colony_id}",     self.api_notifications)
+        router.add_get("/api/matches/{match_id}/feed/{colony_id}",              self.api_feed)
         router.add_get("/api/matches/{match_id}/intel_map/{colony_id}",         self.api_intel_map)
         router.add_get("/api/matches/{match_id}/directive/{colony_id}",         self.api_directive)
         router.add_post("/api/matches/{match_id}/directive/{colony_id}",        self.api_patch_directive)

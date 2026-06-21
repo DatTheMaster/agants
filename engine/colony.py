@@ -3,12 +3,13 @@ from collections import deque
 
 from engine.constants import (
     MAP_W, MAP_H,
-    A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER,
+    A_WORKER, A_SOLDIER, A_SCOUT, A_QUEEN, A_SPITTER, A_RAIDER,
     NUM_ANT_TYPES, ANT_TYPE_NAMES,
     S_IDLE, S_FORAGING, S_RETURNING, S_EXPLORING,
     S_FIGHTING, S_PATROLLING, S_RECRUITED, S_BUILDING,
-    WORKER_HP, SOLDIER_HP, SCOUT_HP, QUEEN_HP, SPITTER_HP,
+    WORKER_HP, SOLDIER_HP, SCOUT_HP, QUEEN_HP, SPITTER_HP, RAIDER_HP,
     SPITTER_LIFESPAN, SPITTER_SPAWN_COST, SPITTER_SPAWN_TIME,
+    RAIDER_LIFESPAN, RAIDER_SPAWN_COST, RAIDER_SPAWN_TIME,
     SOLDIER_CD, MAX_EVENTS, DIRT_CAP, DIRT_DELIVER, FOOD_DELIVER,
     WORKER_UPGRADE_COSTS, SCOUT_UPGRADE_COSTS, SOLDIER_UPGRADE_COSTS,
     UPGRADE_LABELS, UPGRADE_EFFECTS,
@@ -37,7 +38,7 @@ def _apply_upgrade_effects(c, unit_type, tier):
 
 class Ant:
     _id = 0
-    LIFESPAN = {0: 500, 1: 300, 2: 200, 3: None, 4: SPITTER_LIFESPAN}   # worker, soldier, scout, queen, spitter
+    LIFESPAN = {0: 500, 1: 300, 2: 200, 3: None, 4: SPITTER_LIFESPAN, 5: RAIDER_LIFESPAN}   # worker, soldier, scout, queen, spitter, raider
 
     def __init__(self, x, y, colony, ant_type, born_tick=0):
         Ant._id += 1
@@ -51,7 +52,7 @@ class Ant:
         self.carrying_type = "food"   # "food" | "dirt"
         self.hp = {A_WORKER: WORKER_HP, A_SOLDIER: SOLDIER_HP,
                    A_SCOUT: SCOUT_HP, A_QUEEN: QUEEN_HP,
-                   A_SPITTER: SPITTER_HP}[ant_type]
+                   A_SPITTER: SPITTER_HP, A_RAIDER: RAIDER_HP}[ant_type]
         self.max_hp = self.hp
         self.prev_x = x
         self.prev_y = y
@@ -109,6 +110,7 @@ class Ant:
             "scout":   {"expansion": [1, 1], "revisit_pct": 0.12},
             "queen":   {},
             "spitter": {"expansion": [1, 1]},
+            "raider":  {"expansion": [1, 1]},
         }[type_name]
         cfg = {**defaults}
         cfg.update(colony_directive.get("unit_types", {}).get(type_name, {}))
@@ -133,6 +135,7 @@ class DirectiveEngine:
                 "soldier": {"target_ratio": 0.35, "min_ratio": 0.0, "min": 2,  "max": 30, "pause": False, "birth_config": {}},
                 "scout":   {"target_ratio": 0.20, "min_ratio": 0.0, "min": 2,  "max": 12, "pause": False, "birth_config": {}},
                 "spitter": {"target_ratio": 0.0,  "min_ratio": 0.0, "min": 0,  "max": 20, "pause": False, "birth_config": {}},
+                "raider":  {"target_ratio": 0.0,  "min_ratio": 0.0, "min": 0,  "max": 20, "pause": False, "birth_config": {}},
                 "reserve_food": 50,
                 "burst_at": 800,
             },
@@ -385,6 +388,13 @@ class Colony:
         self.dirt_per_s = 0.0
         self.events = deque(maxlen=MAX_EVENTS)
         self.notifications = deque(maxlen=50)
+        # Append-only spectator feed: events + AI decisions, never consumed (unlike
+        # notifications, which agents pop). Each item has a monotonic seq so the
+        # frontend can poll /api/feed?since=<seq> for only what's new. This is the
+        # data source for the spectator ticker + reasoning panel.
+        self.feed = deque(maxlen=120)
+        self._feed_seq = 0
+        self.last_decision = None   # most recent AI rationale, for the "thinking" panel
         self.enemy_scouted_tick   = -9999
         self.enemy_scouted_counts = [0] * NUM_ANT_TYPES
         self.fog_explored = bytearray(MAP_W * MAP_H)
@@ -424,8 +434,8 @@ class Colony:
         self.enemy = None
 
         self.spawn_queue = []
-        self.SPAWN_COST = {A_WORKER: 25, A_SOLDIER: 50, A_SCOUT: 35, A_SPITTER: SPITTER_SPAWN_COST}
-        self.SPAWN_TIME = {A_WORKER: 20, A_SOLDIER: 35, A_SCOUT: 25, A_SPITTER: SPITTER_SPAWN_TIME}
+        self.SPAWN_COST = {A_WORKER: 25, A_SOLDIER: 50, A_SCOUT: 35, A_SPITTER: SPITTER_SPAWN_COST, A_RAIDER: RAIDER_SPAWN_COST}
+        self.SPAWN_TIME = {A_WORKER: 20, A_SOLDIER: 35, A_SCOUT: 25, A_SPITTER: SPITTER_SPAWN_TIME, A_RAIDER: RAIDER_SPAWN_TIME}
         self.MAX_SPAWN_QUEUE = 10
 
         self.emergency_command = None
@@ -523,13 +533,16 @@ class Colony:
         c.soldier_fast_cd  = d.get("soldier_fast_cd", SOLDIER_CD)
         c.soldier_splash   = d.get("soldier_splash", False)
         c.spawn_queue = d.get("spawn_queue", [])
-        c.SPAWN_COST = {A_WORKER: 25, A_SOLDIER: 50, A_SCOUT: 35, A_SPITTER: SPITTER_SPAWN_COST}
-        c.SPAWN_TIME = {A_WORKER: 20, A_SOLDIER: 35, A_SCOUT: 25, A_SPITTER: SPITTER_SPAWN_TIME}
+        c.SPAWN_COST = {A_WORKER: 25, A_SOLDIER: 50, A_SCOUT: 35, A_SPITTER: SPITTER_SPAWN_COST, A_RAIDER: RAIDER_SPAWN_COST}
+        c.SPAWN_TIME = {A_WORKER: 20, A_SOLDIER: 35, A_SCOUT: 25, A_SPITTER: SPITTER_SPAWN_TIME, A_RAIDER: RAIDER_SPAWN_TIME}
         c.MAX_SPAWN_QUEUE = 10
         c.emergency_command = d.get("emergency_command")
         c.emergency_ticks_left = d.get("emergency_ticks_left", 0)
         c.events = deque(maxlen=MAX_EVENTS)
         c.notifications = deque(maxlen=50)
+        c.feed = deque(maxlen=120)
+        c._feed_seq = 0
+        c.last_decision = None
         c.trigger_log = deque(maxlen=30)
         c.log_queue = []
         c.food_prev = c.food
@@ -548,6 +561,25 @@ class Colony:
 
     def push_notification(self, notif_type: str, data: dict = None, tick: int = 0):
         self.notifications.append({"type": notif_type, "tick": tick, "data": data or {}})
+        self._push_feed("event", notif_type, data or {}, tick)
+
+    def _push_feed(self, kind: str, ftype: str, data: dict, tick: int):
+        """Append to the append-only spectator feed (events + decisions)."""
+        self._feed_seq += 1
+        self.feed.append({"seq": self._feed_seq, "kind": kind, "type": ftype,
+                          "tick": tick, "data": data or {}})
+
+    def push_decision(self, text: str, tick: int = 0, source: str = "bot", data: dict = None):
+        """Record a one-line AI rationale for the spectator reasoning panel + ticker.
+        `source` is 'bot' or 'llm'. `data` may carry a directive diff or summary."""
+        entry = {"source": source, "text": text, **(data or {})}
+        self.last_decision = {"tick": tick, **entry}
+        self._push_feed("decision", "decision", entry, tick)
+
+    def feed_since(self, seq: int = 0):
+        """Spectator-facing: feed items with seq > `seq`, plus the current max seq."""
+        items = [it for it in self.feed if it["seq"] > seq]
+        return items, self._feed_seq
 
     def pop_notifications(self):
         notifs = list(self.notifications)
@@ -589,7 +621,7 @@ class Colony:
                 self.convert_queue.append({"id": int(cv["id"]), "to": str(cv["to"])})
         if "cancel_spawn" in s:
             unit_str = s["cancel_spawn"]
-            _type_map = {"worker": A_WORKER, "soldier": A_SOLDIER, "scout": A_SCOUT, "spitter": A_SPITTER}
+            _type_map = {"worker": A_WORKER, "soldier": A_SOLDIER, "scout": A_SCOUT, "spitter": A_SPITTER, "raider": A_RAIDER}
             if unit_str == "all":
                 for _, _, cost in self.spawn_queue:
                     self.food += cost
@@ -617,6 +649,9 @@ class Colony:
                 if "spitter" not in d["spawn"]:
                     d["spawn"]["spitter"] = {"target_ratio": 0.0, "min_ratio": 0.0, "min": 0, "max": 20, "pause": False, "birth_config": {}}
                 d["spawn"]["spitter"]["target_ratio"] = r.get("spitter", 0.0) / total
+                if "raider" not in d["spawn"]:
+                    d["spawn"]["raider"] = {"target_ratio": 0.0, "min_ratio": 0.0, "min": 0, "max": 20, "pause": False, "birth_config": {}}
+                d["spawn"]["raider"]["target_ratio"] = r.get("raider", 0.0) / total
         if "expansion" in s:
             v = list(s["expansion"]) if isinstance(s["expansion"], tuple) else list(s["expansion"])
             d["unit_types"]["scout"]["expansion"]   = v

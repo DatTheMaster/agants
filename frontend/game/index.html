@@ -249,6 +249,7 @@ canvas { display: block; }
 .ico-scout   { width:6px;height:6px;background:#888;border-radius:50%;display:inline-block;flex-shrink:0; }
 .ico-queen   { width:11px;height:11px;background:#cfcfcf;border-radius:50%;box-shadow:0 0 3px #999;display:inline-block;flex-shrink:0; }
 .ico-spitter { width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #9a9a9a;display:inline-block;flex-shrink:0; }
+.ico-raider { width:8px;height:8px;background:#d9863a;display:inline-block;flex-shrink:0;transform:rotate(45deg); }
 .ico-bulwark { width:16px;height:14px;border:1.5px solid #2a4010;background:#6a7a50;display:inline-flex;align-items:flex-end;justify-content:center;border-radius:2px;flex-shrink:0;overflow:hidden;position:relative; }
 .ico-bulwark::before { content:''; position:absolute;top:-2px;left:2px;border-left:2px solid transparent;border-right:2px solid transparent;border-bottom:5px solid #88cc44;display:inline-block; }
 .ico-team    { width:9px;height:9px;border-radius:2px;display:inline-block;flex-shrink:0; }
@@ -256,6 +257,103 @@ canvas { display: block; }
 .ico-dot     { width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0; }
 
 /* ── Chat ── */
+/* ── AI Activity: floating, collapsible broadcast overlay (bottom-left of map) ── */
+#ai-overlay {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 460px;
+  max-width: calc(100% - 24px);
+  z-index: 30;
+  background: rgba(10, 10, 12, 0.86);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  border: 1px solid #242424;
+  border-radius: 7px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: inherit;
+}
+#ai-overlay-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid #1c1c1c;
+  background: rgba(255, 255, 255, 0.02);
+}
+#ai-overlay-head:hover { background: rgba(255, 255, 255, 0.05); }
+#ai-overlay-head .ai-ov-title {
+  font-size: 11px; letter-spacing: 1.5px; color: #7a7a7a; font-weight: 600;
+}
+#ai-overlay-arrow { font-size: 11px; color: #666; }
+#ai-overlay.collapsed #ai-overlay-body { display: none; }
+#ai-overlay.collapsed #ai-overlay-head { border-bottom: none; }
+#ai-overlay.collapsed #ai-overlay-arrow { transform: rotate(-90deg); }
+#ai-overlay-body {
+  display: flex;
+  flex-direction: column;
+  max-height: min(46vh, 420px);
+  overflow: hidden;
+}
+#ai-thinking {
+  flex-shrink: 0;
+  padding: 7px 12px;
+  border-bottom: 1px solid #1a1a1a;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.015);
+}
+.think-card {
+  font-size: 12px;
+  line-height: 1.4;
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+}
+.think-card .think-team { flex-shrink: 0; font-weight: 700; }
+.think-card.red  .think-team { color: #e66; }
+.think-card.blue .think-team { color: #88f; }
+.think-card .think-text { color: #bbb; }
+#ai-ticker {
+  flex: 1;
+  min-height: 80px;
+  overflow-y: auto;
+  padding: 4px 12px 6px;
+  display: flex;
+  flex-direction: column-reverse;
+}
+#ai-ticker::-webkit-scrollbar { width: 5px; }
+#ai-ticker::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+.tick-row {
+  font-size: 11.5px;
+  padding: 3px 0;
+  border-bottom: 1px solid #141414;
+  line-height: 1.45;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.tick-row .tick-ico { flex-shrink: 0; }
+.tick-row .tick-t { color: #444; flex-shrink: 0; font-variant-numeric: tabular-nums; min-width: 34px; }
+.tick-row .tick-msg { color: inherit; }
+.tick-row.red  { color: #b88; }
+.tick-row.blue { color: #88b; }
+.tick-row.decision { font-style: italic; }
+.tick-row.decision.red  { color: #e88; }
+.tick-row.decision.blue { color: #9ad; }
+.tick-row.crit { color: #f55 !important; font-weight: 600; }
+
+@media (max-width: 720px) {
+  #ai-overlay { width: calc(100% - 24px); }
+}
+
 #chat-section {
   flex: 1;
   overflow: hidden;
@@ -583,6 +681,21 @@ canvas { display: block; }
     </div>
 
     <div id="status">connecting…</div>
+
+    <!-- AI Activity: collapsible broadcast overlay (what each brain is thinking + live ticker) -->
+    <div id="ai-overlay" class="expanded">
+      <div id="ai-overlay-head" onclick="toggleAiOverlay()" title="Collapse / expand AI activity">
+        <span class="ai-ov-title">🧠 AI ACTIVITY</span>
+        <span id="ai-overlay-arrow">▾</span>
+      </div>
+      <div id="ai-overlay-body">
+        <div id="ai-thinking">
+          <div class="think-card red"><span class="think-team">🔴 RED</span><span class="think-text" id="r-think">—</span></div>
+          <div class="think-card blue"><span class="think-team">🔵 BLUE</span><span class="think-text" id="b-think">—</span></div>
+        </div>
+        <div id="ai-ticker"></div>
+      </div>
+    </div>
   </div>
 
   <div id="panel">
@@ -612,6 +725,7 @@ canvas { display: block; }
         <div class="r"><span class="k">Soldiers</span><span class="v" id="r-s">—</span></div>
         <div class="r"><span class="k">Scouts</span><span class="v" id="r-c">—</span></div>
         <div class="r"><span class="k">Spitters</span><span class="v" id="r-spit">—</span></div>
+        <div class="r"><span class="k">Raiders</span><span class="v" id="r-raid">—</span></div>
         <div class="r"><span class="k">Queen HP</span><span class="v" id="r-qhp">—</span></div>
       </div>
       <div class="queue-line" id="r-queue">QUEUE: —</div>
@@ -653,6 +767,7 @@ canvas { display: block; }
         <div class="r"><span class="k">Soldiers</span><span class="v" id="b-s">—</span></div>
         <div class="r"><span class="k">Scouts</span><span class="v" id="b-c">—</span></div>
         <div class="r"><span class="k">Spitters</span><span class="v" id="b-spit">—</span></div>
+        <div class="r"><span class="k">Raiders</span><span class="v" id="b-raid">—</span></div>
         <div class="r"><span class="k">Queen HP</span><span class="v" id="b-qhp">—</span></div>
       </div>
       <div class="queue-line" id="b-queue">QUEUE: —</div>
@@ -698,6 +813,7 @@ canvas { display: block; }
           <div class="lgnd-row"><span class="ico-scout"></span> Scout — fast, reveals map</div>
           <div class="lgnd-row"><span class="ico-queen"></span> Queen — nest, spawns ants</div>
           <div class="lgnd-row"><span class="ico-spitter"></span> Spitter — ranged acid attack</div>
+          <div class="lgnd-row"><span class="ico-raider"></span> Raider — ranged siege; wrecks structures &amp; spitters</div>
         </div>
         <div class="lgnd-section">
           <div class="lgnd-title">Buildings</div>
@@ -1505,7 +1621,7 @@ function onTick(d) {
     colTiers[ci] = d.colonies[ci][11] || [0, 0, 0];
   }
 
-  const TYPE_TIER_IDX = [0, 2, 1, 0, 2]; // worker→[0], soldier→[2], scout→[1], queen special-cased, spitter→[2] (soldier slot)
+  const TYPE_TIER_IDX = [0, 2, 1, 0, 2, 1]; // worker→[0], soldier→[2], scout→[1], queen special-cased, spitter→[2], raider→[1] (scout slot)
   const nextIds = new Set();
 
   for (const a of d.ants) {
@@ -1530,7 +1646,7 @@ function onTick(d) {
   }
 
   const TIER_SCALE = [1.0, 1.25, 1.5, 1.8];
-  const BASE_SZ    = [2.8, 3.8, 2.6, 6.0];
+  const BASE_SZ    = [2.8, 3.8, 2.6, 6.0, 3.6, 3.2];
   for (const [id, ant] of antMap) {
     if (!nextIds.has(id)) {
       const sz = BASE_SZ[ant.type] * TS / 8 * (TIER_SCALE[ant.tier] || 1);
@@ -1547,7 +1663,7 @@ function onTick(d) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const TIER_SCALE = [1.0, 1.25, 1.5, 1.8];
-const BASE_SZ    = [2.8, 3.8, 2.6, 6.0, 3.6];   // worker, soldier, scout, queen, spitter
+const BASE_SZ    = [2.8, 3.8, 2.6, 6.0, 3.6, 3.2];   // worker, soldier, scout, queen, spitter, raider
 
 const CACHE_SIZE = 80, CACHE_HALF = CACHE_SIZE / 2;
 let antCache = {};
@@ -1706,6 +1822,12 @@ function drawSpitterShape(ctx, sz, r, g, b, tier) {
   drawSoldierShape(ctx, sz, r, g, b, tier);
 }
 
+function drawRaiderShape(ctx, sz, r, g, b, tier) {
+  // Reuse the lean scout silhouette (ranged-siege unit) — distinguished by the
+  // rust-orange RAIDER_RGB tint supplied by the caller.
+  drawScoutShape(ctx, sz, r, g, b, tier);
+}
+
 function drawQueenShape(sz, r, g, b, now) {
   const pulse = 0.5 + 0.5 * Math.sin(now / 520);
   const grd = X.createRadialGradient(0, 0, sz*0.3, 0, 0, sz*2.8);
@@ -1736,23 +1858,25 @@ function drawQueenShape(sz, r, g, b, now) {
   X.shadowBlur = 0;
 }
 
-// Acid-green RGB used for spitter tinting (blended with colony color).
+// Acid-green RGB for spitter tinting; rust-orange for raider (blended w/ colony color).
 const SPITTER_RGB = [136, 204, 68];
+const RAIDER_RGB  = [255, 140, 42];
 
 function initAntCache() {
   antCache = {};
-  // Types 0-2: worker/soldier/scout (colony-tinted). Type 4: spitter (acid-green).
-  const typeList = [0, 1, 2, 4];
+  // Types 0-2: worker/soldier/scout (colony-tinted). 4: spitter (green). 5: raider (orange).
+  const typeList = [0, 1, 2, 4, 5];
   for (const type of typeList) {
     for (let col = 0; col < 2; col++) {
-      // Spitter: blend colony color 50% + acid-green 50% so RED vs BLUE remains
-      // clearly distinguishable while still reading green-tinged as a distinct type.
+      // Spitter/raider: blend colony color 50% + accent 50% so RED vs BLUE remains
+      // clearly distinguishable while still reading as a distinct type.
       let r, g, b;
-      if (type === 4) {
+      if (type === 4 || type === 5) {
         const [cr, cg, cb] = CCOL[col];
-        r = Math.round(cr * 0.50 + SPITTER_RGB[0] * 0.50);
-        g = Math.round(cg * 0.50 + SPITTER_RGB[1] * 0.50);
-        b = Math.round(cb * 0.50 + SPITTER_RGB[2] * 0.50);
+        const acc = type === 4 ? SPITTER_RGB : RAIDER_RGB;
+        r = Math.round(cr * 0.50 + acc[0] * 0.50);
+        g = Math.round(cg * 0.50 + acc[1] * 0.50);
+        b = Math.round(cb * 0.50 + acc[2] * 0.50);
       } else {
         [r, g, b] = CCOL[col];
       }
@@ -1774,6 +1898,7 @@ function initAntCache() {
         if      (type === 0) drawWorkerShape(ctx, sz, r, g, b, tier);
         else if (type === 1) drawSoldierShape(ctx, sz, r, g, b, tier);
         else if (type === 4) drawSpitterShape(ctx, sz, r, g, b, tier);
+        else if (type === 5) drawRaiderShape(ctx, sz, r, g, b, tier);
         else                 drawScoutShape(ctx, sz, r, g, b, tier);
         antCache[`${type}-${col}-${tier}`] = cv;
       }
@@ -2273,11 +2398,23 @@ function render() {
 const FOOD_MAX = 1500;
 
 function updateSidebar(now) {
-  // Clock — anchored to real elapsed seconds from server
+  // Clock — real elapsed seconds from server, shown against the draw deadline.
+  // The match auto-resolves by score at draw_timeout_s (see STALEMATE_TIMEOUT);
+  // surface that as a countdown so a dragging game has a visible finish line.
   const secs = Math.floor(state.elapsed_s ?? state.tick / 10);
-  const m = Math.floor(secs / 60).toString().padStart(2, "0");
-  const s = (secs % 60).toString().padStart(2, "0");
-  document.getElementById("clock").textContent = `${m}:${s}`;
+  const _fmt = (t) => `${Math.floor(t / 60).toString().padStart(2, "0")}:${(t % 60).toString().padStart(2, "0")}`;
+  const clockEl = document.getElementById("clock");
+  const cap = state.draw_timeout_s || 0;
+  if (cap > 0) {
+    const left = Math.max(0, cap - secs);
+    clockEl.textContent = `${_fmt(secs)} / ${_fmt(cap)}`;
+    // Amber under 5 min to the draw, red under 1 min.
+    clockEl.style.color = left <= 60 ? "#e55" : left <= 300 ? "#d90" : "#444";
+    clockEl.title = `Match auto-resolves by score in ${_fmt(left)} (draw if tied)`;
+  } else {
+    clockEl.textContent = _fmt(secs);
+    clockEl.style.color = "#444";
+  }
 
   const ids = [
     { prefix: "r", col: state.colonies[0], cls: "red" },
@@ -2286,7 +2423,7 @@ function updateSidebar(now) {
 
   for (const { prefix, col } of ids) {
     const ct = col[4];
-    const total = ct[0] + ct[1] + ct[2] + ct[3] + (ct[4] || 0);
+    const total = ct[0] + ct[1] + ct[2] + ct[3] + (ct[4] || 0) + (ct[5] || 0);
     const food  = col[3];
     const strat = col[5];
     const foodCollected = col[8] || 0;
@@ -2314,6 +2451,8 @@ function updateSidebar(now) {
     document.getElementById(`${prefix}-s`).textContent = ct[1];
     document.getElementById(`${prefix}-c`).textContent = ct[2];
     document.getElementById(`${prefix}-spit`).textContent = ct[4] || 0;
+    const raidEl = document.getElementById(`${prefix}-raid`);
+    if (raidEl) raidEl.textContent = ct[5] || 0;
     document.getElementById(`${prefix}-qhp`).textContent = queen ? qhp : "DEAD";
     document.getElementById(`${prefix}-fed`).textContent  = foodCollected;
     document.getElementById(`${prefix}-lost`).textContent = antsLost;
@@ -2382,12 +2521,14 @@ function updateSidebar(now) {
     const sqData = col[13];
     const sqEl = document.getElementById(`${prefix}-queue`);
     if (sqData !== undefined) {
-      const total = (sqData.w || 0) + (sqData.so || 0) + (sqData.sc || 0);
+      const total = (sqData.w || 0) + (sqData.so || 0) + (sqData.sc || 0) + (sqData.sp || 0) + (sqData.rd || 0);
       if (total > 0) {
         const parts = [];
         if (sqData.w)  parts.push(`${sqData.w}W`);
         if (sqData.so) parts.push(`${sqData.so}S`);
         if (sqData.sc) parts.push(`${sqData.sc}sc`);
+        if (sqData.sp) parts.push(`${sqData.sp}sp`);
+        if (sqData.rd) parts.push(`${sqData.rd}rd`);
         const nextStr = sqData.next_t != null ? ` · next ${sqData.next_t}t` : "";
         sqEl.textContent = `QUEUE: ${parts.join(" ")}${nextStr} · ${sqData.reserved}♦`;
         sqEl.className = "queue-line active";
@@ -2851,6 +2992,143 @@ function cyclePov() {
 
 // ─── Window resize ───────────────────────────────────────────────────────────
 window.addEventListener("resize", resizeCanvas);
+
+// ─── AI Activity feed: poll the append-only spectator feed (events + reasoning) ──
+// Surfaces what each colony's brain is doing and WHY — the single biggest spectator
+// gap was that the AI's decisions were invisible. The /api/feed endpoint is
+// non-destructive and seq-paged, so this never competes with the agents' own
+// (destructive) notification consumption.
+const _feedSeq = [0, 0];
+let _feedItems = [];
+const _lastDecision = [null, null];
+
+function _apiBase() { return (window.AGANTS_BACKEND || "").replace(/\/$/, ""); }
+function _feedUrl(cid) {
+  const matchId = new URLSearchParams(location.search).get("match");
+  const p = matchId
+    ? `/api/matches/${encodeURIComponent(matchId)}/feed/${cid}`
+    : `/api/feed/${cid}`;
+  return `${_apiBase()}${p}?since=${_feedSeq[cid]}`;
+}
+
+const _EVENT_ICON = {
+  enemy_contact: "⚔️", queen_under_attack: "👑", structure_complete: "🏗️",
+  upgrade_complete: "⬆️", rally_released: "🚀", rally_stalled: "⏳",
+  workers_idle: "💤", priority_food_cleared: "🍃", worker_explored: "🔭",
+  alert: "❗", game_over: "🏁", food_depleted: "🥀",
+};
+const _CRIT_EVENTS = new Set(["queen_under_attack", "game_over"]);
+
+function _fmtEvent(type, data) {
+  data = data || {};
+  switch (type) {
+    case "enemy_contact":
+      return `enemy contact — ${data.soldiers ?? data.total ?? "?"} soldiers @ (${data.cx},${data.cy})`;
+    case "queen_under_attack":
+      return `QUEEN HIT −${data.dmg} → ${data.hp} HP`;
+    case "structure_complete":
+      return `${data.type || "structure"} built @ (${data.x},${data.y})`;
+    case "upgrade_complete":
+      return `${data.unit || "?"} → T${data.tier} (${data.label || ""})`.trim();
+    case "rally_released":
+      return `wave released${data.count != null ? ` — ${data.count} soldiers` : ""}`;
+    case "rally_stalled":
+      return "rally stalled — wave not growing";
+    case "workers_idle":
+      return `${data.count ?? "some"} workers idle`;
+    case "priority_food_cleared":
+      return "priority food cleared";
+    case "alert":
+      return data.msg || data.label || "alert";
+    case "game_over":
+      return `game over — ${data.winner != null ? (data.winner === 0 ? "RED" : data.winner === 1 ? "BLUE" : data.winner) + " wins" : "ended"}`;
+    default:
+      return (type || "event").replace(/_/g, " ");
+  }
+}
+
+function renderAiFeed() {
+  for (let cid = 0; cid < 2; cid++) {
+    const el = document.getElementById(cid === 0 ? "r-think" : "b-think");
+    if (el) {
+      const d = _lastDecision[cid];
+      el.textContent = d && d.text ? d.text : "—";
+      el.title = d && d.text ? d.text : "";
+    }
+  }
+  const box = document.getElementById("ai-ticker");
+  if (!box) return;
+  // newest first (column-reverse flips to bottom); show last ~50
+  const rows = _feedItems.slice(-50);
+  let html = "";
+  for (const it of rows) {
+    const colCls = it.colony === 0 ? "red" : "blue";
+    const isDec = it.kind === "decision";
+    const data = it.data || {};
+    let ico, text, crit = false;
+    if (isDec) {
+      ico = data.source === "llm" ? "💭" : "🧠";
+      text = data.text || data.strategy || "decision";
+    } else {
+      ico = _EVENT_ICON[it.type] || "•";
+      text = _fmtEvent(it.type, data);
+      crit = _CRIT_EVENTS.has(it.type);
+    }
+    const cls = ["tick-row", colCls, isDec ? "decision" : "", crit ? "crit" : ""].join(" ").trim();
+    html += `<div class="${cls}"><span class="tick-ico">${ico}</span>`
+          + `<span class="tick-t">t${it.tick}</span>`
+          + `<span class="tick-msg">${_escapeHtml(text)}</span></div>`;
+  }
+  box.innerHTML = html;
+}
+
+function _escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function toggleAiOverlay() {
+  const el = document.getElementById("ai-overlay");
+  if (!el) return;
+  const collapsed = el.classList.toggle("collapsed");
+  el.classList.toggle("expanded", !collapsed);
+  try { localStorage.setItem("agants_ai_overlay_collapsed", collapsed ? "1" : "0"); } catch (e) {}
+}
+// Restore collapsed state from last visit.
+(function initAiOverlay() {
+  try {
+    if (localStorage.getItem("agants_ai_overlay_collapsed") === "1") {
+      const el = document.getElementById("ai-overlay");
+      if (el) { el.classList.add("collapsed"); el.classList.remove("expanded"); }
+    }
+  } catch (e) {}
+})();
+
+async function pollAiFeed() {
+  for (let cid = 0; cid < 2; cid++) {
+    try {
+      const r = await fetch(_feedUrl(cid), { cache: "no-store" });
+      if (!r.ok) continue;
+      const j = await r.json();
+      // Detect a server-side seq reset (new match / restart) and re-sync from 0.
+      if (typeof j.last_seq === "number" && j.last_seq < _feedSeq[cid]) {
+        _feedSeq[cid] = 0;
+        _feedItems = _feedItems.filter(it => it.colony !== cid);
+      }
+      if (Array.isArray(j.feed) && j.feed.length) {
+        for (const it of j.feed) { it.colony = cid; _feedItems.push(it); }
+      }
+      if (typeof j.last_seq === "number") _feedSeq[cid] = j.last_seq;
+      if (j.last_decision) _lastDecision[cid] = j.last_decision;
+    } catch (e) { /* network blip — keep last state */ }
+  }
+  // Order by tick so RED/BLUE interleave chronologically; cap memory.
+  _feedItems.sort((a, b) => (a.tick - b.tick) || (a.seq - b.seq));
+  if (_feedItems.length > 120) _feedItems = _feedItems.slice(-120);
+  renderAiFeed();
+}
+setInterval(pollAiFeed, 1500);
+pollAiFeed();
 
 // The Canvas client (WS + control/DOM + render loop) ALWAYS runs — it owns the game
 // lifecycle for both renderers. When ?pixi=1, render() skips 2D world drawing and the

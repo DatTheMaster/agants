@@ -272,7 +272,7 @@ TOOLS = [
                        "'buy_upgrade' (data {\"unit\":\"worker|scout|soldier\"}), "
                        "'build' (data {\"build\":{\"type\":\"larder|watchtower|guard_post|barracks|wall|bulwark\",\"x\":N,\"y\":M}}), "
                        "'convert' (data {\"convert\":{\"id\":antId,\"to\":\"soldier\"}}), "
-                       "'cancel_spawn' (data {\"unit_type\":\"worker|soldier|scout|spitter|all\"}), "
+                       "'cancel_spawn' (data {\"unit_type\":\"worker|soldier|scout|spitter|raider|all\"}), "
                        "'unit_command' (data {\"ant_id\":N,\"command\":\"move_to|attack_move|attack_xy|gather|hold|patrol|clear\",\"x\":X,\"y\":Y}). move_to is a PURE move (no attacking); attack_move advances AND fights through; attack_xy is queen-focused. "
                        "For unit_command: command is a flat key alongside ant_id, x, y — do NOT nest inside an 'override' dict. "
                        "gather (workers only): sends worker to collect food at the given food node — do NOT use on scouts or soldiers, do NOT use on dirt deposit coords.",
@@ -302,9 +302,9 @@ TOOLS = [
         "name": "get_units",
         "description": "Fetch a SLIM list of just your units of one type (id,x,y,hp,state) without the full "
                        "state dump — the cheap way to grab soldier/worker/scout/spitter IDs and positions for "
-                       "unit_command. 'type' is worker|soldier|scout|spitter|queen.",
+                       "unit_command. 'type' is worker|soldier|scout|spitter|raider|queen.",
         "parameters": {"type": "object", "properties": {
-            "type": {"type": "string", "enum": ["worker", "soldier", "scout", "spitter", "queen"]}},
+            "type": {"type": "string", "enum": ["worker", "soldier", "scout", "spitter", "raider", "queen"]}},
             "required": ["type"]}}},
     {"type": "function", "function": {
         "name": "submit_feedback",
@@ -333,14 +333,19 @@ Ridges (rock, choke through gaps) at x=48-50 and x=100-102. Midfield x=75.
 
 UNITS  worker (gather food/dirt, build), soldier (HP200 dmg22), scout (vision/intel),
  spitter (ranged anti-mass: HP70, range5, ~16dmg+~8 splash to adjacent, slow, fragile vs focused
- soldier fire — counter to massed workers/scouts), queen (HP900, never command).
+ soldier fire — counter to massed soldiers/workers; hold-and-fire, never chases. Reposition it with
+ send_command unit_command move_to/hold; it auto-fires at anything within range 5),
+ raider (RANGED SIEGE: HP65, 45 food, range7 — OUT-RANGES spitters5. Hold-and-fire, no chase. ~95 vs
+ STRUCTURES + ~16 vs spitters from safety, but only ~6 vs soldiers (armor). THE counter to a spitter+
+ bulwark turtle; hard-countered by soldiers. Auto-seeks structures; move_to/hold to aim it. RPS:
+ spitters>soldiers>raiders>turtle), queen (HP900, never command).
 SPAWN COST/TIME  worker 25food/20t, soldier 50food/35t, scout 35food/25t, spitter 45food/30t. Queue max 10. Food reserved at queue time.
 BUILDINGS (cost dirt)  larder 150 (+6food/t passive income), watchtower 80 (vision), guard_post 150 (turret),
  barracks 200, wall 25, bulwark 50 (cheap spiked barricade: HP250, blocks + chips adjacent enemies ~4/t).
 LIFESPAN  worker 500t, soldier 300t, scout 200t, spitter 300t.
 
 DIRECTIVE LEVERS (patch_directive):
- spawn.<worker|soldier|scout|spitter>.target_ratio (sum ~1.0), .min, .max
+ spawn.<worker|soldier|scout|spitter|raider>.target_ratio (sum ~1.0), .min, .max
  economy.upgrade_priority [list], economy.auto_upgrade, economy.priority_food [x,y], economy.gather_dirt true/false
  military.stance, military.rally_point [x,y], military.rally_release_at <count>,
    military.attack_target [x,y], military.auto_attack, military.retreat,
@@ -411,6 +416,7 @@ def format_state_message(state: dict, notifs: list[dict]) -> str:
         f"food={state['food']} dirt={state['dirt']} income={state['income_per_s']}/s dirt_income={state.get('dirt_per_s',0)}/s",
         f"workers={c['workers']} soldiers={c['soldiers']} scouts={c['scouts']}"
         + (f" spitters={c['spitters']}" if c.get('spitters') else "")
+        + (f" raiders={c['raiders']}" if c.get('raiders') else "")
         + f" queen_hp={state.get('queen_hp')}",
         f"tiers W{state['tiers']['worker']}/Sc{state['tiers']['scout']}/So{state['tiers']['soldier']} "
         f"aging(w/s/sc)={state['aging_soon']['workers']}/{state['aging_soon']['soldiers']}/{state['aging_soon']['scouts']}"
@@ -805,6 +811,7 @@ def render_colony(ui: UI, client: GameClient) -> Panel:
     head.append(f"food:{s['food']} dirt:{s['dirt']} income:{s['income_per_s']}/s\n")
     head.append(f"Workers:{c['workers']} Soldiers:{c['soldiers']} Scouts:{c['scouts']} "
                 + (f"Spitters:{c['spitters']} " if c.get('spitters') else "")
+                + (f"Raiders:{c['raiders']} " if c.get('raiders') else "")
                 + f"QueenHP:{s.get('queen_hp')}\n")
     head.append(f"Siege:{cb.get('soldiers_in_siege',0)} EnemyQueenHP:{cb.get('enemy_queen_hp')} "
                 f"QueenDPS:{cb.get('queen_dps_actual',0)}\n", style="dim")
