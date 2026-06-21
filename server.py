@@ -679,6 +679,43 @@ def _trim_memory(mem):
         del mem[oldest]
     return mem
 
+def _summarize_directive_patch(d):
+    """Human-readable summary of a DIRECTIVE patch (nested {military:{...},spawn:{...}}
+    OR flat auto-routed keys) for the spectator feed — used when an EXTERNAL agent
+    (controller / MCP) patches its directive, so RED/BLUE show their reasoning too."""
+    if not isinstance(d, dict):
+        return "directive patched"
+    parts = []
+    spawn = d.get("spawn") if isinstance(d.get("spawn"), dict) else {}
+    for unit in ("soldier", "spitter", "raider", "worker", "scout"):
+        u = spawn.get(unit)
+        tr = u.get("target_ratio") if isinstance(u, dict) else None
+        if isinstance(tr, (int, float)):
+            parts.append(f"{int(round(tr * 100))}% {unit}")
+    mil = d.get("military") if isinstance(d.get("military"), dict) else {}
+    def _g(k):  # nested military.* or flat auto-routed key
+        return mil.get(k, d.get(k))
+    if _g("stance"):  parts.append(str(_g("stance")))
+    at = _g("attack_target")
+    if isinstance(at, (list, tuple)) and len(at) == 2:
+        parts.append(f"attack ({int(at[0])},{int(at[1])})")
+    rp = _g("rally_point")
+    if isinstance(rp, (list, tuple)) and len(rp) == 2:
+        parts.append(f"rally ({int(rp[0])},{int(rp[1])})")
+    if _g("retreat"):         parts.append("retreat")
+    if _g("siege_priority"):  parts.append(f"siege→{_g('siege_priority')}")
+    eco = d.get("economy") if isinstance(d.get("economy"), dict) else {}
+    pf = eco.get("priority_food", d.get("priority_food"))
+    if isinstance(pf, (list, tuple)) and len(pf) == 2:
+        parts.append(f"food→({int(pf[0])},{int(pf[1])})")
+    if d.get("buy_upgrade"):  parts.append(f"upgrade {d['buy_upgrade']}")
+    if d.get("build"):
+        b = d["build"]
+        parts.append(f"build {b.get('type','?')}" if isinstance(b, dict) else "build")
+    if isinstance(d.get("triggers"), list):
+        parts.append(f"{len(d['triggers'])} triggers")
+    return " · ".join(parts) if parts else "directive patched"
+
 def _summarize_strategy(strategy):
     """Compact human-readable summary of an LLM directive patch for the spectator feed.
     e.g. {'roles': {...}, 'attack_target': [x,y]} -> 'soldiers↑ 55% · attack (14,50)'."""
@@ -3394,6 +3431,29 @@ class Server:
         else:
             d = body
         m._pending_strategies.append((cid, {"directive": d}))
+
+        # Surface the agent's decision on the spectator feed (the AI Activity panel).
+        # External agents (controller / MCP) patch their directive HERE — unlike the bot
+        # and the server-driven LLM loop, this path previously pushed nothing, so an
+        # agent-controlled colony showed no AI activity. An optional `reason`/`rationale`
+        # in the body carries the agent's own LLM thinking; otherwise we summarize the patch.
+        try:
+            c = m.world.colonies[cid]
+            agent = m.world.mcp_seats.get(cid) or "agent"
+            reason = (body.get("reason") or body.get("rationale") or "").strip()
+            summary = _summarize_directive_patch(d)
+            text = reason if reason else summary
+            if text:
+                if len(text) > 240:
+                    text = text[:237] + "…"
+                last = getattr(c, "last_decision", None)
+                # dedup: skip an identical back-to-back patch summary (agents often re-send)
+                if not (last and last.get("source") == "llm" and last.get("text") == text):
+                    c.push_decision(text, tick=m.world.tick, source="llm",
+                                    data={"agent": agent, "strategy": summary})
+        except Exception:
+            pass
+
         # Echo what the patch RESOLVES TO (flat keys auto-routed into their section) so the
         # agent can confirm it landed where intended — applied at the next tick, not now.
         import copy as _copy

@@ -221,8 +221,13 @@ class GameClient:
         except httpx.HTTPError as e:
             return {"error": f"request failed: {e}"}
 
-    async def patch_directive(self, patches: dict) -> dict:
-        return await self._tool_request("POST", self._mpath(f"/directive/{self.colony_id}"), patches)
+    async def patch_directive(self, patches: dict, reason: str = "") -> dict:
+        # Send the LLM's reasoning alongside the patch so spectators see WHY on the
+        # AI Activity feed (server reads body["reason"]; body["patches"] is the directive).
+        body = {"patches": patches}
+        if reason:
+            body["reason"] = reason[:240]
+        return await self._tool_request("POST", self._mpath(f"/directive/{self.colony_id}"), body)
 
     async def send_command(self, command_type: str, data: dict) -> dict:
         return await self._tool_request("POST", self._mpath(f"/command/{self.colony_id}"),
@@ -511,8 +516,9 @@ async def agent_loop(client: GameClient, llm: OpenAI, model: str, ui: UI, loop: 
     messages = [{"role": "system", "content": system_prompt(client.colony_id, client.match_id)}]
     last_tick = -1
     _starter_sent = False
+    _ctx = {"reason": ""}   # carries the LLM's current rationale into patch_directive
     tool_map = {
-        "patch_directive": lambda a: client.patch_directive(a.get("patches", {})),
+        "patch_directive": lambda a: client.patch_directive(a.get("patches", {}), _ctx["reason"]),
         "send_command": lambda a: client.send_command(a.get("command_type", ""), a.get("data", {})),
         "get_intel_map": lambda a: client.get_intel_map(),
         "send_chat": lambda a: client.send_chat(a.get("message", "")),
@@ -601,6 +607,9 @@ async def agent_loop(client: GameClient, llm: OpenAI, model: str, ui: UI, loop: 
         messages.append(msg.model_dump(exclude_none=True))
         if msg.content:
             ui.add_log(f"[t{tick}] {msg.content.strip()[:160]}")
+        # Make this turn's rationale available to patch_directive so it reaches the
+        # spectator AI Activity feed as the agent's "thinking".
+        _ctx["reason"] = (msg.content or "").strip()
 
         for call in (msg.tool_calls or []):
             try:
